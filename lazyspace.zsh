@@ -29,11 +29,23 @@ _lazyspace_pause() { print -n 'press any key '; read -sk1 </dev/tty; print }
 
 _lazyspace_regfile() { REPLY=${XDG_CONFIG_HOME:-$HOME/.config}/lazyspace/repos }
 
-# reply=(registered repo paths)
+# Sort reply by the key that function $1 puts in REPLY for each element
+# (case-insensitive)
+_lazyspace_sortby() {
+  local e
+  local -a keyed
+  for e in $reply; do $1 $e; keyed+=("${REPLY:l}"$'\0'"$e"); done
+  reply=(${${(o)keyed}#*$'\0'})
+}
+_lazyspace_key_name() { REPLY=${1:t} }
+_lazyspace_key_branch() { REPLY=${${1#*$'\t'}%$'\t'*} }
+
+# reply=(registered repo paths, by name)
 _lazyspace_repos() {
   _lazyspace_regfile
   reply=()
   [[ -r $REPLY ]] && reply=(${(f)"$(<$REPLY)"})
+  _lazyspace_sortby _lazyspace_key_name
 }
 
 # REPLY=main worktree of the repo containing $1 (default $PWD)
@@ -67,8 +79,13 @@ _lazyspace_head() {
   [[ $h == 'ref: refs/heads/'* ]] && REPLY=${h#ref: refs/heads/} || REPLY='(detached)'
 }
 
-# reply=("path<TAB>branch<TAB>ismain" ...) for repo $1
+# reply=("path<TAB>branch<TAB>ismain" ...) for repo $1, by branch
 _lazyspace_worktrees() {
+  _lazyspace_worktrees_raw $1
+  _lazyspace_sortby _lazyspace_key_branch
+}
+
+_lazyspace_worktrees_raw() {
   local g=$1/.git d wt line br m skip i=0
   reply=()
   if [[ -d $g ]]; then
@@ -362,8 +379,13 @@ _lazyspace_pick() {
 # window an attached client is looking at
 _lazyspace_winrows() {
   local line ws=0 wn=0 wc=0 i
-  local -a f S N C P M
+  local -a f S N C P M keyed
+  # by session name, then window number
   for line in ${(f)"$(_lazyspace_tmux list-windows -a -F $'#{session_name}\t#{window_index}:#{window_name}\t#{pane_current_command}\t#{pane_current_path}\t#{?#{&&:#{window_active},#{session_attached}},●,}' 2>/dev/null)"}; do
+    f=("${(@ps:\t:)line}")
+    keyed+=("${f[1]:l}"$'\0'"${(l:6::0:)${f[2]%%:*}}"$'\0'"$line")
+  done
+  for line in ${${(o)keyed}#*$'\0'*$'\0'}; do
     f=("${(@ps:\t:)line}")
     S+=($f[1]); N+=($f[2]); C+=($f[3]); P+=(${f[4]/#$HOME/\~}); M+=("$f[5]")
     (( $#f[1] > ws )) && ws=$#f[1]
@@ -576,6 +598,8 @@ _lazyspace_ui() {
   zparseopts -D -E w=o_w
   local bin=${(q)LAZYSPACE_DIR}/bin/lazyspace k q=$1 out view=${o_w:+windows}
   local -a binds lines start
+  # start on the Windows view when tmux has any (unless given a query)
+  [[ -z $view && -z $q && -n $(_lazyspace_tmux list-windows -a -F x 2>/dev/null) ]] && view=windows
   # Query changes emitted by a transform are ignored by fzf, so the
   # view-switching keys reset the input with directly chained actions.
   local reset="+clear-query+hide-input+rebind($_LAZYSPACE_LETTERS)"

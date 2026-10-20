@@ -52,6 +52,9 @@ You can name a worktree by its path, its branch (`feat/x`), its session name (`a
 | `/` · `esc` | fuzzy filter · leave filter                                        |                            |                    |
 | `R` · `q`   | reload · quit                                                      |                            |                    |
 
+`lazyspace` opens on the Windows view when tmux has any windows open, and on Worktrees otherwise. All lists are
+sorted alphabetically.
+
 The Windows view lists every tmux window in every session, with its command and directory, and previews what's on its
 screen. `●` marks the window an attached client is showing.
 

@@ -48,7 +48,7 @@ check 'new runs setup' waitfor $p/.setup-ran
 check 'new refuses existing' eval '! lazyspace new feat/x --no-open 2>/dev/null'
 
 # 3. ls / status
-check 'ls shows row' eval 'lazyspace ls | grep -q "feat/x"'
+check 'ls shows row' eval 'lazyspace ls | grep "feat/x" >/dev/null'
 check 'ls clean has no *' eval '! lazyspace ls | grep "feat/x" | grep -q "\*"'
 print change >> $p/.lazyspace
 check 'ls dirty shows *' eval 'lazyspace ls | grep "feat/x" | grep -q "\*"'
@@ -95,6 +95,13 @@ rm $cfg
 # 5. TUI rows / keys (no terminal needed)
 check 'rows include worktree' eval '_lazyspace_rows | grep -q "^w	$p	"'
 check 'live marker only on worktree with session' eval '_lazyspace_rows -p | grep "^w	$repo	" | grep -vq "●" && _lazyspace_rows -p | grep "^w	$p	" | grep -q "●"'
+check 'worktrees sorted by branch' test "$(_lazyspace_rows -p | cut -f2 | tr '\n' ' ')" = "$p $repo "
+_lazyspace_tmux new-session -d -s Zeta; _lazyspace_tmux new-session -d -s alpha
+_lazyspace_tmux new-window -d -t '=alpha:10'; _lazyspace_tmux new-window -d -t '=alpha:9'
+sessions=$(_lazyspace_winrows | cut -f2 | sed 's/^=//; s/:[0-9]*$//' | uniq)
+check 'windows sorted by session' test "$sessions" = "$(print -r -- $sessions | sort -f)"
+check 'windows sorted by number' test "$(_lazyspace_winrows | cut -f2 | grep '^=alpha:' | tr '\n' ' ')" = '=alpha:0 =alpha:9 =alpha:10 '
+_lazyspace_tmux kill-session -t '=Zeta'; _lazyspace_tmux kill-session -t '=alpha'
 check 'reporows include repo' eval '_lazyspace_reporows | grep -q "^r	$repo	"'
 check 'key enter opens' eval 'FZF_KEY=enter FZF_LIST_LABEL=" Worktrees " _lazyspace_key w $p | grep -q "^become(printf .* open $p)$"'
 check 'key enter on repo filters' eval 'FZF_KEY=enter FZF_LIST_LABEL=" Repos " _lazyspace_key r $repo | grep -q "Worktrees: app"'
@@ -118,7 +125,11 @@ _lazyspace_tmux kill-session -t '=attach' 2>/dev/null
 
 # outside tmux, the TUI comes back once the attached session ends
 _lazyspace_tmux new-session -d -s tui -x 100 -y 20 "env -u TMUX $ROOT/bin/lazyspace; sleep 5"
+check 'tui starts on windows when tmux has some' waitpane tui ' Windows '
+_lazyspace_tmux send-keys -t '=tui:' Tab
 waitpane tui 'feat/x'; sleep 0.3
+# sorted: feat/x first, then main
+_lazyspace_tmux send-keys -t '=tui:' j; sleep 0.3
 _lazyspace_tmux send-keys -t '=tui:' Enter
 sleep 1
 check 'tui enter attaches' eval '_lazyspace_tmux list-clients -F "#S" | grep -qx app'
