@@ -1,11 +1,11 @@
-# wterm
+# lazyspace
 
 A tiny, shell-only take on [Supacode](https://supacode.sh): git worktrees, each with its own
 tmux session, driven from a lazygit-style TUI. It's pure zsh plus `git`, `tmux` and a recent `fzf` (tested with 0.74).
 
 ```
 ╭──────────── Worktrees ────────────╮╭─────────────── Details ───────────────╮
-│ ▌ app  main        ●              ││ app/feat-login  ~/.wterm/worktrees/…  │
+│ ▌ app  main        ●              ││ app/feat-login  ~/.lazyspace/workt…  │
 │   app  feat/login  ● * ↑2         ││ ● session  0:zsh  1:run               │
 │   api  main                       ││ ## feat/login...origin/feat/login     │
 ╰───────────────────────────────────╯│  M src/auth.ts                        │
@@ -21,34 +21,36 @@ tmux session, driven from a lazygit-style TUI. It's pure zsh plus `git`, `tmux` 
 
 ```zsh
 # ~/.zshrc
-source ~/Projects/nu.nl/wterm/wterm.zsh
+source /path/to/lazyspace/lazyspace.zsh
 ```
+
+For a shorter command, add `alias lzs=lazyspace`.
 
 You can also bind a switcher popup in `~/.tmux.conf`:
 
 ```tmux
-bind w display-popup -E -w 80% -h 60% "~/Projects/nu.nl/wterm/bin/wterm"
+bind w display-popup -E -w 80% -h 60% "/path/to/lazyspace/bin/lazyspace"
 ```
 
 ## Use
 
 ```
-wterm                      TUI
-wterm add [path]           register a repo
-wterm forget [repo]        unregister a repo (files are kept)
-wterm repos                list registered repos
-wterm ls                   list worktrees with status
-wterm new <branch> [-r repo] [-b base] [--no-open]
-wterm open [worktree]      attach (outside tmux) or switch-client (inside tmux)
-wterm rm [worktree] [-f] [-D]
-wterm run [worktree]       (re)start the run= command in tmux window "run"
+lazyspace                      TUI
+lazyspace add [path]           register a repo
+lazyspace forget [repo]        unregister a repo (files are kept)
+lazyspace repos                list registered repos
+lazyspace ls                   list worktrees with status
+lazyspace new <branch> [-r repo] [-b base] [--no-open]
+lazyspace open [worktree]      attach (outside tmux) or switch-client (inside tmux)
+lazyspace rm [worktree] [-f] [-D]
+lazyspace run [worktree]       (re)start the run= command in tmux window "run"
 ```
 
 You can name a worktree by its path, its branch (`feat/x`), its session name (`app/feat-x`) or its directory name.
 
 `new` reuses an existing local branch first, then tries `origin/<branch>`, and otherwise creates the branch from
-`-b base` (default `origin/HEAD`, then `HEAD`). New worktrees go to `$WTERM_WORKTREES/<repo>/<branch-slug>`
-(default `~/.wterm/worktrees`).
+`-b base` (default `origin/HEAD`, then `HEAD`). New worktrees go to `$LAZYSPACE_WORKTREES/<repo>/<branch-slug>`
+(default `~/.lazyspace/worktrees`).
 
 ### TUI keys
 
@@ -63,7 +65,7 @@ You can name a worktree by its path, its branch (`feat/x`), its session name (`a
 | `/` · `esc` | fuzzy filter · leave filter | |
 | `R` · `q` | reload · quit | |
 
-## `.wterm`
+## `.lazyspace`
 
 This is an optional file in the repo root, made of `key=value` lines. It is read as data and never sourced. The new worktree's
 copy takes precedence over the main one's.
@@ -75,14 +77,14 @@ copy=.env .env.local
 ```
 
 - `setup`: typed into the first window of a newly created worktree's session.
-- `run`: what `wterm run` / `r` starts in the `run` window. Running it again restarts it.
+- `run`: what `lazyspace run` / `r` starts in the `run` window. Running it again restarts it.
 - `copy`: untracked files copied from the main worktree into new ones.
 
 ## State
 
-- Registry: `~/.config/wterm/repos`, one path per line.
+- Registry: `~/.config/lazyspace/repos`, one path per line.
 - Session names: `<repo>` for the main worktree and `<repo>/<worktree-dir>` for the others.
-- `WTERM_TMUX` overrides the tmux command (e.g. `tmux -L other`).
+- `LAZYSPACE_TMUX` overrides the tmux command (e.g. `tmux -L other`).
 
 ## Test
 

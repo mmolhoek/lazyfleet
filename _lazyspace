@@ -1,4 +1,4 @@
-#compdef wterm
+#compdef lazyspace
 
 local -a cmds=(
   'add:register a repo'
@@ -8,7 +8,7 @@ local -a cmds=(
   'new:create a worktree and open it'
   'open:open a worktree session'
   'rm:remove a worktree'
-  'run:(re)start the .wterm run command'
+  'run:(re)start the .lazyspace run command'
   'help:show help'
 )
 if (( CURRENT == 2 )); then
@@ -16,8 +16,8 @@ if (( CURRENT == 2 )); then
   return
 fi
 case $words[2] in
-  (open|rm|run) compadd -- ${(f)"$(wterm _names)"} ;;
-  (forget) compadd -- ${${(f)"$(wterm repos)"}:t} ;;
+  (open|rm|run) compadd -- ${(f)"$(lazyspace _names)"} ;;
+  (forget) compadd -- ${${(f)"$(lazyspace repos)"}:t} ;;
   (add) _directories ;;
-  (new) _arguments '-r[repo]:repo:(${${(f)"$(wterm repos)"}:t})' '-b[base ref]:ref:' '--no-open[do not open the session]' '1:branch:' ;;
+  (new) _arguments '-r[repo]:repo:(${${(f)"$(lazyspace repos)"}:t})' '-b[base ref]:ref:' '--no-open[do not open the session]' '1:branch:' ;;
 esac
