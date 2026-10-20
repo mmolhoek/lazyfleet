@@ -1,25 +1,12 @@
 # lazyspace
 
-A tiny, shell-only take on [Supacode](https://supacode.sh): git worktrees, each with its own
-tmux session, driven from a lazygit-style TUI. It's pure zsh plus `git`, `tmux` and a recent `fzf` (tested with 0.74).
-
-```
-╭──────────── Worktrees ────────────╮╭─────────────── Details ───────────────╮
-│ ▌ app  main        ●              ││ app/feat-login  ~/.lazyspace/workt…  │
-│   app  feat/login  ● * ↑2         ││ ● session  0:zsh  1:run               │
-│   api  main                       ││ ## feat/login...origin/feat/login     │
-╰───────────────────────────────────╯│  M src/auth.ts                        │
-╭───────────────────────────────────╮│                                       │
-│ ↵ open  n new  a add  d del  r run││ a1b2c3d add login form                │
-│ ⇥ repos  / find  R reload   q quit││ d4e5f6a wip                           │
-╰───────────────────────────────────╯╰───────────────────────────────────────╯
-```
+A tiny, shell-only take on [Supacode](https://supacode.sh): git worktrees, each with its own tmux session, driven from a lazygit-style TUI. It's pure zsh plus `git`, `tmux` and a recent `fzf` (tested with 0.74).
 
 `●` means the worktree has a live tmux session, `*` means it has uncommitted changes, and `↑n ↓m` shows ahead/behind upstream.
 
 ## Install
 
-```zsh
+```sh
 # ~/.zshrc
 source /path/to/lazyspace/lazyspace.zsh
 ```
@@ -28,14 +15,14 @@ For a shorter command, add `alias lzs=lazyspace`.
 
 You can also bind a switcher popup in `~/.tmux.conf`:
 
-```tmux
+```sh
 bind w display-popup -E -w 80% -h 60% "/path/to/lazyspace/bin/lazyspace"
 bind W display-popup -E -w 80% -h 60% "/path/to/lazyspace/bin/lazyspace windows"
 ```
 
 ## Use
 
-```
+```sh
 lazyspace                      TUI
 lazyspace add [path]           register a repo
 lazyspace forget [repo]        unregister a repo (files are kept)
@@ -50,22 +37,20 @@ lazyspace windows              TUI on all tmux windows; enter switches to one
 
 You can name a worktree by its path, its branch (`feat/x`), its session name (`app/feat-x`) or its directory name.
 
-`new` reuses an existing local branch first, then tries `origin/<branch>`, and otherwise creates the branch from
-`-b base` (default `origin/HEAD`, then `HEAD`). New worktrees go to `<worktrees>/<repo>/<branch-slug>`
-(default `~/.lazyspace/worktrees`; see [Settings](#settings)).
+`new` reuses an existing local branch first, then tries `origin/<branch>`, and otherwise creates the branch from `-b base` (default `origin/HEAD`, then `HEAD`). New worktrees go to `<worktrees>/<repo>/<branch-slug>` (default `~/.lazyspace/worktrees`; see [Settings](#settings)).
 
 ### TUI keys
 
-| key | Worktrees view | Repos view | Windows view |
-|---|---|---|---|
-| `enter` | open session | show this repo's worktrees | switch to window |
-| `n` | new worktree in this row's repo: pick a branch, or type a new name | new worktree | |
-| `d` | remove worktree (asks; optionally deletes the branch) | forget repo | kill window (asks) |
-| `r` | (re)start `run=` in window "run" | | |
-| `a` | add repo: pick one found under your project dirs, or type a path | add repo | add repo |
-| `tab` · `w` | next view · Windows view | | |
-| `/` · `esc` | fuzzy filter · leave filter | | |
-| `R` · `q` | reload · quit | | |
+| key         | Worktrees view                                                     | Repos view                 | Windows view       |
+| ----------- | ------------------------------------------------------------------ | -------------------------- | ------------------ |
+| `enter`     | open session                                                       | show this repo's worktrees | switch to window   |
+| `n`         | new worktree in this row's repo: pick a branch, or type a new name | new worktree               |                    |
+| `d`         | remove worktree (asks; optionally deletes the branch)              | forget repo                | kill window (asks) |
+| `r`         | (re)start `run=` in window "run"                                   |                            |                    |
+| `a`         | add repo: pick one found under your project dirs, or type a path   | add repo                   | add repo           |
+| `tab` · `w` | next view · Windows view                                           |                            |                    |
+| `/` · `esc` | fuzzy filter · leave filter                                        |                            |                    |
+| `R` · `q`   | reload · quit                                                      |                            |                    |
 
 The Windows view lists every tmux window in every session, with its command and directory, and previews what's on its
 screen. `●` marks the window an attached client is showing.
@@ -124,11 +109,11 @@ setup=go mod download
 Global settings go at the top of `~/.config/lazyspace/config`, before any section. An env var with the same
 meaning wins when it's set.
 
-| setting | env var | default |
-|---|---|---|
-| `search`: where `a` looks for repos (space-separated dirs) | `LAZYSPACE_SEARCH` | whichever of `~/Projects`, `~/code`, `~/src`, `~/dev`, `~/work`, `~/git`, `~/repos`, `~/workspace` exist, else `~` |
-| `search_depth`: how deep `a` looks | `LAZYSPACE_SEARCH_DEPTH` | `4` |
-| `worktrees`: where new worktrees go | `LAZYSPACE_WORKTREES` | `~/.lazyspace/worktrees` |
+| setting                                                    | env var                  | default                                                                                                            |
+| ---------------------------------------------------------- | ------------------------ | ------------------------------------------------------------------------------------------------------------------ |
+| `search`: where `a` looks for repos (space-separated dirs) | `LAZYSPACE_SEARCH`       | whichever of `~/Projects`, `~/code`, `~/src`, `~/dev`, `~/work`, `~/git`, `~/repos`, `~/workspace` exist, else `~` |
+| `search_depth`: how deep `a` looks                         | `LAZYSPACE_SEARCH_DEPTH` | `4`                                                                                                                |
+| `worktrees`: where new worktrees go                        | `LAZYSPACE_WORKTREES`    | `~/.lazyspace/worktrees`                                                                                           |
 
 ```
 search=~/Projects ~/work
