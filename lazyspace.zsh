@@ -2,10 +2,12 @@
 # Source this file from .zshrc, then run `lazyspace` (TUI) or `lazyspace help`.
 
 typeset -g LAZYSPACE_DIR=${${(%):-%x}:A:h}
-typeset -g _LAZYSPACE_LETTERS='j,k,n,d,r,a,R,q'
+typeset -g _LAZYSPACE_LETTERS='j,k,n,d,r,a,w,R,q'
 typeset -g _LAZYSPACE_FOOTER_WT=$'↵ open  n new  a add  d del  r run
-⇥ repos  / find  R reload   q quit'
+⇥ repos  w windows  / find  q quit'
 typeset -g _LAZYSPACE_FOOTER_REPO=$'↵ worktrees   n new   a add   d forget
+⇥ windows   / find  R reload  q quit'
+typeset -g _LAZYSPACE_FOOTER_WIN=$'↵ switch   d kill
 ⇥ worktrees   / find  R reload  q quit'
 
 # --- plumbing ---------------------------------------------------------------
@@ -99,27 +101,29 @@ _lazyspace_session() {
   REPLY=${REPLY//[.:]/-}
 }
 
-# REPLY=value of key $2 in file $1. Indented lines after key= continue the
-# value (minus the first one's indent). With repo $3, only [sections] naming
-# that repo (by name or path) count.
+# REPLY=value of key $2 in file $1. Lines indented deeper than the key= line
+# continue the value (minus the first one's indent). With repo $3, only
+# [sections] naming that repo (by name or path) count; with -, only lines
+# before any section.
 _lazyspace_conf_read() {
-  local key=$2 repo=$3 line sect ind on=1 hit=
+  local key=$2 repo=$3 line lead text sect ind on=1 hit= kind
   local -a val
-  [[ -n $repo ]] && on=
+  [[ -n $repo && $repo != - ]] && on=
   for line in "${(@f)$(<$1)}"; do
+    lead=${line%%[^[:space:]]*}; text=${line#$lead}
     if [[ -n $hit ]]; then
-      if [[ -z $line || $line == [[:space:]]* ]]; then
-        [[ -z $ind && $line == *[^[:space:]]* ]] && ind=${line%%[^[:space:]]*}
+      if [[ -z $text ]] || (( $#lead > kind )); then
+        [[ -z $ind && -n $text ]] && ind=$lead
         val+=("${line#$ind}")
         continue
       fi
       break
     fi
-    if [[ -n $repo && $line == '['*']' ]]; then
-      sect=${${line#\[}%\]}; sect=${sect/#\~/$HOME}
+    if [[ -n $repo && $text == '['*']' ]]; then
+      sect=${${${text#\[}%\]}%/}; sect=${sect/#\~/$HOME}
       [[ $sect == ${repo:t} || ( $sect == */* && ${sect:A} == ${repo:A} ) ]] && on=1 || on=
-    elif [[ -n $on && $line == $key=* ]]; then
-      hit=1; val=("${line#$key=}")
+    elif [[ -n $on && $text == $key=* ]]; then
+      hit=1; kind=$#lead; val=("${text#$key=}")
     fi
   done
   [[ -n $hit ]] || return 1
@@ -140,6 +144,16 @@ _lazyspace_conf() {
   done
   REPLY=
   return 1
+}
+
+# REPLY=global setting $1: $2 (an env var) if set, else the top of
+# ~/.config/lazyspace/config (before any [section]), else default $3
+_lazyspace_setting() {
+  local f
+  [[ -n ${(P)2} ]] && { REPLY=${(P)2}; return }
+  _lazyspace_regfile; f=${REPLY:h}/config
+  [[ -r $f ]] && _lazyspace_conf_read $f $1 - && [[ -n $REPLY ]] && return
+  REPLY=$3
 }
 
 # Type command $2 into tmux target $1 and press Enter. Multi-line commands are
@@ -190,17 +204,28 @@ _lazyspace_ensure() {
 
 _lazyspace_open_path() {
   _lazyspace_ensure $1 || return
+  _lazyspace_attach "=$REPLY"
+}
+
+# Show window $1 ("=session:index"): select it, then attach/switch
+_lazyspace_open_window() {
+  _lazyspace_tmux select-window -t "$1" || return
+  _lazyspace_attach "${1%:*}"
+}
+
+# Switch to session $1 (inside tmux) or attach to it (outside)
+_lazyspace_attach() {
   if [[ -n $TMUX ]]; then
-    _lazyspace_tmux switch-client -t "=$REPLY"
+    _lazyspace_tmux switch-client -t "$1"
   else
     # tmux refuses a stdin named /dev/tty (as under fzf's become), so attach
     # through the real controlling terminal device, opened read-write: the
     # server draws through the client's stdin, a read-only fd stays blank
     local t=${$(ps -o tty= -p $$ 2>/dev/null)// /}
     if [[ -c /dev/$t ]]; then
-      _lazyspace_tmux attach-session -t "=$REPLY" <>/dev/$t
+      _lazyspace_tmux attach-session -t "$1" <>/dev/$t
     else
-      _lazyspace_tmux attach-session -t "=$REPLY"
+      _lazyspace_tmux attach-session -t "$1"
     fi
   fi
 }
@@ -273,6 +298,84 @@ _lazyspace_reporows() {
   done
 }
 
+# Branches of repo $1 that could get a new worktree, most recent first:
+# local and origin/* (deduped), minus the ones already checked out
+_lazyspace_branches() {
+  local ref e
+  local -A skip
+  _lazyspace_worktrees $1
+  for e in $reply; do skip[${${e#*$'\t'}%$'\t'*}]=1; done
+  for ref in ${(f)"$(git -C $1 for-each-ref --sort=-committerdate --format='%(refname)' refs/heads refs/remotes/origin)"}; do
+    ref=${${ref#refs/heads/}#refs/remotes/origin/}
+    [[ $ref == HEAD || -n $skip[$ref] ]] && continue
+    skip[$ref]=1
+    print -r -- $ref
+  done
+}
+
+# Unregistered git repos (~-abbreviated) under the search= setting, else the
+# usual project dirs in $HOME; the repo containing $PWD comes first
+_lazyspace_findrepos() {
+  local d depth
+  local -a roots
+  local -A skip
+  _lazyspace_repos
+  for d in $reply; do skip[$d]=1; done
+  if _lazyspace_toplevel && [[ -z $skip[$REPLY] ]]; then
+    skip[$REPLY]=1; print -r -- ${REPLY/#$HOME/\~}
+  fi
+  _lazyspace_setting search_depth LAZYSPACE_SEARCH_DEPTH 4; depth=$REPLY
+  _lazyspace_setting search LAZYSPACE_SEARCH
+  if [[ -n $REPLY ]]; then
+    roots=(${~=REPLY}(N/))
+  else
+    roots=($HOME/{Projects,projects,code,src,dev,work,git,repos,workspace}(N/))
+    (( $#roots )) || roots=($HOME)
+  fi
+  (( $#roots )) || return 0
+  command find -L $roots -maxdepth $depth \
+    \( -name .git -type d -print -prune \) -o \
+    \( \( -name '.?*' -o -name node_modules -o -name vendor -o -name Library \) -prune \) 2>/dev/null |
+    while read -r d; do
+      d=${d%/.git}
+      [[ -n $skip[$d] ]] && continue
+      print -r -- ${d/#$HOME/\~}
+    done
+}
+
+# Fuzzy-pick a line from stdin. REPLY=the pick, or the typed query when
+# nothing matches or with ctrl-n. Args: label, prompt.
+_lazyspace_pick() {
+  local out
+  local -a lines
+  out=$(fzf --layout reverse --style full --print-query --no-sort \
+    --border-label " $1 " --prompt "$2" \
+    --header 'enter pick (or the typed name if nothing matches)   ctrl-n use typed name   esc cancel' \
+    --bind 'ctrl-n:print-query')
+  (( $? == 130 || $? == 2 )) && return 1
+  lines=("${(@f)out}")
+  REPLY=${lines[2]:-$lines[1]}
+  [[ -n $REPLY ]]
+}
+
+# One row per tmux window: "t<TAB>=session:index<TAB>display"; ● marks the
+# window an attached client is looking at
+_lazyspace_winrows() {
+  local line ws=0 wn=0 wc=0 i
+  local -a f S N C P M
+  for line in ${(f)"$(_lazyspace_tmux list-windows -a -F $'#{session_name}\t#{window_index}:#{window_name}\t#{pane_current_command}\t#{pane_current_path}\t#{?#{&&:#{window_active},#{session_attached}},●,}' 2>/dev/null)"}; do
+    f=("${(@ps:\t:)line}")
+    S+=($f[1]); N+=($f[2]); C+=($f[3]); P+=(${f[4]/#$HOME/\~}); M+=("$f[5]")
+    (( $#f[1] > ws )) && ws=$#f[1]
+    (( $#f[2] > wn )) && wn=$#f[2]
+    (( $#f[3] > wc )) && wc=$#f[3]
+  done
+  for i in {1..$#S}; do
+    printf 't\t=%s:%s\t\e[34m%-*s\e[0m  %-*s  \e[33m%-*s\e[0m  %s \e[32m%s\e[0m\n' \
+      $S[i] ${N[i]%%:*} $ws $S[i] $wn $N[i] $wc $C[i] $P[i] "$M[i]"
+  done
+}
+
 _lazyspace_names() {
   local repo e
   local -a repos
@@ -288,7 +391,21 @@ _lazyspace_names() {
 
 _lazyspace_preview() {
   local kind=$1 p=$2 e
-  [[ -n $p ]] || { print 'No repos yet — press a to add one.'; return }
+  if [[ -z $p ]]; then
+    [[ $FZF_LIST_LABEL == *Windows* ]] && print 'No tmux windows.' || print 'No repos yet — press a to add one.'
+    return
+  fi
+  if [[ $kind == t ]]; then
+    local -a out
+    print -r -- $'\e[1m'${p#=}$'\e[0m  '"$(_lazyspace_tmux display-message -p -t $p '#{pane_current_command}  #{pane_current_path}')"
+    print
+    # the pane's last screenful, without its trailing blank lines
+    out=("${(@f)$(_lazyspace_tmux capture-pane -ep -t $p)}")
+    local n=$(( ${FZF_PREVIEW_LINES:-40} - 2 ))
+    (( $#out > n )) && out=(${out[-n,-1]})
+    print -rl -- "${out[@]}"
+    return
+  fi
   if [[ $kind == r ]]; then
     print -r -- $'\e[1m'${p:t}$'\e[0m  '${p/#$HOME/\~}
     print
@@ -356,7 +473,8 @@ _lazyspace_new() {
   fi
   repo=$REPLY
   _lazyspace_add $repo >/dev/null
-  p=${LAZYSPACE_WORKTREES:-$HOME/.lazyspace/worktrees}/${repo:t}/${br//\//-}
+  _lazyspace_setting worktrees LAZYSPACE_WORKTREES ~/.lazyspace/worktrees
+  p=${~REPLY}/${repo:t}/${br//\//-}
   [[ -e $p ]] && { _lazyspace_err "already exists: $p"; return 1 }
   if git -C $repo show-ref -q --verify refs/heads/$br; then
     git -C $repo worktree add -q $p $br
@@ -452,28 +570,38 @@ _lazyspace_run() {
 
 # fzf exits with an action ("open"/"new" + path); outside tmux we come back
 # here when the attached session ends or is detached
+# _lazyspace_ui [-w (start in the Windows view)] [query]
 _lazyspace_ui() {
-  local bin=${(q)LAZYSPACE_DIR}/bin/lazyspace k q=$1 out
-  local -a binds lines
+  local -a o_w
+  zparseopts -D -E w=o_w
+  local bin=${(q)LAZYSPACE_DIR}/bin/lazyspace k q=$1 out view=${o_w:+windows}
+  local -a binds lines start
   # Query changes emitted by a transform are ignored by fzf, so the
   # view-switching keys reset the input with directly chained actions.
   local reset="+clear-query+hide-input+rebind($_LAZYSPACE_LETTERS)"
   for k in / n d r a R q; do binds+=(--bind "${k}:transform:$bin _key {1} {2}"); done
-  for k in enter tab esc; do binds+=(--bind "${k}:transform($bin _key {1} {2})$reset"); done
+  for k in enter tab esc w; do binds+=(--bind "${k}:transform($bin _key {1} {2})$reset"); done
   while :; do
-    out=$(_lazyspace_rows | fzf --ansi --style full --layout reverse --no-input --no-sort \
+    if [[ $view == windows ]]; then
+      start=(--list-label ' Windows ' --footer "$_LAZYSPACE_FOOTER_WIN")
+    else
+      start=(--list-label ' Worktrees ' --footer "$_LAZYSPACE_FOOTER_WT" --bind "start:reload($bin _rows -s)")
+    fi
+    [[ -n $q ]] && start+=(--bind "start:show-input+unbind($_LAZYSPACE_LETTERS)")
+    out=$({ if [[ $view == windows ]]; then _lazyspace_winrows; else _lazyspace_rows; fi } |
+      fzf --ansi --style full --layout reverse --no-input --no-sort \
       --delimiter '\t' --with-nth 3 --query "$q" \
-      --border-label ' lazyspace ' --list-label ' Worktrees ' --preview-label ' Details ' \
+      --border-label ' lazyspace ' --preview-label ' Details ' \
       --preview "$bin _preview {1} {2}" --preview-window 'right,55%' \
-      --footer "$_LAZYSPACE_FOOTER_WT" --pointer '▌' --gutter ' ' --info inline-right \
-      --bind "start:reload($bin _rows -s)${q:++show-input+unbind($_LAZYSPACE_LETTERS)}" \
-      --bind 'j:down,k:up' $binds) || return 0
+      --pointer '▌' --gutter ' ' --info inline-right \
+      --bind 'j:down,k:up' $start $binds) || return 0
     q=
     lines=(${(f)out})
     case $lines[1] in
-      (open) _lazyspace_open_path $lines[2] || _lazyspace_pause ;;
-      (new) _lazyspace_ui_new $lines[2] || continue
+      (open) view=; _lazyspace_open_path $lines[2] || _lazyspace_pause ;;
+      (new) view=; _lazyspace_ui_new $lines[2] || continue
             _lazyspace_open_path $REPLY ;;
+      (window) view=windows; _lazyspace_open_window $lines[2] || _lazyspace_pause ;;
       (*) return 0 ;;
     esac
     [[ -n $TMUX ]] && return 0
@@ -484,8 +612,10 @@ _lazyspace_ui() {
 _lazyspace_key() {
   local bin=${(q)LAZYSPACE_DIR}/bin/lazyspace kind=$1 p=$2 qp=${(q)2}
   local lbl=${${FZF_LIST_LABEL# }% } rl foot=$_LAZYSPACE_FOOTER_WT out
+  local win="change-list-label( Windows )+change-footer($_LAZYSPACE_FOOTER_WIN)+reload($bin _winrows)+first"
   case $lbl in
     (Repos) rl="reload($bin _reporows)"; foot=$_LAZYSPACE_FOOTER_REPO ;;
+    (Windows) rl="reload($bin _winrows)"; foot=$_LAZYSPACE_FOOTER_WIN ;;
     ('Worktrees: '*) rl="reload($bin _rows -s ${(q)lbl#Worktrees: })" ;;
     (*) rl="reload($bin _rows -s)" ;;
   esac
@@ -496,27 +626,33 @@ _lazyspace_key() {
     (q) print abort ;;
     (R) print -r -- "$rl+change-footer($foot)" ;;
     (tab)
-      if [[ $lbl == Repos ]]; then
-        print -r -- "change-list-label( Worktrees )+change-footer($_LAZYSPACE_FOOTER_WT)+reload($bin _rows -s)+first"
-      else
-        print -r -- "change-list-label( Repos )+change-footer($_LAZYSPACE_FOOTER_REPO)+reload($bin _reporows)+first"
-      fi ;;
+      case $lbl in
+        (Repos) print -r -- $win ;;
+        (Windows) print -r -- "change-list-label( Worktrees )+change-footer($_LAZYSPACE_FOOTER_WT)+reload($bin _rows -s)+first" ;;
+        (*) print -r -- "change-list-label( Repos )+change-footer($_LAZYSPACE_FOOTER_REPO)+reload($bin _reporows)+first" ;;
+      esac ;;
+    (w) print -r -- $win ;;
     (enter)
       [[ -n $p ]] || return 0
       if [[ $kind == r ]]; then
         print -r -- "change-list-label( Worktrees: ${p:t} )+change-footer($_LAZYSPACE_FOOTER_WT)+reload($bin _rows -s ${(q)p:t})+first"
+      elif [[ $kind == t ]]; then
+        print -r -- "become(printf '%s\\n' window $qp)"
       else
         print -r -- "become(printf '%s\\n' open $qp)"
       fi ;;
-    (n) print -r -- "become(printf '%s\\n' new $qp)" ;;
+    (n) [[ $kind == t ]] || print -r -- "become(printf '%s\\n' new $qp)" ;;
     (a)
       # a filtered list would hide the new repo
       if [[ $lbl == Repos ]]; then print -r -- "execute($bin _ui_add)+$rl"
       else print -r -- "execute($bin _ui_add)+change-list-label( Worktrees )+reload($bin _rows -s)"; fi ;;
     (d)
       [[ -n $p ]] || return 0
-      if [[ $kind == r ]]; then print -r -- "execute($bin _ui_forget $qp)+$rl"
-      else print -r -- "execute($bin _ui_rm $qp)+$rl"; fi ;;
+      case $kind in
+        (r) print -r -- "execute($bin _ui_forget $qp)+$rl" ;;
+        (t) print -r -- "execute($bin _ui_killwin $qp)+$rl" ;;
+        (*) print -r -- "execute($bin _ui_rm $qp)+$rl" ;;
+      esac ;;
     (r)
       [[ $kind == w ]] || return 0
       if out=$(_lazyspace_run $p 2>&1); then print -r -- "$rl+change-footer($foot)"
@@ -531,18 +667,20 @@ _lazyspace_ui_new() {
     print 'Add a repo first (a).'; _lazyspace_pause; return 1
   fi
   repo=$REPLY
-  print -n "New worktree in ${repo:t}, branch: "
-  read -r br </dev/tty
-  [[ -n $br ]] || return 1
+  _lazyspace_branches $repo | _lazyspace_pick "New worktree in ${repo:t}" 'branch> ' || return 1
+  br=$REPLY
   REPLY=$(_lazyspace_new --no-open -r $repo $br) || { _lazyspace_pause; return 1 }
 }
 
 _lazyspace_ui_add() {
-  local p
-  print -n "Add repo [$PWD]: "
-  read -r p </dev/tty
-  p=${p/#\~/$HOME}
-  _lazyspace_add ${p:-$PWD} >/dev/null || _lazyspace_pause
+  _lazyspace_findrepos | _lazyspace_pick 'Add repo' 'repo> ' || return 0
+  _lazyspace_add ${REPLY/#\~/$HOME} >/dev/null || _lazyspace_pause
+}
+
+_lazyspace_ui_killwin() {
+  print -rn -- "Kill window ${1#=}? [y/N] "
+  read -q </dev/tty && _lazyspace_tmux kill-window -t "$1"
+  print
 }
 
 _lazyspace_ui_forget() {
@@ -552,7 +690,14 @@ _lazyspace_ui_forget() {
 }
 
 _lazyspace_ui_rm() {
-  local br
+  local br repo
+  if _lazyspace_toplevel $1 && [[ ${1:A} == ${REPLY:A} ]]; then
+    repo=$REPLY
+    print -rn -- "${1/#$HOME/\~} is the repo itself, not a removable worktree. Forget ${repo:t} instead? (files are kept) [y/N] "
+    read -q </dev/tty && _lazyspace_forget $repo
+    print
+    return
+  fi
   br=$(git -C $1 branch --show-current 2>/dev/null)
   print -rn -- "Remove worktree ${1/#$HOME/\~}? [y/N] "
   read -q </dev/tty || { print; return }
@@ -581,10 +726,12 @@ lazyspace — git worktrees, each in its own tmux session
   lazyspace rm [worktree] [-f] [-D]
                                  remove a worktree (-D: delete its branch too)
   lazyspace run [worktree]       (re)start the .lazyspace run= command in window "run"
+  lazyspace windows              open the TUI on all tmux windows (enter switches)
 
 .lazyspace (repo root, key=value; indent lines to continue a value):
   setup=…  run=…  copy=file1 file2
-~/.config/lazyspace/config: the same keys under [repo-name] or [/path/to/repo]
+~/.config/lazyspace/config: the same keys under [repo-name] or [/path/to/repo];
+  at the top, before any section: search=dirs  search_depth=n  worktrees=dir
 EOF
 }
 
@@ -593,8 +740,11 @@ lazyspace() {
   local cmd=$1
   (( $# )) && shift
   case $cmd in
-    ('') _lazyspace_ui ;;
+    # run the TUI from disk: its key bindings call bin/lazyspace, so a shell
+    # that sourced an older version would otherwise mix old and new code
+    ('') $LAZYSPACE_DIR/bin/lazyspace _ui ;;
     (add|forget|new|open|rm|run|ls) _lazyspace_$cmd "$@" ;;
+    (windows) $LAZYSPACE_DIR/bin/lazyspace _ui -w ;;
     (repos) _lazyspace_repos; print -rl -- $reply ;;
     (help|-h|--help) _lazyspace_help ;;
     (_*) _lazyspace$cmd "$@" ;;

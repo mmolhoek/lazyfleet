@@ -9,6 +9,7 @@ local -a cmds=(
   'open:open a worktree session'
   'rm:remove a worktree'
   'run:(re)start the .lazyspace run command'
+  'windows:switch between tmux windows'
   'help:show help'
 )
 if (( CURRENT == 2 )); then
