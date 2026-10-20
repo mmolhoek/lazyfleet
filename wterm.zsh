@@ -141,10 +141,11 @@ _wterm_open_path() {
     _wterm_tmux switch-client -t "=$REPLY"
   else
     # tmux refuses a stdin named /dev/tty (as under fzf's become), so attach
-    # through the real controlling terminal device
+    # through the real controlling terminal device, opened read-write: the
+    # server draws through the client's stdin, a read-only fd stays blank
     local t=${$(ps -o tty= -p $$ 2>/dev/null)// /}
     if [[ -c /dev/$t ]]; then
-      _wterm_tmux attach-session -t "=$REPLY" </dev/$t
+      _wterm_tmux attach-session -t "=$REPLY" <>/dev/$t
     else
       _wterm_tmux attach-session -t "=$REPLY"
     fi

@@ -71,6 +71,13 @@ check 'key enter opens' eval 'FZF_KEY=enter FZF_LIST_LABEL=" Worktrees " _wterm_
 check 'key enter on repo filters' eval 'FZF_KEY=enter FZF_LIST_LABEL=" Repos " _wterm_key r $repo | grep -q "Worktrees: app"'
 check 'key esc quits when hidden' test "$(FZF_KEY=esc FZF_INPUT_STATE=hidden _wterm_key w $p)" = abort
 
+# attach from fzf's become (stdin is /dev/tty) must actually draw the session
+_wterm_tmux new-session -d -s attach -x 100 -y 10 \
+  "echo x | env -u TMUX fzf --bind 'start:become($ROOT/bin/wterm open feat/x)'; sleep 5"
+sleep 1.5
+check 'attach via become renders' eval '_wterm_tmux capture-pane -p -t "=attach:" | grep -q "app/feat-"'
+_wterm_tmux kill-session -t '=attach' 2>/dev/null
+
 # 6. rm
 check 'rm refuses dirty without tty' eval '! wterm rm feat/x </dev/null 2>/dev/null'
 check 'rm refuses main worktree' eval '! wterm rm $repo 2>/dev/null'
