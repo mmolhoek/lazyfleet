@@ -616,7 +616,7 @@ _lazyspace_ui() {
       fzf --ansi --style full --layout reverse --no-input --no-sort \
       --delimiter '\t' --with-nth 3 --query "$q" \
       --border-label ' lazyspace ' --preview-label ' Details ' \
-      --preview "$bin _preview {1} {2}" --preview-window 'right,55%' \
+      --preview "$bin _preview {1} {2}" --preview-window 'right,50%' \
       --pointer '▌' --gutter ' ' --info inline-right \
       --bind 'j:down,k:up' $start $binds) || return 0
     q=
