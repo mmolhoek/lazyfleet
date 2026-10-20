@@ -3,7 +3,7 @@
 
 typeset -g LAZYSPACE_DIR=${${(%):-%x}:A:h}
 typeset -g _LAZYSPACE_LETTERS='j,k,n,d,r,a,R,q'
-typeset -g _LAZYSPACE_FOOTER_WT=$'↵ open   n new   d delete   r run
+typeset -g _LAZYSPACE_FOOTER_WT=$'↵ open  n new  a add  d del  r run
 ⇥ repos  / find  R reload   q quit'
 typeset -g _LAZYSPACE_FOOTER_REPO=$'↵ worktrees   n new   a add   d forget
 ⇥ worktrees   / find  R reload  q quit'
@@ -99,18 +99,62 @@ _lazyspace_session() {
   REPLY=${REPLY//[.:]/-}
 }
 
-# REPLY=value of key $1 from the first .lazyspace found in dirs $2..
+# REPLY=value of key $2 in file $1. Indented lines after key= continue the
+# value (minus the first one's indent). With repo $3, only [sections] naming
+# that repo (by name or path) count.
+_lazyspace_conf_read() {
+  local key=$2 repo=$3 line sect ind on=1 hit=
+  local -a val
+  [[ -n $repo ]] && on=
+  for line in "${(@f)$(<$1)}"; do
+    if [[ -n $hit ]]; then
+      if [[ -z $line || $line == [[:space:]]* ]]; then
+        [[ -z $ind && $line == *[^[:space:]]* ]] && ind=${line%%[^[:space:]]*}
+        val+=("${line#$ind}")
+        continue
+      fi
+      break
+    fi
+    if [[ -n $repo && $line == '['*']' ]]; then
+      sect=${${line#\[}%\]}; sect=${sect/#\~/$HOME}
+      [[ $sect == ${repo:t} || ( $sect == */* && ${sect:A} == ${repo:A} ) ]] && on=1 || on=
+    elif [[ -n $on && $line == $key=* ]]; then
+      hit=1; val=("${line#$key=}")
+    fi
+  done
+  [[ -n $hit ]] || return 1
+  # "key=" with the value on the next lines; trailing blank lines
+  [[ -z $val[1] ]] && (( $#val > 1 )) && shift val
+  while (( $#val > 1 )) && [[ -z $val[-1] ]]; do val[-1]=(); done
+  REPLY=${(F)val}
+}
+
+# REPLY=value of key $1 for worktree $2 of repo $3: the repo's [section] in
+# ~/.config/lazyspace/config wins, then .lazyspace in the worktree, then the repo
 _lazyspace_conf() {
-  local key=$1 dir line
-  shift
-  for dir; do
-    [[ -r $dir/.lazyspace ]] || continue
-    for line in ${(f)"$(<$dir/.lazyspace)"}; do
-      [[ $line == $key=* ]] && { REPLY=${line#$key=}; return 0 }
-    done
+  local f
+  _lazyspace_regfile; f=${REPLY:h}/config
+  [[ -r $f ]] && _lazyspace_conf_read $f $1 $3 && return 0
+  for f in $2/.lazyspace $3/.lazyspace; do
+    [[ -r $f ]] && _lazyspace_conf_read $f $1 && return 0
   done
   REPLY=
   return 1
+}
+
+# Type command $2 into tmux target $1 and press Enter. Multi-line commands are
+# sourced from file $3 (in a private tmp dir), so later lines aren't typed into
+# whatever an earlier one runs.
+_lazyspace_type() {
+  local cmd=$2 f
+  if [[ $cmd == *$'\n'* ]]; then
+    f=${TMPDIR:-/tmp}/lazyspace-$UID
+    mkdir -p -m 700 $f || return 1
+    f+=/$3
+    print -r -- $cmd >| $f
+    cmd="source ${(q)f}"
+  fi
+  _lazyspace_tmux send-keys -t $1 -l -- "$cmd" \; send-keys -t $1 Enter
 }
 
 # REPLY=worktree path for a path, session name, branch or dir name
@@ -332,7 +376,7 @@ _lazyspace_new() {
   _lazyspace_ensure $p || return 1
   local s=$REPLY
   if _lazyspace_conf setup $p $repo; then
-    _lazyspace_tmux send-keys -t "=${s}:" -l -- "$REPLY" \; send-keys -t "=${s}:" Enter
+    _lazyspace_type "=${s}:" "$REPLY" ${s//\//-}.setup
   fi
   print -r -- $p
   (( $#o_n )) || _lazyspace_open_path $p
@@ -392,7 +436,7 @@ _lazyspace_run() {
     p=$(git rev-parse --show-toplevel 2>/dev/null) || { _lazyspace_err 'not in a worktree'; return 1 }
   fi
   _lazyspace_toplevel $p; repo=$REPLY
-  _lazyspace_conf run $p $repo || { _lazyspace_err "no run= in .lazyspace of ${repo:t}"; return 1 }
+  _lazyspace_conf run $p $repo || { _lazyspace_err "no run= for ${repo:t} in .lazyspace or ~/.config/lazyspace/config"; return 1 }
   cmd=$REPLY
   _lazyspace_ensure $p || return 1
   s=$REPLY
@@ -401,26 +445,39 @@ _lazyspace_run() {
   else
     _lazyspace_tmux new-window -d -n run -c $p -t "=${s}:"
   fi
-  _lazyspace_tmux send-keys -t "=${s}:run" -l -- "$cmd" \; send-keys -t "=${s}:run" Enter
+  _lazyspace_type "=${s}:run" "$cmd" ${s//\//-}.run
 }
 
 # --- TUI --------------------------------------------------------------------
 
+# fzf exits with an action ("open"/"new" + path); outside tmux we come back
+# here when the attached session ends or is detached
 _lazyspace_ui() {
-  local bin=${(q)LAZYSPACE_DIR}/bin/lazyspace k
-  local -a binds
+  local bin=${(q)LAZYSPACE_DIR}/bin/lazyspace k q=$1 out
+  local -a binds lines
   # Query changes emitted by a transform are ignored by fzf, so the
   # view-switching keys reset the input with directly chained actions.
   local reset="+clear-query+hide-input+rebind($_LAZYSPACE_LETTERS)"
   for k in / n d r a R q; do binds+=(--bind "${k}:transform:$bin _key {1} {2}"); done
   for k in enter tab esc; do binds+=(--bind "${k}:transform($bin _key {1} {2})$reset"); done
-  _lazyspace_rows | fzf --ansi --style full --layout reverse --no-input --no-sort \
-    --delimiter '\t' --with-nth 3 --query "$1" \
-    --border-label ' lazyspace ' --list-label ' Worktrees ' --preview-label ' Details ' \
-    --preview "$bin _preview {1} {2}" --preview-window 'right,55%' \
-    --footer "$_LAZYSPACE_FOOTER_WT" --pointer '▌' --gutter ' ' --info inline-right \
-    --bind "start:reload($bin _rows -s)${1:++show-input+unbind($_LAZYSPACE_LETTERS)}" \
-    --bind 'j:down,k:up' $binds
+  while :; do
+    out=$(_lazyspace_rows | fzf --ansi --style full --layout reverse --no-input --no-sort \
+      --delimiter '\t' --with-nth 3 --query "$q" \
+      --border-label ' lazyspace ' --list-label ' Worktrees ' --preview-label ' Details ' \
+      --preview "$bin _preview {1} {2}" --preview-window 'right,55%' \
+      --footer "$_LAZYSPACE_FOOTER_WT" --pointer '▌' --gutter ' ' --info inline-right \
+      --bind "start:reload($bin _rows -s)${q:++show-input+unbind($_LAZYSPACE_LETTERS)}" \
+      --bind 'j:down,k:up' $binds) || return 0
+    q=
+    lines=(${(f)out})
+    case $lines[1] in
+      (open) _lazyspace_open_path $lines[2] || _lazyspace_pause ;;
+      (new) _lazyspace_ui_new $lines[2] || continue
+            _lazyspace_open_path $REPLY ;;
+      (*) return 0 ;;
+    esac
+    [[ -n $TMUX ]] && return 0
+  done
 }
 
 # Key dispatcher: prints fzf actions. Args: row kind, row path.
@@ -449,10 +506,13 @@ _lazyspace_key() {
       if [[ $kind == r ]]; then
         print -r -- "change-list-label( Worktrees: ${p:t} )+change-footer($_LAZYSPACE_FOOTER_WT)+reload($bin _rows -s ${(q)p:t})+first"
       else
-        print -r -- "become($bin open $qp)"
+        print -r -- "become(printf '%s\\n' open $qp)"
       fi ;;
-    (n) print -r -- "become($bin _ui_new $qp)" ;;
-    (a) print -r -- "execute($bin _ui_add)+$rl" ;;
+    (n) print -r -- "become(printf '%s\\n' new $qp)" ;;
+    (a)
+      # a filtered list would hide the new repo
+      if [[ $lbl == Repos ]]; then print -r -- "execute($bin _ui_add)+$rl"
+      else print -r -- "execute($bin _ui_add)+change-list-label( Worktrees )+reload($bin _rows -s)"; fi ;;
     (d)
       [[ -n $p ]] || return 0
       if [[ $kind == r ]]; then print -r -- "execute($bin _ui_forget $qp)+$rl"
@@ -464,16 +524,17 @@ _lazyspace_key() {
   esac
 }
 
+# Prompt for a branch and create its worktree; REPLY=its path
 _lazyspace_ui_new() {
   local repo br
   if ! { [[ -n $1 ]] && _lazyspace_toplevel $1 } && ! _lazyspace_toplevel; then
-    print 'Add a repo first (a).'; _lazyspace_pause; _lazyspace_ui; return
+    print 'Add a repo first (a).'; _lazyspace_pause; return 1
   fi
   repo=$REPLY
   print -n "New worktree in ${repo:t}, branch: "
   read -r br </dev/tty
-  [[ -n $br ]] || { _lazyspace_ui; return }
-  _lazyspace_new -r $repo $br >/dev/null || { _lazyspace_pause; _lazyspace_ui }
+  [[ -n $br ]] || return 1
+  REPLY=$(_lazyspace_new --no-open -r $repo $br) || { _lazyspace_pause; return 1 }
 }
 
 _lazyspace_ui_add() {
@@ -521,7 +582,9 @@ lazyspace — git worktrees, each in its own tmux session
                                  remove a worktree (-D: delete its branch too)
   lazyspace run [worktree]       (re)start the .lazyspace run= command in window "run"
 
-.lazyspace (repo root, key=value):  setup=…  run=…  copy=file1 file2
+.lazyspace (repo root, key=value; indent lines to continue a value):
+  setup=…  run=…  copy=file1 file2
+~/.config/lazyspace/config: the same keys under [repo-name] or [/path/to/repo]
 EOF
 }
 

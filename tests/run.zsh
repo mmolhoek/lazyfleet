@@ -62,13 +62,41 @@ lazyspace run feat/x
 waitfor $p/.run-out
 check 'run respawns (single window)' test "$(_lazyspace_tmux list-windows -t '=app/feat-x' -F '#W' | grep -cx run)" = 1
 check 'run re-ran the command' test "$(<$p/.run-out)" != "$first"
+cfg=$XDG_CONFIG_HOME/lazyspace/config
+print -l '[other]' 'run=touch .wrong-out' '[app]' 'run=touch .cfg-out' >$cfg
+lazyspace run feat/x
+check 'run prefers personal config section' waitfor $p/.cfg-out
+check 'run ignores other sections' test ! -e $p/.wrong-out
+print -l "[${repo/#$HOME/~}]" 'run=touch .path-out' >$cfg
+lazyspace run feat/x
+check 'config section by ~ path' waitfor $p/.path-out
+cat >$cfg <<'EOF'
+[app]
+run=
+  echo one > .ml-out
+
+  if true; then
+    echo two >> .ml-out
+  fi
+  sleep 60
+other=x
+EOF
+want=$'echo one > .ml-out\n\nif true; then\n  echo two >> .ml-out\nfi\nsleep 60'
+check 'multi-line value keeps relative indent' eval '_lazyspace_conf run $p $repo && [[ $REPLY == $want ]]'
+lazyspace run feat/x
+waitfor $p/.ml-out; sleep 0.5
+check 'multi-line run executes all lines' test "$(<$p/.ml-out)" = $'one\ntwo'
+check 'multi-line run window stays alive' eval '_lazyspace_tmux list-panes -t "=app/feat-x:run" -F "#{pane_current_command}" | grep -qx sleep'
+check 'config falls through for other keys' eval '_lazyspace_conf copy $p $repo && [[ $REPLY == .env ]]'
+rm $cfg
 
 # 5. TUI rows / keys (no terminal needed)
 check 'rows include worktree' eval '_lazyspace_rows | grep -q "^w	$p	"'
 check 'live marker only on worktree with session' eval '_lazyspace_rows -p | grep "^w	$repo	" | grep -vq "●" && _lazyspace_rows -p | grep "^w	$p	" | grep -q "●"'
 check 'reporows include repo' eval '_lazyspace_reporows | grep -q "^r	$repo	"'
-check 'key enter opens' eval 'FZF_KEY=enter FZF_LIST_LABEL=" Worktrees " _lazyspace_key w $p | grep -q "^become(.* open "'
+check 'key enter opens' eval 'FZF_KEY=enter FZF_LIST_LABEL=" Worktrees " _lazyspace_key w $p | grep -q "^become(printf .* open $p)$"'
 check 'key enter on repo filters' eval 'FZF_KEY=enter FZF_LIST_LABEL=" Repos " _lazyspace_key r $repo | grep -q "Worktrees: app"'
+check 'key a leaves filtered view' eval 'FZF_KEY=a FZF_LIST_LABEL=" Worktrees: app " _lazyspace_key w $p | grep -q "change-list-label( Worktrees )+reload(.* _rows -s)$"'
 check 'key esc quits when hidden' test "$(FZF_KEY=esc FZF_INPUT_STATE=hidden _lazyspace_key w $p)" = abort
 
 # attach from fzf's become (stdin is /dev/tty) must actually draw the session
@@ -77,6 +105,17 @@ _lazyspace_tmux new-session -d -s attach -x 100 -y 10 \
 sleep 1.5
 check 'attach via become renders' eval '_lazyspace_tmux capture-pane -p -t "=attach:" | grep -q "app/feat-"'
 _lazyspace_tmux kill-session -t '=attach' 2>/dev/null
+
+# outside tmux, the TUI comes back once the attached session ends
+_lazyspace_tmux new-session -d -s tui -x 100 -y 20 "env -u TMUX $ROOT/bin/lazyspace; sleep 5"
+sleep 1.5
+_lazyspace_tmux send-keys -t '=tui:' Enter
+sleep 1
+check 'tui enter attaches' eval '_lazyspace_tmux list-clients -F "#S" | grep -qx app'
+_lazyspace_tmux kill-session -t '=app'
+sleep 1.5
+check 'tui returns after session ends' eval '_lazyspace_tmux capture-pane -p -t "=tui:" | grep -q "Worktrees"'
+_lazyspace_tmux kill-session -t '=tui' 2>/dev/null
 
 # 6. rm
 check 'rm refuses dirty without tty' eval '! lazyspace rm feat/x </dev/null 2>/dev/null'

@@ -10,7 +10,7 @@ tmux session, driven from a lazygit-style TUI. It's pure zsh plus `git`, `tmux` 
 │   api  main                       ││ ## feat/login...origin/feat/login     │
 ╰───────────────────────────────────╯│  M src/auth.ts                        │
 ╭───────────────────────────────────╮│                                       │
-│ ↵ open   n new   d delete   r run ││ a1b2c3d add login form                │
+│ ↵ open  n new  a add  d del  r run││ a1b2c3d add login form                │
 │ ⇥ repos  / find  R reload   q quit││ d4e5f6a wip                           │
 ╰───────────────────────────────────╯╰───────────────────────────────────────╯
 ```
@@ -65,6 +65,9 @@ You can name a worktree by its path, its branch (`feat/x`), its session name (`a
 | `/` · `esc` | fuzzy filter · leave filter | |
 | `R` · `q` | reload · quit | |
 
+Outside tmux, opening a worktree attaches to its session. When you detach (`prefix d`) or exit its last shell, you're back in the TUI.
+Inside tmux, it switches the client and the TUI closes.
+
 ## `.lazyspace`
 
 This is an optional file in the repo root, made of `key=value` lines. It is read as data and never sourced. The new worktree's
@@ -80,9 +83,38 @@ copy=.env .env.local
 - `run`: what `lazyspace run` / `r` starts in the `run` window. Running it again restarts it.
 - `copy`: untracked files copied from the main worktree into new ones.
 
+A value can span several lines: put each line after `key=`, indented. The first continuation line's indent is
+stripped from all of them, so nested blocks keep their relative indent.
+
+```
+run=
+  docker compose up -d db
+  npm run migrate
+  npm run dev
+```
+
+A multi-line `setup` or `run` is written to a script in `$TMPDIR/lazyspace-$UID/` and run with `source` in the
+window's shell. That keeps your aliases and env, and later lines aren't typed into whatever an earlier one is running.
+
+### Personal config
+
+To set these keys without committing anything to the repo, put them in `~/.config/lazyspace/config` under a
+section per repo. A section header is a repo name or a path (`~` works). These values win over the repo's
+`.lazyspace` files.
+
+```
+[app]
+run=npm run dev
+
+[~/code/api]
+run=go run ./cmd/api
+setup=go mod download
+```
+
 ## State
 
 - Registry: `~/.config/lazyspace/repos`, one path per line.
+- Personal config: `~/.config/lazyspace/config` (see above).
 - Session names: `<repo>` for the main worktree and `<repo>/<worktree-dir>` for the others.
 - `LAZYSPACE_TMUX` overrides the tmux command (e.g. `tmux -L other`).
 
