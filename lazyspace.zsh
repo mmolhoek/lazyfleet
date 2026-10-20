@@ -10,7 +10,16 @@ typeset -g _LAZYSPACE_FOOTER_REPO=$'↵ worktrees   n new   a add   d forget
 
 # --- plumbing ---------------------------------------------------------------
 
-_lazyspace_tmux() { command ${=LAZYSPACE_TMUX:-tmux} "$@" }
+# A tmux server keeps the environment it started with and hands it to every
+# session, so never pass it an exported FPATH containing our dir: compinit in
+# each session's shell would flag the dir as insecure.
+_lazyspace_tmux() {
+  if [[ ${(t)FPATH} == *export* ]]; then
+    FPATH=${(j.:.)${fpath:#$LAZYSPACE_DIR}} command ${=LAZYSPACE_TMUX:-tmux} "$@"
+  else
+    command ${=LAZYSPACE_TMUX:-tmux} "$@"
+  fi
+}
 
 _lazyspace_err() { print -ru2 -- "lazyspace: $*"; return 1 }
 
@@ -530,8 +539,13 @@ lazyspace() {
   esac
 }
 
-fpath+=($LAZYSPACE_DIR)
+# Completion. After compinit, autoload by absolute path and keep our dir off
+# fpath: an exported FPATH leaks into every session's shell, where compinit
+# would audit (and possibly reject) this directory.
 if (( $+functions[compdef] )); then
-  autoload -Uz _lazyspace
+  fpath=(${fpath:#$LAZYSPACE_DIR})
+  autoload -Uz $LAZYSPACE_DIR/_lazyspace
   compdef _lazyspace lazyspace
+else
+  fpath+=($LAZYSPACE_DIR)
 fi
