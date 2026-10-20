@@ -32,6 +32,7 @@ run=echo run-$RANDOM > .run-out; sleep 60
 copy=.env
 EOF
 git add -A && git commit -qm init
+check 'no rows without repos or windows' eval '[[ -z $(_lazyspace_rows) && -z $(LAZYSPACE_TMUX="tmux -L lazyspace-none-$$" _lazyspace_winrows) ]]'
 _lazyspace_tmux new-session -d -s keepalive
 lazyspace add >/dev/null
 check 'add registers repo' test "$(lazyspace repos)" = $repo
@@ -105,13 +106,15 @@ _lazyspace_tmux kill-session -t '=Zeta'; _lazyspace_tmux kill-session -t '=alpha
 check 'reporows include repo' eval '_lazyspace_reporows | grep -q "^r	$repo	"'
 check 'key enter opens' eval 'FZF_KEY=enter FZF_LIST_LABEL=" Worktrees " _lazyspace_key w $p | grep -q "^become(printf .* open $p)$"'
 check 'key enter on repo filters' eval 'FZF_KEY=enter FZF_LIST_LABEL=" Repos " _lazyspace_key r $repo | grep -q "Worktrees: app"'
-check 'key a leaves filtered view' eval 'FZF_KEY=a FZF_LIST_LABEL=" Worktrees: app " _lazyspace_key w $p | grep -q "change-list-label( Worktrees )+reload(.* _rows -s)$"'
+check 'key a leaves filtered view' eval 'FZF_KEY=a FZF_LIST_LABEL=" Worktrees: app " _lazyspace_key w $p | tr "\n" " " | grep -q "change-list-label( Worktrees ).*reload(.* _rows -s) $"'
 check 'winrows list session windows' retry '_lazyspace_winrows | grep -q "^t	=app/feat-x:1	.*1:run"'
 _lazyspace_tmux send-keys -t '=app/feat-x:0' 'echo preview-marker' Enter; sleep 0.3
 check 'window preview shows pane content' eval '_lazyspace_preview t "=app/feat-x:0" | grep -q preview-marker'
 check 'key enter on window switches' eval 'FZF_KEY=enter FZF_LIST_LABEL=" Windows " _lazyspace_key t "=app/feat-x:1" | grep -q "^become(printf .* window \\\\=app/feat-x:1)$"'
 check 'key tab cycles repos -> windows' eval 'FZF_KEY=tab FZF_LIST_LABEL=" Repos " _lazyspace_key r $repo | tr "\n" " " | grep -q "Windows .*_winrows"'
 check 'key tab cycles windows -> worktrees' eval 'FZF_KEY=tab FZF_LIST_LABEL=" Windows " _lazyspace_key t x | tr "\n" " " | grep -q "Worktrees .*_rows -s"'
+check 'windows view widens the preview' eval 'FZF_KEY=w FZF_LIST_LABEL=" Worktrees " _lazyspace_key w x | tr "\n" " " | grep -q "change-preview-window(right,70%)"'
+check 'leaving windows view restores the split' eval 'FZF_KEY=tab FZF_LIST_LABEL=" Windows " _lazyspace_key t x | tr "\n" " " | grep -q "change-preview-window(right,50%)"'
 check 'key d on window kills it' eval 'FZF_KEY=d FZF_LIST_LABEL=" Windows " _lazyspace_key t "=app/feat-x:1" | grep -q "_ui_killwin"'
 check 'key n ignored on window' test -z "$(FZF_KEY=n FZF_LIST_LABEL=' Windows ' _lazyspace_key t x)"
 check 'key esc quits when hidden' test "$(FZF_KEY=esc FZF_INPUT_STATE=hidden _lazyspace_key w $p)" = abort

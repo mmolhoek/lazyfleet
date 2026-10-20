@@ -7,8 +7,11 @@ typeset -g _LAZYSPACE_FOOTER_WT=$'↵ open  n new  a add  d del  r run
 ⇥ repos  w windows  / find  q quit'
 typeset -g _LAZYSPACE_FOOTER_REPO=$'↵ worktrees   n new   a add   d forget
 ⇥ windows   / find  R reload  q quit'
-typeset -g _LAZYSPACE_FOOTER_WIN=$'↵ switch   d kill
-⇥ worktrees   / find  R reload  q quit'
+typeset -g _LAZYSPACE_FOOTER_WIN=$'↵ switch  d kill
+⇥ views  / find
+R reload  q quit'
+# list/Details split: the Windows view is mostly preview
+typeset -g _LAZYSPACE_PW='right,50%' _LAZYSPACE_PW_WIN='right,70%'
 
 # --- plumbing ---------------------------------------------------------------
 
@@ -293,7 +296,7 @@ _lazyspace_rows() {
     for i in {1..$#paths}; do stats[i]=$(<$tmp/$i); done
     rm -rf $tmp
   fi
-  for i in {1..$#paths}; do
+  for (( i = 1; i <= $#paths; i++ )); do
     printf 'w\t%s\t%s%-*s%s  %-*s  %s%1s%s %s%s%s\n' $paths[i] \
       "$c_repo" $wn $names[i] "$c_off" $wb $branches[i] \
       "$c_live" "$lives[i]" "$c_off" "$c_st" "$stats[i]" "$c_off"
@@ -392,7 +395,7 @@ _lazyspace_winrows() {
     (( $#f[2] > wn )) && wn=$#f[2]
     (( $#f[3] > wc )) && wc=$#f[3]
   done
-  for i in {1..$#S}; do
+  for (( i = 1; i <= $#S; i++ )); do
     printf 't\t=%s:%s\t\e[34m%-*s\e[0m  %-*s  \e[33m%-*s\e[0m  %s \e[32m%s\e[0m\n' \
       $S[i] ${N[i]%%:*} $ws $S[i] $wn $N[i] $wc $C[i] $P[i] "$M[i]"
   done
@@ -607,17 +610,17 @@ _lazyspace_ui() {
   for k in enter tab esc w; do binds+=(--bind "${k}:transform($bin _key {1} {2})$reset"); done
   while :; do
     if [[ $view == windows ]]; then
-      start=(--list-label ' Windows ' --footer "$_LAZYSPACE_FOOTER_WIN")
+      start=(--list-label ' Windows ' --footer "$_LAZYSPACE_FOOTER_WIN" --preview-window $_LAZYSPACE_PW_WIN)
     else
-      start=(--list-label ' Worktrees ' --footer "$_LAZYSPACE_FOOTER_WT" --bind "start:reload($bin _rows -s)")
+      start=(--list-label ' Worktrees ' --footer "$_LAZYSPACE_FOOTER_WT" --preview-window $_LAZYSPACE_PW
+        --bind "start:reload($bin _rows -s)")
     fi
     [[ -n $q ]] && start+=(--bind "start:show-input+unbind($_LAZYSPACE_LETTERS)")
     out=$({ if [[ $view == windows ]]; then _lazyspace_winrows; else _lazyspace_rows; fi } |
       fzf --ansi --style full --layout reverse --no-input --no-sort \
       --delimiter '\t' --with-nth 3 --query "$q" \
       --border-label ' lazyspace ' --preview-label ' Details ' \
-      --preview "$bin _preview {1} {2}" --preview-window 'right,50%' \
-      --pointer '▌' --gutter ' ' --info inline-right \
+      --preview "$bin _preview {1} {2}"       --pointer '▌' --gutter ' ' --info inline-right \
       --bind 'j:down,k:up' $start $binds) || return 0
     q=
     lines=(${(f)out})
@@ -636,7 +639,8 @@ _lazyspace_ui() {
 _lazyspace_key() {
   local bin=${(q)LAZYSPACE_DIR}/bin/lazyspace kind=$1 p=$2 qp=${(q)2}
   local lbl=${${FZF_LIST_LABEL# }% } rl foot=$_LAZYSPACE_FOOTER_WT out
-  local win="change-list-label( Windows )+change-footer($_LAZYSPACE_FOOTER_WIN)+reload($bin _winrows)+first"
+  local win="change-list-label( Windows )+change-footer($_LAZYSPACE_FOOTER_WIN)+change-preview-window($_LAZYSPACE_PW_WIN)+reload($bin _winrows)+first"
+  local pw="change-preview-window($_LAZYSPACE_PW)"
   case $lbl in
     (Repos) rl="reload($bin _reporows)"; foot=$_LAZYSPACE_FOOTER_REPO ;;
     (Windows) rl="reload($bin _winrows)"; foot=$_LAZYSPACE_FOOTER_WIN ;;
@@ -652,7 +656,7 @@ _lazyspace_key() {
     (tab)
       case $lbl in
         (Repos) print -r -- $win ;;
-        (Windows) print -r -- "change-list-label( Worktrees )+change-footer($_LAZYSPACE_FOOTER_WT)+reload($bin _rows -s)+first" ;;
+        (Windows) print -r -- "change-list-label( Worktrees )+change-footer($_LAZYSPACE_FOOTER_WT)+$pw+reload($bin _rows -s)+first" ;;
         (*) print -r -- "change-list-label( Repos )+change-footer($_LAZYSPACE_FOOTER_REPO)+reload($bin _reporows)+first" ;;
       esac ;;
     (w) print -r -- $win ;;
@@ -669,7 +673,7 @@ _lazyspace_key() {
     (a)
       # a filtered list would hide the new repo
       if [[ $lbl == Repos ]]; then print -r -- "execute($bin _ui_add)+$rl"
-      else print -r -- "execute($bin _ui_add)+change-list-label( Worktrees )+reload($bin _rows -s)"; fi ;;
+      else print -r -- "execute($bin _ui_add)+change-list-label( Worktrees )+change-footer($_LAZYSPACE_FOOTER_WT)+$pw+reload($bin _rows -s)"; fi ;;
     (d)
       [[ -n $p ]] || return 0
       case $kind in
