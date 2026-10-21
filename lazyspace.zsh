@@ -613,7 +613,9 @@ _lazyspace_new() {
     _lazyspace_toplevel || { _lazyspace_err 'not in a repo; pass -r <repo>'; return 1 }
   fi
   repo=$REPLY
-  _lazyspace_add $repo >/dev/null
+  # unregistered (e.g. a name clash) means no worktree: it'd share that name's
+  # sessions and dir, and be missing from the lists
+  _lazyspace_add $repo >/dev/null || return 1
   _lazyspace_setting worktrees LAZYSPACE_WORKTREES ~/.lazyspace/worktrees
   p=${~REPLY}/${repo:t}/${br//\//-}
   [[ -e $p ]] && { _lazyspace_err "already exists: $p"; return 1 }

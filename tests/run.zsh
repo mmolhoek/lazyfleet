@@ -340,6 +340,7 @@ lazyspace rm -f $lp >/dev/null 2>&1
 twin=$SANDBOX/elsewhere/app
 mkdir -p $twin && git -C $twin init -q -b main && git -C $twin commit -q --allow-empty -m init
 check 'add refuses a second repo with the same name' eval 'out=$(lazyspace add $twin 2>&1); (( $? )) && [[ $out == *"a repo named app is already registered"* ]] && ! lazyspace repos | gq -x $twin'
+check 'new in an unregistrable repo creates nothing' eval '! lazyspace new -r $twin feat/twin --no-open >/dev/null 2>&1 && test ! -e $LAZYSPACE_WORKTREES/app/feat-twin && ! git -C $twin show-ref -q --verify refs/heads/feat/twin'
 
 # a planted temp dir (not ours, or a symlink) is refused, not used
 check 'temp dir is private' eval '_lazyspace_tmpdir && [[ $(stat -f %Lp $REPLY 2>/dev/null || stat -c %a $REPLY) == 700 ]]'
