@@ -69,7 +69,7 @@ lazyspace new feat/sum --no-open >/dev/null 2>$SANDBOX/new.err
 check 'new names the config section' gq -F '(~/.config/lazyspace/config [app])' $SANDBOX/new.err
 check 'new reports skipped copies' gq -F 'skipped .nope: not in the main worktree' $SANDBOX/new.err
 check 'new shows a multi-line setup' eval 'gq -F "setup   2-line script" $SANDBOX/new.err && gq -F "touch .ml-b" $SANDBOX/new.err'
-check 'setup window starts with the summary' eval 'head -1 $TMPDIR/lazyspace-$UID/app-feat-sum.setup | gq "lazyspace: new worktree"'
+check 'setup window starts with the summary' eval 'head -1 $TMPDIR/lazyspace-$UID/app-feat-sum.setup.* | gq "lazyspace: new worktree"'
 check 'setup runs as the window command, not typed in' eval '_lazyspace_tmux display -p -t "=app/feat-sum:0" "#{pane_start_command}" | gq -- "-ic .*source "'
 check 'multi-line setup still runs' waitfor $LAZYSPACE_WORKTREES/app/feat-sum/.ml-b
 rm $cfg
@@ -342,8 +342,31 @@ mkdir -p $twin && git -C $twin init -q -b main && git -C $twin commit -q --allow
 check 'add refuses a second repo with the same name' eval 'out=$(lazyspace add $twin 2>&1); (( $? )) && [[ $out == *"a repo named app is already registered"* ]] && ! lazyspace repos | gq -x $twin'
 check 'new in an unregistrable repo creates nothing' eval '! lazyspace new -r $twin feat/twin --no-open >/dev/null 2>&1 && test ! -e $LAZYSPACE_WORKTREES/app/feat-twin && ! git -C $twin show-ref -q --verify refs/heads/feat/twin'
 
+# names that map to the same session name clash too; a dotted name still
+# counts its (dashed) sessions as live
+dot=$SANDBOX/x/web.app dash=$SANDBOX/y/web-app
+for d in $dot $dash; do mkdir -p $d && git -C $d init -q -b main && git -C $d commit -q --allow-empty -m init; done
+lazyspace add $dot >/dev/null
+check 'add refuses a name that is the same as a session name' eval '! lazyspace add $dash >/dev/null 2>&1 && ! lazyspace repos | gq -x $dash'
+_lazyspace_tmux new-session -d -s web-app
+check 'a dotted repo name counts its live sessions' eval '_lazyspace_reporows | grep -F $dot | gq "1 live"'
+_lazyspace_tmux kill-session -t '=web-app'
+lazyspace forget web.app >/dev/null
+
+# every setup run gets its own script, even when session names map to the same file name
+_lazyspace_setup_run api/feat-x $SANDBOX 'print one'
+_lazyspace_setup_run api-feat/x $SANDBOX 'print two'
+check 'setup scripts are per run' eval 'scripts=($TMPDIR/lazyspace-$UID/api-feat-x.setup.*(N)); (( $#scripts == 2 )) && gq -x "print one" $scripts[1] $scripts[2] && gq -x "print two" $scripts[1] $scripts[2]'
+_lazyspace_tmux kill-session -t '=api/feat-x' 2>/dev/null; _lazyspace_tmux kill-session -t '=api-feat/x' 2>/dev/null
+
+# rm -D reports a failed branch delete
+lazyspace new feat/lockref --no-open >/dev/null 2>&1
+mkdir -p $repo/.git/refs/heads/feat && : >$repo/.git/refs/heads/feat/lockref.lock
+check 'rm -D fails when the branch cannot be deleted' eval '! lazyspace rm -f -D feat/lockref >/dev/null 2>&1 && test ! -e $LAZYSPACE_WORKTREES/app/feat-lockref && git -C $repo show-ref -q --verify refs/heads/feat/lockref'
+rm -f $repo/.git/refs/heads/feat/lockref.lock; git -C $repo branch -q -D feat/lockref
+
 # a planted temp dir (not ours, or a symlink) is refused, not used
-check 'temp dir is private' eval '_lazyspace_tmpdir && [[ $(stat -f %Lp $REPLY 2>/dev/null || stat -c %a $REPLY) == 700 ]]'
+check 'temp dir is private' eval '_lazyspace_tmpdir && { m=$(stat -f %Lp $REPLY 2>/dev/null) || m=$(stat -c %a $REPLY); [[ $m == 700 ]] }'
 mkdir -p $SANDBOX/evil
 check 'a symlinked temp dir is refused' eval '(export TMPDIR=$SANDBOX/tmp2; mkdir -p $TMPDIR; ln -s $SANDBOX/evil $TMPDIR/lazyspace-$UID; ! _lazyspace_tmpdir 2>/dev/null)'
 

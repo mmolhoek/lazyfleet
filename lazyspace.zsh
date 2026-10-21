@@ -237,7 +237,9 @@ _lazyspace_setup_run() {
   local s=$1 p=$2 cmd=$3 f line run src sh=${SHELL:-/bin/sh}
   shift 3
   _lazyspace_tmpdir || return 1
-  f=$REPLY/${s//\//-}.setup
+  # one per invocation: names can clash (api/feat-x and api-feat/x), and a
+  # shell still waiting at a startup prompt hasn't read its script yet
+  f=$(mktemp $REPLY/${s//\//-}.setup.XXXXXX) || return 1
   {
     for line; do print -r -- "printf '\\033[2m%s\\033[0m\\n' ${(qq)line}"; done
     print -r -- $cmd
@@ -412,7 +414,8 @@ _lazyspace_reporows() {
     _lazyspace_worktrees $repo; n=$#reply
     wts=(); for e in $reply; do wts[${${e%%$'\t'*}:A}]=1; done
     l=0 c=0
-    for s in $sessions; do [[ $s == ${repo:t} || $s == ${repo:t}/* ]] && (( l++ )); done
+    _lazyspace_session $repo $repo 1
+    for s in $sessions; do [[ $s == $REPLY || $s == $REPLY/* ]] && (( l++ )); done
     for line in $containers; do (( ${+wts[${${line%%$'\t'*}:A}]} )) && (( c++ )); done
     printf 'r\t%s\t\e[34m%-*s\e[0m  %d worktree%s  \e[32m%s\e[0m\e[36m%s\e[0m\n' $repo $wn ${repo:t} \
       $n ${${n:#1}:+s} "${${l:#0}:+● $l live}" "${${c:#0}:+  🐳 $c running}"
@@ -568,12 +571,15 @@ _lazyspace_preview() {
 
 _lazyspace_add() {
   _lazyspace_toplevel ${1:-$PWD} || { _lazyspace_err "not a git repo: ${1:-$PWD}"; return 1 }
-  local repo=$REPLY r
+  local repo=$REPLY r name
   _lazyspace_repos
   # sessions (<repo>/...) and worktree dirs (<worktrees>/<repo>/...) are keyed
-  # by the repo's name, so two registered repos can't share one
+  # by the repo's name, so two registered repos can't share one — compared as
+  # session names, where app.js and app-js are the same
+  _lazyspace_session $repo $repo 1; name=$REPLY
   for r in $reply; do
-    [[ $r != $repo && ${r:t} == ${repo:t} ]] &&
+    _lazyspace_session $r $r 1
+    [[ $r != $repo && $REPLY == $name ]] &&
       { _lazyspace_err "a repo named ${repo:t} is already registered: $r (lazyspace forget it first)"; return 1 }
   done
   if (( ! ${reply[(Ie)$repo]} )); then
@@ -700,7 +706,7 @@ _lazyspace_locked() {
 _lazyspace_rm() {
   local -a o_f o_D rmf
   zparseopts -D -E -F f=o_f D=o_D || return 1
-  local p repo br s force locked
+  local p repo br s force locked rc=0
   if [[ -n $1 ]]; then
     _lazyspace_resolve $1 || { _lazyspace_err "no unique worktree for '$1' ($REPLY matches)"; return 1 }
     p=$REPLY
@@ -739,7 +745,7 @@ _lazyspace_rm() {
   if (( $#o_D )) && [[ -n $br ]]; then
     _lazyspace_step "Deleting local branch $br"
     git -C $repo branch -q -D $br
-    _lazyspace_done
+    _lazyspace_done || rc=1
   fi
   if _lazyspace_tmux has-session -t "=$s" 2>/dev/null; then
     # last: this may kill the shell we are running in
@@ -747,7 +753,7 @@ _lazyspace_rm() {
     print -u2
     _lazyspace_tmux kill-session -t "=$s"
   fi
-  return 0
+  return rc
 }
 
 # Progress for slow steps, on stderr: "msg… " now, then "done"/"failed" by the
