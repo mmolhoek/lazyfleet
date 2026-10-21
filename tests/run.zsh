@@ -6,6 +6,10 @@ ROOT=${0:A:h:h}
 SANDBOX=${$(mktemp -d):A}
 export HOME=$SANDBOX XDG_CONFIG_HOME=$SANDBOX/.config LAZYSPACE_WORKTREES=$SANDBOX/wt TMPDIR=$SANDBOX/tmp
 mkdir -p $TMPDIR
+# setup runs through an interactive zsh: give it an rc file (or zsh's new-user
+# wizard blocks), which asks a question first when ~/.ask exists, like a mise
+# enter hook
+print -r -- '[[ -e ~/.ask ]] && { rm ~/.ask; read -r ans; print -r -- $ans >~/answer }' >$SANDBOX/.zshrc
 # keep the test tmux server's socket in the sandbox, so it goes away with it
 export TMUX_TMPDIR=$SANDBOX
 export LAZYSPACE_TMUX="tmux -L lazyspace-test-$$" SHELL=/bin/zsh
@@ -40,6 +44,9 @@ git add -A && git commit -qm init
 check 'no rows without repos or windows' eval '[[ -z $(_lazyspace_rows) && -z $(LAZYSPACE_TMUX="tmux -L lazyspace-none-$$" _lazyspace_winrows) ]]'
 _lazyspace_tmux new-session -d -s keepalive
 lazyspace add >/dev/null
+_lazyspace_help() { print stale }
+check 'the command runs the code on disk, not a stale copy in the shell' eval '[[ $(lazyspace help) != stale ]]'
+source $ROOT/lazyspace.zsh
 check 'add registers repo' test "$(lazyspace repos)" = $repo
 lazyspace add >/dev/null
 check 'add deduplicates' test "$(lazyspace repos | wc -l | tr -d ' ')" = 1
@@ -48,6 +55,7 @@ check 'add deduplicates' test "$(lazyspace repos | wc -l | tr -d ' ')" = 1
 p=$LAZYSPACE_WORKTREES/app/feat-x
 lazyspace new feat/x --no-open >/dev/null 2>$SANDBOX/new.err
 check 'new creates worktree' test -d $p
+check 'new -q keeps the summary out of the terminal' eval '[[ -z $(lazyspace new -q feat/quiet --no-open 2>&1 >/dev/null) ]]; lazyspace rm -f -D feat/quiet 2>/dev/null'
 check 'new reports the branch' gq -F 'branch  feat/x (new, from HEAD)' $SANDBOX/new.err
 check 'new reports what it copied' gq -F 'copy    .env  from ~/src/app (.lazyspace)' $SANDBOX/new.err
 check 'new reports the setup' gq -F 'setup   touch .setup-ran  (.lazyspace) → running in session app/feat-x' $SANDBOX/new.err
@@ -61,10 +69,21 @@ lazyspace new feat/sum --no-open >/dev/null 2>$SANDBOX/new.err
 check 'new names the config section' gq -F '(~/.config/lazyspace/config [app])' $SANDBOX/new.err
 check 'new reports skipped copies' gq -F 'skipped .nope: not in the main worktree' $SANDBOX/new.err
 check 'new shows a multi-line setup' eval 'gq -F "setup   2-line script" $SANDBOX/new.err && gq -F "touch .ml-b" $SANDBOX/new.err'
-check 'multi-line setup announces itself' eval 'head -1 $TMPDIR/lazyspace-$UID/app-feat-sum.setup | gq "lazyspace: .*setup= from"'
+check 'setup window starts with the summary' eval 'head -1 $TMPDIR/lazyspace-$UID/app-feat-sum.setup | gq "lazyspace: new worktree"'
+check 'setup runs as the window command, not typed in' eval '_lazyspace_tmux display -p -t "=app/feat-sum:0" "#{pane_start_command}" | gq -- "-ic .source "'
 check 'multi-line setup still runs' waitfor $LAZYSPACE_WORKTREES/app/feat-sum/.ml-b
 rm $cfg
-lazyspace rm -f -D feat/sum
+lazyspace rm -f -D feat/sum 2>/dev/null
+# a question while the shell starts gets the user's answer, not our setup keys
+touch $HOME/.ask
+lazyspace new feat/ask --no-open >/dev/null 2>/dev/null
+sleep 0.5
+_lazyspace_tmux send-keys -t '=app/feat-ask:' staging Enter
+check 'startup question gets the user'"'"'s answer' eval 'waitfor $HOME/answer && [[ $(<$HOME/answer) == staging ]]'
+check 'setup runs after the question' waitfor $LAZYSPACE_WORKTREES/app/feat-ask/.setup-ran
+check 'setup window says it finished' waitpane app/feat-ask 'setup finished (exit 0)'
+lazyspace rm -f -D feat/ask 2>/dev/null
+rm -f $HOME/answer
 check 'new refuses existing' eval '! lazyspace new feat/x --no-open 2>/dev/null'
 
 # 3. ls / status
@@ -230,7 +249,7 @@ check 'env var beats config setting' eval 'LAZYSPACE_SEARCH=$SANDBOX/src _lazysp
 check 'section keys are not settings' eval '_lazyspace_setting search_depth X 9 && [[ $REPLY == 2 ]] && _lazyspace_setting nope X d && [[ $REPLY == d ]]'
 print 'worktrees=~/wt2' >$cfg
 check 'worktrees setting from config' eval 'LAZYSPACE_WORKTREES= lazyspace new feat/cfg --no-open >/dev/null 2>/dev/null && test -d $SANDBOX/wt2/app/feat-cfg'
-lazyspace rm -f -D feat/cfg
+lazyspace rm -f -D feat/cfg 2>/dev/null
 rm $cfg
 print -l ' search=~/elsewhere' ' [app/]' ' setup=' '  echo a' '    echo b' ' copy=go' >$cfg
 check 'indented config: setting' eval '_lazyspace_setting search X && [[ $REPLY == "~/elsewhere" ]]'
@@ -259,17 +278,16 @@ _lazyspace_tmux send-keys -t '=tui:' Tab; waitpane tui 'feat/x'; sleep 0.3
 _lazyspace_tmux send-keys -t '=tui:' n; waitpane tui 'branch>'; sleep 0.3
 _lazyspace_tmux send-keys -t '=tui:' -l feat/e2e; sleep 0.3
 _lazyspace_tmux send-keys -t '=tui:' C-n
-check 'tui n shows the summary before opening' waitpane tui 'press any key to open it'
-_lazyspace_tmux send-keys -t '=tui:' x
-check 'tui n opens the new session after a key' retry '_lazyspace_tmux list-clients -F "#S" | gq -x app/feat-e2e'
+check 'tui n opens the new session right away' retry '_lazyspace_tmux list-clients -F "#S" | gq -x app/feat-e2e'
 _lazyspace_tmux kill-session -t '=tui' 2>/dev/null
-lazyspace rm -f -D feat/e2e
+lazyspace rm -f -D feat/e2e 2>/dev/null
 
 # 6. rm
 check 'rm refuses dirty without tty' eval '! lazyspace rm feat/x </dev/null 2>/dev/null'
 check 'rm refuses main worktree' eval '! lazyspace rm $repo 2>/dev/null'
-lazyspace rm -f -D feat/x
+rmout=$(lazyspace rm -f -D feat/x 2>&1)
 check 'rm removes worktree' test ! -e $p
+check 'rm says what it is doing' eval '[[ $rmout == *"Removing ~/wt/app/feat-x"*"… done"*"Deleting local branch feat/x… done"*"Closing tmux session app/feat-x"* ]]'
 check 'rm kills session' eval '! _lazyspace_tmux has-session -t "=app/feat-x" 2>/dev/null'
 check 'rm deletes branch' eval '! git -C $repo show-ref -q --verify refs/heads/feat/x'
 

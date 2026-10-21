@@ -50,7 +50,7 @@ You can name a worktree by its path, its branch (`feat/x`), its session name (`a
 | `d`         | remove worktree (asks; optionally deletes the branch)              | forget repo                | kill window (asks) |
 | `a`         | add repo: pick one found under your project dirs, or type a path   | add repo                   | add repo           |
 | `tab` · `w` | next view · Windows view                                           |                            |                    |
-| `c` · `C`   | edit this repo's config file · the settings                       | same                       | settings · settings |
+| `c` · `C`   | edit the project config · the global settings                     | same                       | global settings     |
 | `/` · `esc` | fuzzy filter · leave filter                                        |                            |                    |
 | `r` · `q`   | reload · quit                                                      |                            |                    |
 
@@ -76,7 +76,9 @@ setup=npm ci
 copy=.env .env.local
 ```
 
-- `setup`: typed into the first window of a newly created worktree's session.
+- `setup`: run in the first window of a newly created worktree's session, through your interactive shell (so
+  mise, direnv and aliases work). Questions your shell asks on entering the directory, such as a mise enter
+  hook, come first and wait for you. The window then stays open as a normal shell.
 - `copy`: untracked files copied from the main worktree into new ones.
 
 A value can span several lines: put each line after `key=`, indented. The first continuation line's indent is
@@ -89,8 +91,8 @@ setup=
   npm run migrate
 ```
 
-A multi-line `setup` is written to a script in `$TMPDIR/lazyspace-$UID/` and run with `source` in the
-window's shell. That keeps your aliases and env, and later lines aren't typed into whatever an earlier one is running.
+The setup is written to a script in `$TMPDIR/lazyspace-$UID/` that first prints what lazyspace did for the new
+worktree (branch, copies, setup) and then runs the commands in order.
 
 ### Personal config
 

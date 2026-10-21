@@ -4,15 +4,17 @@
 typeset -g LAZYSPACE_DIR=${${(%):-%x}:A:h}
 typeset -g _LAZYSPACE_LETTERS='j,k,n,d,r,a,w,c,C,R,q'
 typeset -g _LAZYSPACE_FOOTER_WT=$'↵ open  (n)ew worktree  (a)dd project
-(d)elete  (w)indows  (c)onfig  ⇥ repos
-/ find  (r)eload  (C) settings  (q)uit'
+(d)elete  (w)indows  ⇥ repos  / find
+(c) project config  (C) global settings
+(r)eload  (q)uit'
 typeset -g _LAZYSPACE_FOOTER_REPO=$'↵ worktrees  (n)ew worktree  (a)dd project
-(d) forget  (c)onfig  ⇥ windows
-/ find  (r)eload  (C) settings  (q)uit'
+(d) forget  ⇥ windows  / find
+(c) project config  (C) global settings
+(r)eload  (q)uit'
 typeset -g _LAZYSPACE_FOOTER_WIN=$'↵ switch  (d) kill
 ⇥ views  / find
 (r)eload  (q)uit
-(C) settings'
+(C) global settings'
 # list/Details split: the Windows view is mostly preview
 typeset -g _LAZYSPACE_PW='right,50%' _LAZYSPACE_PW_WIN='right,70%'
 
@@ -200,23 +202,38 @@ _lazyspace_setting() {
   REPLY=$3
 }
 
-# Type command $2 into tmux target $1 and press Enter. Multi-line commands are
-# sourced from file $3 (in a private tmp dir), so later lines aren't typed into
-# whatever an earlier one runs; the script first prints label $4 and itself.
-_lazyspace_type() {
-  local cmd=$2 f line
-  if [[ $cmd == *$'\n'* ]]; then
-    f=${TMPDIR:-/tmp}/lazyspace-$UID
-    mkdir -p -m 700 $f || return 1
-    f+=/$3
-    {
-      print -r -- "printf '\\033[36m# lazyspace: %s\\033[0m\\n' ${(qq)4}"
-      for line in ${(f)cmd}; do print -r -- "printf '\\033[2m#   %s\\033[0m\\n' ${(qq)line}"; done
-      print -r -- $cmd
-    } >| $f
-    cmd="source ${(q)f}"
+# Print "$1 $2" to stderr ($2 dimmed on a terminal; nothing with
+# _lazyspace_quiet) and keep it in _lazyspace_sum, so the new session can show
+# the same summary
+_lazyspace_say() {
+  _lazyspace_sum+=("$1${2:+ $2}")
+  if [[ -n $_lazyspace_quiet ]]; then :
+  elif [[ -t 2 ]]; then print -ru2 -- "$1${2:+ $'\e[2m'$2$'\e[0m'}"
+  else print -ru2 -- "$1${2:+ $2}"; fi
+}
+
+# Run setup command $3 for worktree $2 as the own command of session $1's first
+# window (a "setup" window if the session exists), through an interactive
+# $SHELL so mise, direnv and aliases are set up. Typing it into a fresh shell
+# instead would answer whatever that shell asks first (like a mise enter hook)
+# with our keys. The window prints lines $4.., runs the setup, then carries on
+# as a normal login shell.
+_lazyspace_setup_run() {
+  local s=$1 p=$2 cmd=$3 f line run sh=${SHELL:-/bin/sh}
+  shift 3
+  f=${TMPDIR:-/tmp}/lazyspace-$UID
+  mkdir -p -m 700 $f || return 1
+  f+=/${s//\//-}.setup
+  {
+    for line; do print -r -- "printf '\\033[2m%s\\033[0m\\n' ${(qq)line}"; done
+    print -r -- $cmd
+  } >| $f
+  run="$sh -ic ${(qq):-source $f}; printf '\\n\\033[2m# lazyspace: setup finished (exit %s)\\033[0m\\n' \$?; exec $sh -l"
+  if _lazyspace_tmux has-session -t "=$s" 2>/dev/null; then
+    _lazyspace_tmux new-window -t "=$s:" -n setup -c $p $run
+  else
+    _lazyspace_tmux new-session -d -s $s -c $p $run
   fi
-  _lazyspace_tmux send-keys -t $1 -l -- "$cmd" \; send-keys -t $1 Enter
 }
 
 # REPLY=worktree path for a path, session name, branch or dir name
@@ -556,10 +573,11 @@ _lazyspace_ls() {
   _lazyspace_rows -s -p | while IFS=$'\t' read -r k p d; do print -r -- "$d  $p"; done
 }
 
-# lazyspace new <branch> [-r repo] [-b base] [--no-open]
+# lazyspace new <branch> [-r repo] [-b base] [--no-open] [-q (summary only in the session)]
 _lazyspace_new() {
-  local -a o_r o_b o_n
-  zparseopts -D -E -F r:=o_r b:=o_b -no-open=o_n || return 1
+  local -a o_r o_b o_n o_q
+  zparseopts -D -E -F r:=o_r b:=o_b -no-open=o_n q=o_q || return 1
+  local _lazyspace_quiet=${o_q:+1}
   local br=$1 repo base p
   [[ -n $br ]] || { _lazyspace_err 'usage: lazyspace new <branch> [-r repo] [-b base] [--no-open]'; return 1 }
   if (( $#o_r )); then
@@ -573,8 +591,8 @@ _lazyspace_new() {
   p=${~REPLY}/${repo:t}/${br//\//-}
   [[ -e $p ]] && { _lazyspace_err "already exists: $p"; return 1 }
   # what we did goes to stderr (stdout is the path, for scripts and the TUI)
-  local how bold=$'\e[1m' dim=$'\e[2m' off=$'\e[0m'
-  [[ -t 2 ]] || bold= dim= off=
+  local how
+  typeset -ga _lazyspace_sum=()
   if git -C $repo show-ref -q --verify refs/heads/$br; then
     how='existing local branch'
     git -C $repo worktree add -q $p $br
@@ -586,8 +604,8 @@ _lazyspace_new() {
     how="new, from ${base:-HEAD}"
     git -C $repo worktree add -q -b $br $p ${base:-HEAD}
   fi || return 1
-  print -ru2 -- "${bold}lazyspace: new worktree ${p/#$HOME/~}$off"
-  print -ru2 -- "  branch  $br $dim($how)$off"
+  _lazyspace_say "lazyspace: new worktree ${p/#$HOME/~}"
+  _lazyspace_say "  branch  $br" "($how)"
 
   local f
   local -a copied skipped
@@ -599,23 +617,25 @@ _lazyspace_new() {
         skipped+=($f)
       fi
     done
-    (( $#copied )) && print -ru2 -- "  copy    $copied  ${dim}from ${repo/#$HOME/~} ($_lazyspace_from)$off"
-    for f in $skipped; do print -ru2 -- "  ${(l:8:)}skipped $f: not in the main worktree"; done
+    (( $#copied )) && _lazyspace_say "  copy    $copied " "from ${repo/#$HOME/~} ($_lazyspace_from)"
+    for f in $skipped; do _lazyspace_say "  ${(l:8:)}skipped $f: not in the main worktree"; done
   else
-    print -ru2 -- "  copy    ${dim}nothing (no copy= in .lazyspace or ~/.config/lazyspace/config)$off"
+    _lazyspace_say "  copy   " "nothing (no copy= configured)"
   fi
-  _lazyspace_ensure $p || return 1
+  _lazyspace_session $repo $p 0
   local s=$REPLY
   if _lazyspace_conf setup $p $repo; then
-    if [[ $REPLY == *$'\n'* ]]; then
-      print -ru2 -- "  setup   ${#${(f)REPLY}}-line script ${dim}($_lazyspace_from) → running in session $s:$off"
-      for f in ${(f)REPLY}; do print -ru2 -- "          $dim$f$off"; done
+    local cmd=$REPLY
+    if [[ $cmd == *$'\n'* ]]; then
+      _lazyspace_say "  setup   ${#${(f)cmd}}-line script" "($_lazyspace_from) → running in session $s:"
+      for f in ${(f)cmd}; do _lazyspace_say "          " "$f"; done
     else
-      print -ru2 -- "  setup   $REPLY  ${dim}($_lazyspace_from) → running in session $s$off"
+      _lazyspace_say "  setup   $cmd " "($_lazyspace_from) → running in session $s"
     fi
-    _lazyspace_type "=${s}:" "$REPLY" ${s//\//-}.setup "setup= from $_lazyspace_from"
+    _lazyspace_setup_run $s $p $cmd $_lazyspace_sum || return 1
   else
-    print -ru2 -- "  setup   ${dim}nothing (no setup= configured)$off"
+    _lazyspace_say "  setup  " "nothing (no setup= configured)"
+    _lazyspace_ensure $p || return 1
   fi
   print -r -- $p
   (( $#o_n )) || _lazyspace_open_path $p
@@ -683,11 +703,30 @@ _lazyspace_rm() {
   _lazyspace_session $repo $p 0; s=$REPLY
   # git wants --force twice for a locked worktree
   [[ -n $force ]] && rmf=(--force ${locked:+--force})
-  git -C $repo worktree remove $rmf $p || return 1
-  (( $#o_D )) && [[ -n $br ]] && git -C $repo branch -q -D $br
-  # last: this may kill the shell we are running in
-  _lazyspace_tmux kill-session -t "=$s" 2>/dev/null
+  _lazyspace_step "Removing ${p/#$HOME/~} (this can take a while with node_modules)"
+  git -C $repo worktree remove $rmf $p
+  _lazyspace_done || return 1
+  if (( $#o_D )) && [[ -n $br ]]; then
+    _lazyspace_step "Deleting local branch $br"
+    git -C $repo branch -q -D $br
+    _lazyspace_done
+  fi
+  if _lazyspace_tmux has-session -t "=$s" 2>/dev/null; then
+    # last: this may kill the shell we are running in
+    _lazyspace_step "Closing tmux session $s"
+    print -u2
+    _lazyspace_tmux kill-session -t "=$s"
+  fi
   return 0
+}
+
+# Progress for slow steps, on stderr: "msg… " now, then "done"/"failed" by the
+# status of the command run in between
+_lazyspace_step() { print -nu2 -- "$1… " }
+_lazyspace_done() {
+  local rc=$?
+  (( rc )) && print -u2 failed || print -u2 done
+  return rc
 }
 
 # --- TUI --------------------------------------------------------------------
@@ -836,8 +875,7 @@ _lazyspace_ui_new() {
   repo=$REPLY
   _lazyspace_branches $repo | _lazyspace_pick "New worktree in ${repo:t}" 'branch> ' || return 1
   br=$REPLY
-  REPLY=$(_lazyspace_new --no-open -r $repo $br) || { _lazyspace_pause; return 1 }
-  _lazyspace_pause 'press any key to open it'
+  REPLY=$(_lazyspace_new -q --no-open -r $repo $br) || { _lazyspace_pause; return 1 }
 }
 
 _lazyspace_ui_add() {
@@ -936,7 +974,9 @@ _lazyspace_ui_rm() {
     print -n "Stop them? [y/N] "
     if read -q </dev/tty; then
       print
-      docker stop $ids >/dev/null || _lazyspace_pause
+      _lazyspace_step "Stopping $#ids container(s)"
+      docker stop $ids >/dev/null
+      _lazyspace_done || _lazyspace_pause
     else
       print
     fi
@@ -976,16 +1016,18 @@ lazyspace — git worktrees, each in its own tmux session
 EOF
 }
 
-lazyspace() {
+# The command itself always runs bin/lazyspace, which loads this file from
+# disk: a shell that sourced an older version would otherwise keep running it
+lazyspace() { $LAZYSPACE_DIR/bin/lazyspace "$@" }
+
+_lazyspace_main() {
   emulate -L zsh
   local cmd=$1
   (( $# )) && shift
   case $cmd in
-    # run the TUI from disk: its key bindings call bin/lazyspace, so a shell
-    # that sourced an older version would otherwise mix old and new code
-    ('') $LAZYSPACE_DIR/bin/lazyspace _ui ;;
+    ('') _lazyspace_ui ;;
     (add|forget|new|open|rm|ls|config) _lazyspace_$cmd "$@" ;;
-    (windows) $LAZYSPACE_DIR/bin/lazyspace _ui -w ;;
+    (windows) _lazyspace_ui -w ;;
     (repos) _lazyspace_repos; print -rl -- $reply ;;
     (help|-h|--help) _lazyspace_help ;;
     (_*) _lazyspace$cmd "$@" ;;

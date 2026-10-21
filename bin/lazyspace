@@ -1,4 +1,4 @@
 #!/bin/zsh -f
 # Standalone entry point, used by the TUI's key bindings and tmux popups.
 source ${0:A:h:h}/lazyspace.zsh
-lazyspace "$@"
+_lazyspace_main "$@"
