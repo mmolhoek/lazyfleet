@@ -30,7 +30,7 @@ lazyspace repos                list registered repos
 lazyspace ls                   list worktrees with status
 lazyspace new <branch> [-r repo] [-b base] [--no-open]
 lazyspace open [worktree]      attach (outside tmux) or switch-client (inside tmux)
-lazyspace rm [worktree] [-f] [-D]
+lazyspace rm [worktree] [-f] [-D]   -f: even if dirty or locked (e.g. by Supacode); -D: delete the local branch
 lazyspace run [worktree]       (re)start the run= command in tmux window "run"
 lazyspace windows              TUI on all tmux windows; enter switches to one
 ```

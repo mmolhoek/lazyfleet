@@ -123,6 +123,11 @@ check 'key n ignored on window' test -z "$(FZF_KEY=n FZF_LIST_LABEL=' Windows ' 
 check 'load: plain rows, then status rows' eval 'FZF_LIST_LABEL=" Worktrees · loading… " _lazyspace_loaded | gq "change-list-label( Worktrees · checking status… )+reload-sync(.* _rows -s ..)$"'
 check 'load: filtered view keeps its filter' eval 'FZF_LIST_LABEL=" Worktrees: app · loading… " _lazyspace_loaded | gq "( Worktrees: app · checking status… )+reload-sync(.* _rows -s app)$"'
 check 'load: status done clears the marker' test "$(FZF_LIST_LABEL=' Worktrees · checking status… ' _lazyspace_loaded)" = 'change-list-label( Worktrees )'
+pf=$SANDBOX/posfile
+print 3 >$pf
+check 'load: moves to the handed-over row once' eval '[[ $(LAZYSPACE_POSFILE=$pf FZF_LIST_LABEL=" Windows " _lazyspace_loaded) == "pos(3)" && ! -e $pf ]]'
+print 2 >$pf
+check 'load: handed-over row before status reload' eval 'LAZYSPACE_POSFILE=$pf FZF_LIST_LABEL=" Worktrees · loading… " _lazyspace_loaded | gq "^pos(2)+change-list-label( Worktrees · checking status… )+reload-sync("'
 check 'load: other views do nothing' test -z "$(FZF_LIST_LABEL=' Repos ' _lazyspace_loaded)"
 check 'keys see through the loading marker' eval 'FZF_KEY=R FZF_LIST_LABEL=" Worktrees: app · checking status… " _lazyspace_key w $p | gq "( Worktrees: app · loading… )+reload(.* _rows app)"'
 check 'key esc quits when hidden' test "$(FZF_KEY=esc FZF_INPUT_STATE=hidden _lazyspace_key w $p)" = abort
@@ -147,6 +152,7 @@ sleep 1
 check 'tui enter attaches' eval '_lazyspace_tmux list-clients -F "#S" | gq -x app'
 _lazyspace_tmux kill-session -t '=app'
 check 'tui returns after session ends' waitpane tui Worktrees
+check 'tui reselects the worktree it left' retry '_lazyspace_tmux capture-pane -p -t "=tui:" | gq "▌ app  main"'
 _lazyspace_tmux kill-session -t '=tui' 2>/dev/null
 
 # windows view: filter to the run window, enter attaches to it, detach returns
@@ -158,6 +164,7 @@ _lazyspace_tmux send-keys -t '=tui:' Enter; sleep 1
 check 'windows enter attaches to that window' eval '_lazyspace_tmux list-clients -F "#S #W" | gq -x "app/feat-x run"'
 _lazyspace_tmux detach-client -s '=app/feat-x'
 check 'windows view returns after detach' waitpane tui Windows
+check 'windows view reselects the window it left' retry '_lazyspace_tmux capture-pane -p -t "=tui:" | gq "▌ app/feat-x *1:run"'
 _lazyspace_tmux kill-session -t '=tui' 2>/dev/null
 
 # pickers
@@ -204,6 +211,32 @@ lazyspace rm -f -D feat/x
 check 'rm removes worktree' test ! -e $p
 check 'rm kills session' eval '! _lazyspace_tmux has-session -t "=app/feat-x" 2>/dev/null'
 check 'rm deletes branch' eval '! git -C $repo show-ref -q --verify refs/heads/feat/x'
+
+# unpushed-commit warning before deleting a branch
+bare=$SANDBOX/origin.git
+git init -q --bare $bare && git -C $repo remote add origin $bare && git -C $repo push -q origin main
+check 'no warning for a branch at a pushed commit' eval '_lazyspace_unpushed $repo feat/y && [[ -z $REPLY ]]'
+up=$LAZYSPACE_WORKTREES/app/feat-u
+lazyspace new feat/u --no-open >/dev/null
+git -C $up commit -q --allow-empty -m one
+check 'warning for a never-pushed branch' eval '_lazyspace_unpushed $up feat/u && [[ $REPLY == "feat/u was never pushed; deleting it drops its 1 commit"* ]]'
+git -C $up push -q origin feat/u && git -C $up commit -q --allow-empty -m two && git -C $up commit -q --allow-empty -m three
+check 'warning for commits not on origin' eval '_lazyspace_unpushed $up feat/u && [[ $REPLY == "2 commits on feat/u aren'"'"'t on origin;"* ]]'
+git -C $repo worktree lock --reason '{"build":"1","owner":"supacode","version":"0.10.8"}' $up
+check 'lock owner is read from the reason' eval '_lazyspace_locked $up && [[ $REPLY == "locked by supacode" ]]'
+check 'rm refuses a locked worktree without tty' eval 'out=$(lazyspace rm -D feat/u </dev/null 2>&1); (( $? )) && [[ $out == *"is locked by supacode (use -f)" ]] && test -d $up'
+_lazyspace_tmux new-session -d -s uirm -x 160 -y 10 "zsh -fc 'source $ROOT/lazyspace.zsh; _lazyspace_ui_rm $up; sleep 3'"
+waitpane uirm 'Remove worktree'
+check 'rm prompt shows ~ paths' waitpane uirm 'Remove worktree ~/wt/app/feat-u?'
+_lazyspace_tmux send-keys -t '=uirm:' y
+check 'rm prompt warns about unpushed commits' waitpane uirm 'Warning: 2 commits on feat/u'
+check 'rm prompt says only the local branch goes' waitpane uirm 'Also delete local branch feat/u? (the remote is untouched)'
+_lazyspace_tmux send-keys -t '=uirm:' n
+check 'rm prompt asks about the lock' waitpane uirm 'feat-u is locked by supacode. Remove anyway?'
+_lazyspace_tmux send-keys -t '=uirm:' y
+retry 'test ! -e $up'
+check 'rm keeps the branch when told not to delete it' eval 'test ! -e $up && git -C $repo show-ref -q --verify refs/heads/feat/u'
+_lazyspace_tmux kill-session -t '=uirm' 2>/dev/null
 
 # d on a main worktree offers to forget the repo instead
 lazyspace add $other >/dev/null

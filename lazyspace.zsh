@@ -538,11 +538,24 @@ _lazyspace_open() {
   fi
 }
 
-# lazyspace rm [worktree] [-f] [-D]
+# REPLY="locked by <owner>" / "locked (<reason>)" if worktree $1 is locked
+# (e.g. by Supacode, which writes JSON with an owner); fails if it isn't
+_lazyspace_locked() {
+  local gd why
+  gd=$(git -C $1 rev-parse --absolute-git-dir 2>/dev/null) && [[ -e $gd/locked ]] || return 1
+  why=$(<$gd/locked)
+  if [[ $why == *'"owner":"'* ]]; then
+    REPLY="locked by ${${why#*\"owner\":\"}%%\"*}"
+  else
+    REPLY="locked${why:+ ($why)}"
+  fi
+}
+
+# lazyspace rm [worktree] [-f] [-D] — -f also overrides a lock
 _lazyspace_rm() {
-  local -a o_f o_D
+  local -a o_f o_D rmf
   zparseopts -D -E -F f=o_f D=o_D || return 1
-  local p repo br s force
+  local p repo br s force locked
   if [[ -n $1 ]]; then
     _lazyspace_resolve $1 || { _lazyspace_err "no unique worktree for '$1' ($REPLY matches)"; return 1 }
     p=$REPLY
@@ -553,16 +566,28 @@ _lazyspace_rm() {
   repo=$REPLY
   [[ ${p:A} == ${repo:A} ]] && { _lazyspace_err "refusing to remove the main worktree: $p"; return 1 }
   (( $#o_f )) && force=1
+  if _lazyspace_locked $p; then
+    locked=1
+    if [[ -z $force ]]; then
+      [[ -t 0 ]] || { _lazyspace_err "$p is $REPLY (use -f)"; return 1 }
+      print -rn -- "${p/#$HOME/~} is $REPLY. Remove anyway? [y/N] "
+      read -q </dev/tty || { print; return 1 }
+      print
+      force=1
+    fi
+  fi
   if [[ -z $force && -n $(git -C $p status --porcelain 2>/dev/null) ]]; then
     [[ -t 0 ]] || { _lazyspace_err "$p has changes (use -f)"; return 1 }
-    print -n "$p has uncommitted changes. Remove anyway? [y/N] "
+    print -rn -- "${p/#$HOME/~} has uncommitted changes. Remove anyway? [y/N] "
     read -q </dev/tty || { print; return 1 }
     print
     force=1
   fi
   br=$(git -C $p branch --show-current)
   _lazyspace_session $repo $p 0; s=$REPLY
-  git -C $repo worktree remove ${force:+--force} $p || return 1
+  # git wants --force twice for a locked worktree
+  [[ -n $force ]] && rmf=(--force ${locked:+--force})
+  git -C $repo worktree remove $rmf $p || return 1
   (( $#o_D )) && [[ -n $br ]] && git -C $repo branch -q -D $br
   # last: this may kill the shell we are running in
   _lazyspace_tmux kill-session -t "=$s" 2>/dev/null
@@ -599,8 +624,12 @@ _lazyspace_run() {
 _lazyspace_ui() {
   local -a o_w
   zparseopts -D -E w=o_w
-  local bin=${(q)LAZYSPACE_DIR}/bin/lazyspace k q=$1 out view=${o_w:+windows}
+  local bin=${(q)LAZYSPACE_DIR}/bin/lazyspace k q=$1 out view=${o_w:+windows} rows sel i
   local -a binds lines start
+  # coming back from a session, the first load puts the cursor on the row we
+  # left (sel: its path or window target); this file hands that over once
+  local -x LAZYSPACE_POSFILE=${TMPDIR:-/tmp}/lazyspace-$UID/pos.$$
+  mkdir -p -m 700 ${LAZYSPACE_POSFILE:h}
   # start on the Windows view when tmux has any (unless given a query)
   [[ -z $view && -z $q && -n $(_lazyspace_tmux list-windows -a -F x 2>/dev/null) ]] && view=windows
   # Query changes emitted by a transform are ignored by fzf, so the
@@ -616,20 +645,28 @@ _lazyspace_ui() {
       start=(--list-label ' Worktrees · loading… ' --footer "$_LAZYSPACE_FOOTER_WT" --preview-window $_LAZYSPACE_PW)
     fi
     [[ -n $q ]] && start+=(--bind "start:show-input+unbind($_LAZYSPACE_LETTERS)")
-    out=$({ if [[ $view == windows ]]; then _lazyspace_winrows; else _lazyspace_rows; fi } |
+    if [[ $view == windows ]]; then rows=$(_lazyspace_winrows); else rows=$(_lazyspace_rows); fi
+    rm -f $LAZYSPACE_POSFILE
+    if [[ -n $sel ]]; then
+      lines=(${(f)rows})
+      k=$'\t'  # $'\t' isn't expanded inside the subscript
+      i=${lines[(i)*$k${(b)sel}$k*]}
+      (( i <= $#lines )) && print $i >$LAZYSPACE_POSFILE
+    fi
+    out=$(print -r -- $rows |
       fzf --ansi --style full --layout reverse --no-input --no-sort \
       --delimiter '\t' --with-nth 3 --query "$q" \
       --border-label ' lazyspace ' --preview-label ' Details ' \
       --preview "$bin _preview {1} {2}" --pointer '▌' --gutter ' ' --info inline-right \
       --bind 'j:down,k:up' $start $binds) || return 0
-    q=
+    q= sel=
     lines=(${(f)out})
     case $lines[1] in
-      (open) view=; _lazyspace_open_path $lines[2] || _lazyspace_pause ;;
+      (open) view= sel=$lines[2]; _lazyspace_open_path $sel || _lazyspace_pause ;;
       (new) view=; _lazyspace_ui_new $lines[2] || continue
-            _lazyspace_open_path $REPLY ;;
-      (window) view=windows; _lazyspace_open_window $lines[2] || _lazyspace_pause ;;
-      (*) return 0 ;;
+            sel=$REPLY; _lazyspace_open_path $sel ;;
+      (window) view=windows sel=$lines[2]; _lazyspace_open_window $sel || _lazyspace_pause ;;
+      (*) rm -f $LAZYSPACE_POSFILE; return 0 ;;
     esac
     [[ -n $TMUX ]] && return 0
   done
@@ -642,16 +679,22 @@ _lazyspace_wtload() {
   REPLY="change-list-label( Worktrees${1:+: $1} · loading… )+reload($bin _rows ${(q)1})"
 }
 
-# fzf load event: after the plain rows, fetch the ones with git status
+# fzf load event: move to the row handed over in $LAZYSPACE_POSFILE (once),
+# and after the plain worktree rows, fetch the ones with git status
 _lazyspace_loaded() {
   local bin=${(q)LAZYSPACE_DIR}/bin/lazyspace lbl=${${FZF_LIST_LABEL# }% } base f
+  local -a acts
+  if [[ -n $LAZYSPACE_POSFILE && -s $LAZYSPACE_POSFILE ]]; then
+    acts+=("pos($(<$LAZYSPACE_POSFILE))")
+    rm -f $LAZYSPACE_POSFILE
+  fi
   base=${lbl% · *}
-  [[ $base == Worktrees* ]] || return 0
   [[ $base == 'Worktrees: '* ]] && f=${base#Worktrees: }
   case $lbl in
-    (*' · loading…') print -r -- "change-list-label( $base · checking status… )+reload-sync($bin _rows -s ${(q)f})" ;;
-    (*' · checking status…') print -r -- "change-list-label( $base )" ;;
+    (Worktrees*' · loading…') acts+=("change-list-label( $base · checking status… )+reload-sync($bin _rows -s ${(q)f})") ;;
+    (Worktrees*' · checking status…') acts+=("change-list-label( $base )") ;;
   esac
+  (( $#acts )) && print -r -- ${(j:+:)acts}
 }
 
 # Key dispatcher: prints fzf actions. Args: row kind, row path.
@@ -738,22 +781,40 @@ _lazyspace_ui_forget() {
   print
 }
 
+# REPLY=warning when branch $2 (seen from worktree $1) has commits that no
+# remote has (as of the last fetch), else empty
+_lazyspace_unpushed() {
+  local n s
+  n=$(git -C $1 rev-list --count refs/heads/$2 --not --remotes 2>/dev/null) || n=0
+  REPLY=
+  (( n )) || return 0
+  (( n == 1 )) && s="1 commit" || s="$n commits"
+  if git -C $1 show-ref -q --verify refs/remotes/origin/$2; then
+    REPLY="$s on $2 aren't on origin; deleting the branch drops them"
+  else
+    REPLY="$2 was never pushed; deleting it drops its $s"
+  fi
+  REPLY+=" (git reflog can still find them for a while)"
+}
+
 _lazyspace_ui_rm() {
   local br repo
   if _lazyspace_toplevel $1 && [[ ${1:A} == ${REPLY:A} ]]; then
     repo=$REPLY
-    print -rn -- "${1/#$HOME/\~} is the repo itself, not a removable worktree. Forget ${repo:t} instead? (files are kept) [y/N] "
+    print -rn -- "${1/#$HOME/~} is the repo itself, not a removable worktree. Forget ${repo:t} instead? (files are kept) [y/N] "
     read -q </dev/tty && _lazyspace_forget $repo
     print
     return
   fi
   br=$(git -C $1 branch --show-current 2>/dev/null)
-  print -rn -- "Remove worktree ${1/#$HOME/\~}? [y/N] "
+  print -rn -- "Remove worktree ${1/#$HOME/~}? [y/N] "
   read -q </dev/tty || { print; return }
   print
   local -a flags
   if [[ -n $br ]]; then
-    print -n "Also delete branch $br? [y/N] "
+    _lazyspace_unpushed $1 $br
+    [[ -n $REPLY ]] && print -r -- $'\e[33mWarning:\e[0m '$REPLY
+    print -rn -- "Also delete local branch $br? (the remote is untouched) [y/N] "
     read -q </dev/tty && flags+=(-D)
     print
   fi
@@ -773,7 +834,8 @@ lazyspace — git worktrees, each in its own tmux session
                                  create a worktree (+ .lazyspace copy/setup) and open it
   lazyspace open [worktree]      attach/switch to a worktree's session
   lazyspace rm [worktree] [-f] [-D]
-                                 remove a worktree (-D: delete its branch too)
+                                 remove a worktree (-f: even if dirty or locked,
+                                 -D: delete its local branch too)
   lazyspace run [worktree]       (re)start the .lazyspace run= command in window "run"
   lazyspace windows              open the TUI on all tmux windows (enter switches)
 
