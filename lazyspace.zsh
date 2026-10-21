@@ -608,19 +608,19 @@ _lazyspace_ui() {
   local reset="+clear-query+hide-input+rebind($_LAZYSPACE_LETTERS)"
   for k in / n d r a R q; do binds+=(--bind "${k}:transform:$bin _key {1} {2}"); done
   for k in enter tab esc w; do binds+=(--bind "${k}:transform($bin _key {1} {2})$reset"); done
+  binds+=(--bind "load:transform:$bin _loaded")
   while :; do
     if [[ $view == windows ]]; then
       start=(--list-label ' Windows ' --footer "$_LAZYSPACE_FOOTER_WIN" --preview-window $_LAZYSPACE_PW_WIN)
     else
-      start=(--list-label ' Worktrees ' --footer "$_LAZYSPACE_FOOTER_WT" --preview-window $_LAZYSPACE_PW
-        --bind "start:reload($bin _rows -s)")
+      start=(--list-label ' Worktrees · loading… ' --footer "$_LAZYSPACE_FOOTER_WT" --preview-window $_LAZYSPACE_PW)
     fi
     [[ -n $q ]] && start+=(--bind "start:show-input+unbind($_LAZYSPACE_LETTERS)")
     out=$({ if [[ $view == windows ]]; then _lazyspace_winrows; else _lazyspace_rows; fi } |
       fzf --ansi --style full --layout reverse --no-input --no-sort \
       --delimiter '\t' --with-nth 3 --query "$q" \
       --border-label ' lazyspace ' --preview-label ' Details ' \
-      --preview "$bin _preview {1} {2}"       --pointer '▌' --gutter ' ' --info inline-right \
+      --preview "$bin _preview {1} {2}" --pointer '▌' --gutter ' ' --info inline-right \
       --bind 'j:down,k:up' $start $binds) || return 0
     q=
     lines=(${(f)out})
@@ -635,17 +635,37 @@ _lazyspace_ui() {
   done
 }
 
+# The Worktrees view loads in two steps, tracked in the list label: plain
+# rows first ("· loading…"), then _lazyspace_loaded swaps in rows with git
+# status ("· checking status…"). Worktrees view filtered to repo $1:
+_lazyspace_wtload() {
+  REPLY="change-list-label( Worktrees${1:+: $1} · loading… )+reload($bin _rows ${(q)1})"
+}
+
+# fzf load event: after the plain rows, fetch the ones with git status
+_lazyspace_loaded() {
+  local bin=${(q)LAZYSPACE_DIR}/bin/lazyspace lbl=${${FZF_LIST_LABEL# }% } base f
+  base=${lbl% · *}
+  [[ $base == Worktrees* ]] || return 0
+  [[ $base == 'Worktrees: '* ]] && f=${base#Worktrees: }
+  case $lbl in
+    (*' · loading…') print -r -- "change-list-label( $base · checking status… )+reload-sync($bin _rows -s ${(q)f})" ;;
+    (*' · checking status…') print -r -- "change-list-label( $base )" ;;
+  esac
+}
+
 # Key dispatcher: prints fzf actions. Args: row kind, row path.
 _lazyspace_key() {
   local bin=${(q)LAZYSPACE_DIR}/bin/lazyspace kind=$1 p=$2 qp=${(q)2}
-  local lbl=${${FZF_LIST_LABEL# }% } rl foot=$_LAZYSPACE_FOOTER_WT out
+  local lbl=${${${FZF_LIST_LABEL# }% }% · *} rl foot=$_LAZYSPACE_FOOTER_WT out wt
   local win="change-list-label( Windows )+change-footer($_LAZYSPACE_FOOTER_WIN)+change-preview-window($_LAZYSPACE_PW_WIN)+reload($bin _winrows)+first"
   local pw="change-preview-window($_LAZYSPACE_PW)"
+  _lazyspace_wtload; wt=$REPLY
   case $lbl in
     (Repos) rl="reload($bin _reporows)"; foot=$_LAZYSPACE_FOOTER_REPO ;;
     (Windows) rl="reload($bin _winrows)"; foot=$_LAZYSPACE_FOOTER_WIN ;;
-    ('Worktrees: '*) rl="reload($bin _rows -s ${(q)lbl#Worktrees: })" ;;
-    (*) rl="reload($bin _rows -s)" ;;
+    ('Worktrees: '*) _lazyspace_wtload ${lbl#Worktrees: }; rl=$REPLY ;;
+    (*) rl=$wt ;;
   esac
   case $FZF_KEY in
     (/) print -r -- "show-input+unbind($_LAZYSPACE_LETTERS)" ;;
@@ -656,14 +676,15 @@ _lazyspace_key() {
     (tab)
       case $lbl in
         (Repos) print -r -- $win ;;
-        (Windows) print -r -- "change-list-label( Worktrees )+change-footer($_LAZYSPACE_FOOTER_WT)+$pw+reload($bin _rows -s)+first" ;;
+        (Windows) print -r -- "change-footer($_LAZYSPACE_FOOTER_WT)+$pw+$wt+first" ;;
         (*) print -r -- "change-list-label( Repos )+change-footer($_LAZYSPACE_FOOTER_REPO)+reload($bin _reporows)+first" ;;
       esac ;;
     (w) print -r -- $win ;;
     (enter)
       [[ -n $p ]] || return 0
       if [[ $kind == r ]]; then
-        print -r -- "change-list-label( Worktrees: ${p:t} )+change-footer($_LAZYSPACE_FOOTER_WT)+reload($bin _rows -s ${(q)p:t})+first"
+        _lazyspace_wtload ${p:t}
+        print -r -- "change-footer($_LAZYSPACE_FOOTER_WT)+$REPLY+first"
       elif [[ $kind == t ]]; then
         print -r -- "become(printf '%s\\n' window $qp)"
       else
@@ -673,7 +694,7 @@ _lazyspace_key() {
     (a)
       # a filtered list would hide the new repo
       if [[ $lbl == Repos ]]; then print -r -- "execute($bin _ui_add)+$rl"
-      else print -r -- "execute($bin _ui_add)+change-list-label( Worktrees )+change-footer($_LAZYSPACE_FOOTER_WT)+$pw+reload($bin _rows -s)"; fi ;;
+      else print -r -- "execute($bin _ui_add)+change-footer($_LAZYSPACE_FOOTER_WT)+$pw+$wt"; fi ;;
     (d)
       [[ -n $p ]] || return 0
       case $kind in
