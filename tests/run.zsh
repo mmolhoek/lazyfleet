@@ -6,6 +6,8 @@ ROOT=${0:A:h:h}
 SANDBOX=${$(mktemp -d):A}
 export HOME=$SANDBOX XDG_CONFIG_HOME=$SANDBOX/.config LAZYSPACE_WORKTREES=$SANDBOX/wt TMPDIR=$SANDBOX/tmp
 mkdir -p $TMPDIR
+# keep the test tmux server's socket in the sandbox, so it goes away with it
+export TMUX_TMPDIR=$SANDBOX
 export LAZYSPACE_TMUX="tmux -L lazyspace-test-$$" SHELL=/bin/zsh
 unset TMUX
 source $ROOT/lazyspace.zsh
@@ -32,7 +34,6 @@ print '.env' > .gitignore
 cat > .lazyspace <<'EOF'
 # test config
 setup=touch .setup-ran
-run=echo run-$RANDOM > .run-out; sleep 60
 copy=.env
 EOF
 git add -A && git commit -qm init
@@ -45,11 +46,25 @@ check 'add deduplicates' test "$(lazyspace repos | wc -l | tr -d ' ')" = 1
 
 # 2. new
 p=$LAZYSPACE_WORKTREES/app/feat-x
-lazyspace new feat/x --no-open >/dev/null
+lazyspace new feat/x --no-open >/dev/null 2>$SANDBOX/new.err
 check 'new creates worktree' test -d $p
+check 'new reports the branch' gq -F 'branch  feat/x (new, from HEAD)' $SANDBOX/new.err
+check 'new reports what it copied' gq -F 'copy    .env  from ~/src/app (.lazyspace)' $SANDBOX/new.err
+check 'new reports the setup' gq -F 'setup   touch .setup-ran  (.lazyspace) → running in session app/feat-x' $SANDBOX/new.err
 check 'new copies .env' test -f $p/.env
 check 'new creates session' _lazyspace_tmux has-session -t '=app/feat-x'
 check 'new runs setup' waitfor $p/.setup-ran
+cfg=$XDG_CONFIG_HOME/lazyspace/config
+mkdir -p ${cfg:h}
+print -l '[app]' 'copy=.env .nope' 'setup=' '  touch .ml-a' '  touch .ml-b' >$cfg
+lazyspace new feat/sum --no-open >/dev/null 2>$SANDBOX/new.err
+check 'new names the config section' gq -F '(~/.config/lazyspace/config [app])' $SANDBOX/new.err
+check 'new reports skipped copies' gq -F 'skipped .nope: not in the main worktree' $SANDBOX/new.err
+check 'new shows a multi-line setup' eval 'gq -F "setup   2-line script" $SANDBOX/new.err && gq -F "touch .ml-b" $SANDBOX/new.err'
+check 'multi-line setup announces itself' eval 'head -1 $TMPDIR/lazyspace-$UID/app-feat-sum.setup | gq "lazyspace: .*setup= from"'
+check 'multi-line setup still runs' waitfor $LAZYSPACE_WORKTREES/app/feat-sum/.ml-b
+rm $cfg
+lazyspace rm -f -D feat/sum
 check 'new refuses existing' eval '! lazyspace new feat/x --no-open 2>/dev/null'
 
 # 3. ls / status
@@ -60,26 +75,28 @@ check 'ls dirty shows *' eval 'lazyspace ls | grep "feat/x" | gq "\*"'
 check 'resolve by branch' eval '_lazyspace_resolve feat/x && [[ $REPLY == $p ]]'
 check 'resolve by session' eval '_lazyspace_resolve app/feat-x && [[ $REPLY == $p ]]'
 
-# 4. run
-lazyspace run feat/x
-check 'run creates window' waitfor $p/.run-out
-first=$(<$p/.run-out)
-rm $p/.run-out
-lazyspace run feat/x
-waitfor $p/.run-out
-check 'run respawns (single window)' test "$(_lazyspace_tmux list-windows -t '=app/feat-x' -F '#W' | grep -cx run)" = 1
-check 'run re-ran the command' test "$(<$p/.run-out)" != "$first"
+# 4. config lookup
 cfg=$XDG_CONFIG_HOME/lazyspace/config
-print -l '[other]' 'run=touch .wrong-out' '[app]' 'run=touch .cfg-out' >$cfg
-lazyspace run feat/x
-check 'run prefers personal config section' waitfor $p/.cfg-out
-check 'run ignores other sections' test ! -e $p/.wrong-out
-print -l "[${repo/#$HOME/~}]" 'run=touch .path-out' >$cfg
-lazyspace run feat/x
-check 'config section by ~ path' waitfor $p/.path-out
+pcfg=$XDG_CONFIG_HOME/lazyspace/projects/app.conf
+rm -f $cfg $pcfg
+check 'settings start from a commented example' eval 'EDITOR=true lazyspace config </dev/null && gq "^# search=" $cfg && ! gq "^[^#]" $cfg'
+check 'config runs the editor with its args' test "$(EDITOR='print -r --' VISUAL= lazyspace config)" = $cfg
+check 'VISUAL wins over EDITOR' test "$(EDITOR=false VISUAL='print -r --' lazyspace config)" = $cfg
+check 'config <repo> opens the project file' test "$(EDITOR='print -r --' VISUAL= lazyspace config app)" = $pcfg
+check 'project file starts with the repo'"'"'s .lazyspace for reference' eval 'gq "^# lazyspace config for app " $pcfg && gq "^#   setup=touch .setup-ran" $pcfg && ! gq "^[^#]" $pcfg'
+print -l '[app]' 'setup=from-section' >$cfg
+print 'setup=from-project' >$pcfg
+check 'project file wins over a [section]' eval '_lazyspace_conf setup $p $repo && [[ $REPLY == from-project && $_lazyspace_from == "~/.config/lazyspace/projects/app.conf" ]]'
+check 'repo preview shows the project file' eval '_lazyspace_preview r $repo | gq "^setup=from-project"'
+rm -f $cfg $pcfg
+cfg=$XDG_CONFIG_HOME/lazyspace/config
+print -l '[other]' 'setup=wrong' '[app]' 'setup=from-config' >$cfg
+check 'personal config section wins, others ignored' eval '_lazyspace_conf setup $p $repo && [[ $REPLY == from-config ]]'
+print -l "[${repo/#$HOME/~}]" 'setup=by-path' >$cfg
+check 'config section by ~ path' eval '_lazyspace_conf setup $p $repo && [[ $REPLY == by-path ]]'
 cat >$cfg <<'EOF'
 [app]
-run=
+setup=
   echo one > .ml-out
 
   if true; then
@@ -89,15 +106,12 @@ run=
 other=x
 EOF
 want=$'echo one > .ml-out\n\nif true; then\n  echo two >> .ml-out\nfi\nsleep 60'
-check 'multi-line value keeps relative indent' eval '_lazyspace_conf run $p $repo && [[ $REPLY == $want ]]'
-lazyspace run feat/x
-waitfor $p/.ml-out; sleep 0.5
-check 'multi-line run executes all lines' test "$(<$p/.ml-out)" = $'one\ntwo'
-check 'multi-line run window stays alive' eval '_lazyspace_tmux list-panes -t "=app/feat-x:run" -F "#{pane_current_command}" | gq -x sleep'
+check 'multi-line value keeps relative indent' eval '_lazyspace_conf setup $p $repo && [[ $REPLY == $want ]]'
 check 'config falls through for other keys' eval '_lazyspace_conf copy $p $repo && [[ $REPLY == .env ]]'
 rm $cfg
 
 # 5. TUI rows / keys (no terminal needed)
+_lazyspace_tmux new-window -d -n extra -t '=app/feat-x:'
 check 'rows include worktree' eval '_lazyspace_rows | gq "^w	$p	"'
 check 'live marker only on worktree with session' eval '_lazyspace_rows -p | grep "^w	$repo	" | gq -v "●" && _lazyspace_rows -p | grep "^w	$p	" | gq "●"'
 check 'worktrees sorted by branch' test "$(_lazyspace_rows -p | cut -f2 | tr '\n' ' ')" = "$p $repo "
@@ -111,7 +125,7 @@ check 'reporows include repo' eval '_lazyspace_reporows | gq "^r	$repo	"'
 check 'key enter opens' eval 'FZF_KEY=enter FZF_LIST_LABEL=" Worktrees " _lazyspace_key w $p | gq "^become(printf .* open $p)$"'
 check 'key enter on repo filters' eval 'FZF_KEY=enter FZF_LIST_LABEL=" Repos " _lazyspace_key r $repo | gq "Worktrees: app"'
 check 'key a leaves filtered view' eval 'FZF_KEY=a FZF_LIST_LABEL=" Worktrees: app " _lazyspace_key w $p | tr "\n" " " | gq "change-list-label( Worktrees · loading… ).*reload(.* _rows ..) $"'
-check 'winrows list session windows' retry '_lazyspace_winrows | gq "^t	=app/feat-x:1	.*1:run"'
+check 'winrows list session windows' retry '_lazyspace_winrows | gq "^t	=app/feat-x:1	.*1:extra"'
 _lazyspace_tmux send-keys -t '=app/feat-x:0' 'echo preview-marker' Enter; sleep 0.3
 check 'window preview shows pane content' eval '_lazyspace_preview t "=app/feat-x:0" | gq preview-marker'
 check 'key enter on window switches' eval 'FZF_KEY=enter FZF_LIST_LABEL=" Windows " _lazyspace_key t "=app/feat-x:1" | gq "^become(printf .* window \\\\=app/feat-x:1)$"'
@@ -131,6 +145,10 @@ print 2 >$pf
 check 'load: handed-over row before status reload' eval 'LAZYSPACE_POSFILE=$pf FZF_LIST_LABEL=" Worktrees · loading… " _lazyspace_loaded | gq "^pos(2)+change-list-label( Worktrees · checking status… )+reload-sync("'
 check 'load: other views do nothing' test -z "$(FZF_LIST_LABEL=' Repos ' _lazyspace_loaded)"
 check 'keys see through the loading marker' eval 'FZF_KEY=R FZF_LIST_LABEL=" Worktrees: app · checking status… " _lazyspace_key w $p | gq "( Worktrees: app · loading… )+reload(.* _rows app)"'
+check 'c on a worktree opens its project config' eval 'FZF_KEY=c FZF_LIST_LABEL=" Worktrees " _lazyspace_key w $p | gq "^execute(.* config .*feat-x)+.*reload("'
+check 'c in the windows view opens the settings' eval 'FZF_KEY=c FZF_LIST_LABEL=" Windows " _lazyspace_key t x | gq "^execute(.* config)+reload(.*_winrows)$"'
+check 'C opens the settings' eval 'FZF_KEY=C FZF_LIST_LABEL=" Repos " _lazyspace_key r $repo | gq "^execute(.* config)+reload(.*_reporows)$"'
+check 'r reloads' eval 'FZF_KEY=r FZF_LIST_LABEL=" Repos " _lazyspace_key r $repo | gq "^reload(.*_reporows)"'
 check 'key esc quits when hidden' test "$(FZF_KEY=esc FZF_INPUT_STATE=hidden _lazyspace_key w $p)" = abort
 
 # attach from fzf's become (stdin is /dev/tty) must actually draw the session
@@ -156,16 +174,16 @@ check 'tui returns after session ends' waitpane tui Worktrees
 check 'tui reselects the worktree it left' retry '_lazyspace_tmux capture-pane -p -t "=tui:" | gq "▌ app  main"'
 _lazyspace_tmux kill-session -t '=tui' 2>/dev/null
 
-# windows view: filter to the run window, enter attaches to it, detach returns
+# windows view: filter to the extra window, enter attaches to it, detach returns
 _lazyspace_tmux new-session -d -s tui -x 120 -y 20 "env -u TMUX $ROOT/bin/lazyspace windows; sleep 5"
-waitpane tui '1:run'
+waitpane tui '1:extra'
 _lazyspace_tmux send-keys -t '=tui:' /; sleep 0.3
-_lazyspace_tmux send-keys -t '=tui:' -l 'feat-x 1:run'; sleep 0.5
+_lazyspace_tmux send-keys -t '=tui:' -l 'feat-x 1:extra'; sleep 0.5
 _lazyspace_tmux send-keys -t '=tui:' Enter; sleep 1
-check 'windows enter attaches to that window' eval '_lazyspace_tmux list-clients -F "#S #W" | gq -x "app/feat-x run"'
+check 'windows enter attaches to that window' eval '_lazyspace_tmux list-clients -F "#S #W" | gq -x "app/feat-x extra"'
 _lazyspace_tmux detach-client -s '=app/feat-x'
 check 'windows view returns after detach' waitpane tui Windows
-check 'windows view reselects the window it left' retry '_lazyspace_tmux capture-pane -p -t "=tui:" | gq "▌ app/feat-x *1:run"'
+check 'windows view reselects the window it left' retry '_lazyspace_tmux capture-pane -p -t "=tui:" | gq "▌ app/feat-x *1:extra"'
 _lazyspace_tmux kill-session -t '=tui' 2>/dev/null
 
 # docker: a fake docker reporting two containers from feat/x, one from elsewhere
@@ -211,13 +229,13 @@ check 'search setting from config top' eval '_lazyspace_findrepos | gq -x "~/els
 check 'env var beats config setting' eval 'LAZYSPACE_SEARCH=$SANDBOX/src _lazyspace_findrepos | gq -x "~/src/api"'
 check 'section keys are not settings' eval '_lazyspace_setting search_depth X 9 && [[ $REPLY == 2 ]] && _lazyspace_setting nope X d && [[ $REPLY == d ]]'
 print 'worktrees=~/wt2' >$cfg
-check 'worktrees setting from config' eval 'LAZYSPACE_WORKTREES= lazyspace new feat/cfg --no-open >/dev/null && test -d $SANDBOX/wt2/app/feat-cfg'
+check 'worktrees setting from config' eval 'LAZYSPACE_WORKTREES= lazyspace new feat/cfg --no-open >/dev/null 2>/dev/null && test -d $SANDBOX/wt2/app/feat-cfg'
 lazyspace rm -f -D feat/cfg
 rm $cfg
-print -l ' search=~/elsewhere' ' [app/]' ' setup=' '  echo a' '    echo b' ' run=go' >$cfg
+print -l ' search=~/elsewhere' ' [app/]' ' setup=' '  echo a' '    echo b' ' copy=go' >$cfg
 check 'indented config: setting' eval '_lazyspace_setting search X && [[ $REPLY == "~/elsewhere" ]]'
 check 'indented config: multi-line value' eval '_lazyspace_conf setup $p $repo && [[ $REPLY == $'"'"'echo a\n  echo b'"'"' ]]'
-check 'indented config: next key ends value' eval '_lazyspace_conf run $p $repo && [[ $REPLY == go ]]'
+check 'indented config: next key ends value' eval '_lazyspace_conf copy $p $repo && [[ $REPLY == go ]]'
 rm $cfg
 pick() {  # pick <query> <key>: run the picker on "alpha beta" in a pane, print REPLY
   rm -f $SANDBOX/pick.out
@@ -234,6 +252,19 @@ check 'pick takes the match' test "$(pick bet Enter)" = beta
 check 'pick takes typed name without match' test "$(pick zzz Enter)" = zzz
 check 'pick ctrl-n takes typed name' test "$(pick al C-n)" = al
 
+# TUI n: pick a new branch name, read the summary, any key opens its session
+_lazyspace_tmux new-session -d -s tui -x 120 -y 20 "env -u TMUX $ROOT/bin/lazyspace; sleep 5"
+waitpane tui ' Windows '
+_lazyspace_tmux send-keys -t '=tui:' Tab; waitpane tui 'feat/x'; sleep 0.3
+_lazyspace_tmux send-keys -t '=tui:' n; waitpane tui 'branch>'; sleep 0.3
+_lazyspace_tmux send-keys -t '=tui:' -l feat/e2e; sleep 0.3
+_lazyspace_tmux send-keys -t '=tui:' C-n
+check 'tui n shows the summary before opening' waitpane tui 'press any key to open it'
+_lazyspace_tmux send-keys -t '=tui:' x
+check 'tui n opens the new session after a key' retry '_lazyspace_tmux list-clients -F "#S" | gq -x app/feat-e2e'
+_lazyspace_tmux kill-session -t '=tui' 2>/dev/null
+lazyspace rm -f -D feat/e2e
+
 # 6. rm
 check 'rm refuses dirty without tty' eval '! lazyspace rm feat/x </dev/null 2>/dev/null'
 check 'rm refuses main worktree' eval '! lazyspace rm $repo 2>/dev/null'
@@ -247,7 +278,7 @@ bare=$SANDBOX/origin.git
 git init -q --bare $bare && git -C $repo remote add origin $bare && git -C $repo push -q origin main
 check 'no warning for a branch at a pushed commit' eval '_lazyspace_unpushed $repo feat/y && [[ -z $REPLY ]]'
 up=$LAZYSPACE_WORKTREES/app/feat-u
-lazyspace new feat/u --no-open >/dev/null
+lazyspace new feat/u --no-open >/dev/null 2>/dev/null
 git -C $up commit -q --allow-empty -m one
 check 'warning for a never-pushed branch' eval '_lazyspace_unpushed $up feat/u && [[ $REPLY == "feat/u was never pushed; deleting it drops its 1 commit"* ]]'
 git -C $up push -q origin feat/u && git -C $up commit -q --allow-empty -m two && git -C $up commit -q --allow-empty -m three

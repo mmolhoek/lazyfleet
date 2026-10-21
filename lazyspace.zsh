@@ -2,14 +2,17 @@
 # Source this file from .zshrc, then run `lazyspace` (TUI) or `lazyspace help`.
 
 typeset -g LAZYSPACE_DIR=${${(%):-%x}:A:h}
-typeset -g _LAZYSPACE_LETTERS='j,k,n,d,r,a,w,R,q'
-typeset -g _LAZYSPACE_FOOTER_WT=$'↵ open  n new  a add  d del  r run
-⇥ repos  w windows  / find  q quit'
-typeset -g _LAZYSPACE_FOOTER_REPO=$'↵ worktrees   n new   a add   d forget
-⇥ windows   / find  R reload  q quit'
-typeset -g _LAZYSPACE_FOOTER_WIN=$'↵ switch  d kill
+typeset -g _LAZYSPACE_LETTERS='j,k,n,d,r,a,w,c,C,R,q'
+typeset -g _LAZYSPACE_FOOTER_WT=$'↵ open  (n)ew worktree  (a)dd project
+(d)elete  (w)indows  (c)onfig  ⇥ repos
+/ find  (r)eload  (C) settings  (q)uit'
+typeset -g _LAZYSPACE_FOOTER_REPO=$'↵ worktrees  (n)ew worktree  (a)dd project
+(d) forget  (c)onfig  ⇥ windows
+/ find  (r)eload  (C) settings  (q)uit'
+typeset -g _LAZYSPACE_FOOTER_WIN=$'↵ switch  (d) kill
 ⇥ views  / find
-R reload  q quit'
+(r)eload  (q)uit
+(C) settings'
 # list/Details split: the Windows view is mostly preview
 typeset -g _LAZYSPACE_PW='right,50%' _LAZYSPACE_PW_WIN='right,70%'
 
@@ -28,7 +31,8 @@ _lazyspace_tmux() {
 
 _lazyspace_err() { print -ru2 -- "lazyspace: $*"; return 1 }
 
-_lazyspace_pause() { print -n 'press any key '; read -sk1 </dev/tty; print }
+# (into a local: a bare read would overwrite the caller's REPLY)
+_lazyspace_pause() { local k; print -n "${1:-press any key} "; read -sk1 k </dev/tty; print }
 
 _lazyspace_regfile() { REPLY=${XDG_CONFIG_HOME:-$HOME/.config}/lazyspace/repos }
 
@@ -140,7 +144,8 @@ _lazyspace_conf_read() {
       break
     fi
     if [[ -n $repo && $text == '['*']' ]]; then
-      sect=${${${text#\[}%\]}%/}; sect=${sect/#\~/$HOME}
+      typeset -g _lazyspace_sect=${${text#\[}%\]}
+      sect=${${_lazyspace_sect}%/}; sect=${sect/#\~/$HOME}
       [[ $sect == ${repo:t} || ( $sect == */* && ${sect:A} == ${repo:A} ) ]] && on=1 || on=
     elif [[ -n $on && $text == $key=* ]]; then
       hit=1; kind=$#lead; val=("${text#$key=}")
@@ -153,17 +158,36 @@ _lazyspace_conf_read() {
   REPLY=${(F)val}
 }
 
-# REPLY=value of key $1 for worktree $2 of repo $3: the repo's [section] in
-# ~/.config/lazyspace/config wins, then .lazyspace in the worktree, then the repo
+# REPLY=value of key $1 for worktree $2 of repo $3, from the first of:
+# ~/.config/lazyspace/projects/<repo>.conf, the repo's [section] in
+# ~/.config/lazyspace/config (older layout), .lazyspace in the worktree, then
+# in the repo. _lazyspace_from says which one it was.
 _lazyspace_conf() {
   local f
+  typeset -g _lazyspace_from=
+  _lazyspace_projconf $3; f=$REPLY
+  if [[ -r $f ]] && _lazyspace_conf_read $f $1; then
+    _lazyspace_from="${f/#$HOME/~}"
+    return 0
+  fi
   _lazyspace_regfile; f=${REPLY:h}/config
-  [[ -r $f ]] && _lazyspace_conf_read $f $1 $3 && return 0
+  if [[ -r $f ]] && _lazyspace_conf_read $f $1 $3; then
+    _lazyspace_from="${f/#$HOME/~} [$_lazyspace_sect]"
+    return 0
+  fi
   for f in $2/.lazyspace $3/.lazyspace; do
-    [[ -r $f ]] && _lazyspace_conf_read $f $1 && return 0
+    if [[ -r $f ]] && _lazyspace_conf_read $f $1; then
+      [[ $f == $2/* ]] && _lazyspace_from=.lazyspace || _lazyspace_from="${f/#$HOME/~}"
+      return 0
+    fi
   done
   REPLY=
   return 1
+}
+
+# REPLY=path of repo $1's own config file
+_lazyspace_projconf() {
+  _lazyspace_regfile; REPLY=${REPLY:h}/projects/${1:t}.conf
 }
 
 # REPLY=global setting $1: $2 (an env var) if set, else the top of
@@ -178,14 +202,18 @@ _lazyspace_setting() {
 
 # Type command $2 into tmux target $1 and press Enter. Multi-line commands are
 # sourced from file $3 (in a private tmp dir), so later lines aren't typed into
-# whatever an earlier one runs.
+# whatever an earlier one runs; the script first prints label $4 and itself.
 _lazyspace_type() {
-  local cmd=$2 f
+  local cmd=$2 f line
   if [[ $cmd == *$'\n'* ]]; then
     f=${TMPDIR:-/tmp}/lazyspace-$UID
     mkdir -p -m 700 $f || return 1
     f+=/$3
-    print -r -- $cmd >| $f
+    {
+      print -r -- "printf '\\033[36m# lazyspace: %s\\033[0m\\n' ${(qq)4}"
+      for line in ${(f)cmd}; do print -r -- "printf '\\033[2m#   %s\\033[0m\\n' ${(qq)line}"; done
+      print -r -- $cmd
+    } >| $f
     cmd="source ${(q)f}"
   fi
   _lazyspace_tmux send-keys -t $1 -l -- "$cmd" \; send-keys -t $1 Enter
@@ -470,6 +498,8 @@ _lazyspace_preview() {
     print -r -- $'\e[1m'${p:t}$'\e[0m  '${p/#$HOME/\~}
     print
     for e in ${(f)"$(git -C $p worktree list)"}; do print -r -- ${e/#$HOME/\~}; done
+    _lazyspace_projconf $p
+    [[ -r $REPLY ]] && { print; print -r -- $'\e[1m'${REPLY/#$HOME/\~}$'\e[0m'; print -r -- "$(<$REPLY)" }
     [[ -r $p/.lazyspace ]] && { print; print -r -- $'\e[1m.lazyspace\e[0m'; print -r -- "$(<$p/.lazyspace)" }
     return
   fi
@@ -542,25 +572,50 @@ _lazyspace_new() {
   _lazyspace_setting worktrees LAZYSPACE_WORKTREES ~/.lazyspace/worktrees
   p=${~REPLY}/${repo:t}/${br//\//-}
   [[ -e $p ]] && { _lazyspace_err "already exists: $p"; return 1 }
+  # what we did goes to stderr (stdout is the path, for scripts and the TUI)
+  local how bold=$'\e[1m' dim=$'\e[2m' off=$'\e[0m'
+  [[ -t 2 ]] || bold= dim= off=
   if git -C $repo show-ref -q --verify refs/heads/$br; then
+    how='existing local branch'
     git -C $repo worktree add -q $p $br
   elif git -C $repo show-ref -q --verify refs/remotes/origin/$br; then
+    how="new, tracking origin/$br"
     git -C $repo worktree add -q --track -b $br $p origin/$br
   else
     base=${o_b[2]:-$(git -C $repo symbolic-ref -q --short refs/remotes/origin/HEAD)}
+    how="new, from ${base:-HEAD}"
     git -C $repo worktree add -q -b $br $p ${base:-HEAD}
   fi || return 1
+  print -ru2 -- "${bold}lazyspace: new worktree ${p/#$HOME/~}$off"
+  print -ru2 -- "  branch  $br $dim($how)$off"
 
   local f
+  local -a copied skipped
   if _lazyspace_conf copy $p $repo; then
     for f in ${=REPLY}; do
-      [[ -e $repo/$f ]] && mkdir -p $p/${f:h} && cp -R $repo/$f $p/$f
+      if [[ -e $repo/$f ]]; then
+        mkdir -p $p/${f:h} && cp -R $repo/$f $p/$f && copied+=($f)
+      else
+        skipped+=($f)
+      fi
     done
+    (( $#copied )) && print -ru2 -- "  copy    $copied  ${dim}from ${repo/#$HOME/~} ($_lazyspace_from)$off"
+    for f in $skipped; do print -ru2 -- "  ${(l:8:)}skipped $f: not in the main worktree"; done
+  else
+    print -ru2 -- "  copy    ${dim}nothing (no copy= in .lazyspace or ~/.config/lazyspace/config)$off"
   fi
   _lazyspace_ensure $p || return 1
   local s=$REPLY
   if _lazyspace_conf setup $p $repo; then
-    _lazyspace_type "=${s}:" "$REPLY" ${s//\//-}.setup
+    if [[ $REPLY == *$'\n'* ]]; then
+      print -ru2 -- "  setup   ${#${(f)REPLY}}-line script ${dim}($_lazyspace_from) → running in session $s:$off"
+      for f in ${(f)REPLY}; do print -ru2 -- "          $dim$f$off"; done
+    else
+      print -ru2 -- "  setup   $REPLY  ${dim}($_lazyspace_from) → running in session $s$off"
+    fi
+    _lazyspace_type "=${s}:" "$REPLY" ${s//\//-}.setup "setup= from $_lazyspace_from"
+  else
+    print -ru2 -- "  setup   ${dim}nothing (no setup= configured)$off"
   fi
   print -r -- $p
   (( $#o_n )) || _lazyspace_open_path $p
@@ -635,28 +690,6 @@ _lazyspace_rm() {
   return 0
 }
 
-# lazyspace run [worktree] — (re)start the .lazyspace run= command in window "run"
-_lazyspace_run() {
-  local p repo cmd s
-  if [[ -n $1 ]]; then
-    _lazyspace_resolve $1 || { _lazyspace_err "no unique worktree for '$1'"; return 1 }
-    p=$REPLY
-  else
-    p=$(git rev-parse --show-toplevel 2>/dev/null) || { _lazyspace_err 'not in a worktree'; return 1 }
-  fi
-  _lazyspace_toplevel $p; repo=$REPLY
-  _lazyspace_conf run $p $repo || { _lazyspace_err "no run= for ${repo:t} in .lazyspace or ~/.config/lazyspace/config"; return 1 }
-  cmd=$REPLY
-  _lazyspace_ensure $p || return 1
-  s=$REPLY
-  if (( ${${(f)"$(_lazyspace_tmux list-windows -t "=$s" -F '#W')"}[(Ie)run]} )); then
-    _lazyspace_tmux respawn-window -k -c $p -t "=${s}:run"
-  else
-    _lazyspace_tmux new-window -d -n run -c $p -t "=${s}:"
-  fi
-  _lazyspace_type "=${s}:run" "$cmd" ${s//\//-}.run
-}
-
 # --- TUI --------------------------------------------------------------------
 
 # fzf exits with an action ("open"/"new" + path); outside tmux we come back
@@ -676,7 +709,7 @@ _lazyspace_ui() {
   # Query changes emitted by a transform are ignored by fzf, so the
   # view-switching keys reset the input with directly chained actions.
   local reset="+clear-query+hide-input+rebind($_LAZYSPACE_LETTERS)"
-  for k in / n d r a R q; do binds+=(--bind "${k}:transform:$bin _key {1} {2}"); done
+  for k in / n d r a c C R q; do binds+=(--bind "${k}:transform:$bin _key {1} {2}"); done
   for k in enter tab esc w; do binds+=(--bind "${k}:transform($bin _key {1} {2})$reset"); done
   binds+=(--bind "load:transform:$bin _loaded")
   while :; do
@@ -756,7 +789,12 @@ _lazyspace_key() {
     (esc)
       [[ $FZF_INPUT_STATE == hidden ]] && print abort ;;
     (q) print abort ;;
-    (R) print -r -- "$rl+change-footer($foot)" ;;
+    (c)
+      # the row's project; the Windows view has none, so the settings
+      if [[ $kind == [wr] && -n $p ]]; then print -r -- "execute($bin config $qp)+$rl"
+      else print -r -- "execute($bin config)+$rl"; fi ;;
+    (C) print -r -- "execute($bin config)+$rl" ;;
+    (r|R) print -r -- "$rl+change-footer($foot)" ;;
     (tab)
       case $lbl in
         (Repos) print -r -- $win ;;
@@ -786,10 +824,6 @@ _lazyspace_key() {
         (t) print -r -- "execute($bin _ui_killwin $qp)+$rl" ;;
         (*) print -r -- "execute($bin _ui_rm $qp)+$rl" ;;
       esac ;;
-    (r)
-      [[ $kind == w ]] || return 0
-      if out=$(_lazyspace_run $p 2>&1); then print -r -- "$rl+change-footer($foot)"
-      else print -r -- "change-footer( ${${out#lazyspace: }//[()]/} )"; fi ;;
   esac
 }
 
@@ -803,11 +837,53 @@ _lazyspace_ui_new() {
   _lazyspace_branches $repo | _lazyspace_pick "New worktree in ${repo:t}" 'branch> ' || return 1
   br=$REPLY
   REPLY=$(_lazyspace_new --no-open -r $repo $br) || { _lazyspace_pause; return 1 }
+  _lazyspace_pause 'press any key to open it'
 }
 
 _lazyspace_ui_add() {
   _lazyspace_findrepos | _lazyspace_pick 'Add repo' 'repo> ' || return 0
   _lazyspace_add ${REPLY/#\~/$HOME} >/dev/null || _lazyspace_pause
+}
+
+# lazyspace config [repo] — edit the global settings, or a repo's own config
+# file, in $VISUAL/$EDITOR; a missing file starts as a commented example
+_lazyspace_config() {
+  local f repo
+  if [[ -n $1 ]]; then
+    _lazyspace_find_repo $1 || _lazyspace_toplevel $1 || { _lazyspace_err "unknown repo: $1"; return 1 }
+    repo=$REPLY
+    _lazyspace_projconf $repo; f=$REPLY
+  else
+    _lazyspace_regfile; f=${REPLY:h}/config
+  fi
+  if [[ ! -e $f ]]; then
+    mkdir -p ${f:h}
+    if [[ -n $repo ]]; then
+      {
+        print -r -- "# lazyspace config for ${repo:t} (${repo/#$HOME/~}). Lines starting with # are ignored."
+        print -r -- "# Used for new worktrees; wins over the repo's .lazyspace. Indent lines to continue a value."
+        print -r -- "# copy=.env .env.local"
+        print -r -- "# setup="
+        print -r -- "#   npm ci"
+        if [[ -r $repo/.lazyspace ]]; then
+          print -r -- "#"
+          print -r -- "# The repo's .lazyspace currently has:"
+          print -rl -- "#   "${^${(f)"$(<$repo/.lazyspace)"}}
+        fi
+      } >$f
+    else
+      cat >$f <<'EOF'
+# lazyspace settings. Lines starting with # are ignored.
+# Env vars LAZYSPACE_SEARCH, LAZYSPACE_SEARCH_DEPTH and LAZYSPACE_WORKTREES
+# win over these. Per-project copy=/setup= go in projects/<name>.conf
+# (press c on a project in lazyspace).
+# search=~/Projects ~/work
+# search_depth=4
+# worktrees=~/.lazyspace/worktrees
+EOF
+    fi
+  fi
+  ${=${VISUAL:-${EDITOR:-vi}}} $f
 }
 
 _lazyspace_ui_killwin() {
@@ -890,13 +966,13 @@ lazyspace — git worktrees, each in its own tmux session
   lazyspace rm [worktree] [-f] [-D]
                                  remove a worktree (-f: even if dirty or locked,
                                  -D: delete its local branch too)
-  lazyspace run [worktree]       (re)start the .lazyspace run= command in window "run"
   lazyspace windows              open the TUI on all tmux windows (enter switches)
+  lazyspace config [repo]        edit the settings, or a repo's copy=/setup= file, in $EDITOR
 
 .lazyspace (repo root, key=value; indent lines to continue a value):
-  setup=…  run=…  copy=file1 file2
-~/.config/lazyspace/config: the same keys under [repo-name] or [/path/to/repo];
-  at the top, before any section: search=dirs  search_depth=n  worktrees=dir
+  setup=…  copy=file1 file2
+~/.config/lazyspace/projects/<repo>.conf: the same keys, for one repo (wins)
+~/.config/lazyspace/config: search=dirs  search_depth=n  worktrees=dir
 EOF
 }
 
@@ -908,7 +984,7 @@ lazyspace() {
     # run the TUI from disk: its key bindings call bin/lazyspace, so a shell
     # that sourced an older version would otherwise mix old and new code
     ('') $LAZYSPACE_DIR/bin/lazyspace _ui ;;
-    (add|forget|new|open|rm|run|ls) _lazyspace_$cmd "$@" ;;
+    (add|forget|new|open|rm|ls|config) _lazyspace_$cmd "$@" ;;
     (windows) $LAZYSPACE_DIR/bin/lazyspace _ui -w ;;
     (repos) _lazyspace_repos; print -rl -- $reply ;;
     (help|-h|--help) _lazyspace_help ;;
