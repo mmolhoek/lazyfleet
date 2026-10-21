@@ -359,6 +359,16 @@ _lazyspace_setup_run api-feat/x $SANDBOX 'print two'
 check 'setup scripts are per run' eval 'scripts=($TMPDIR/lazyspace-$UID/api-feat-x.setup.*(N)); (( $#scripts == 2 )) && gq -x "print one" $scripts[1] $scripts[2] && gq -x "print two" $scripts[1] $scripts[2]'
 _lazyspace_tmux kill-session -t '=api/feat-x' 2>/dev/null; _lazyspace_tmux kill-session -t '=api-feat/x' 2>/dev/null
 
+# setup sees the worktree's direnv env, which its prompt hook hasn't loaded yet
+mkdir -p $HOME/bin
+print -l '#!/bin/sh' '[ "$1 $2" = "export zsh" ] && echo "export LZS_DIRENV=loaded;"' >$HOME/bin/direnv
+chmod +x $HOME/bin/direnv
+print -r -- 'path=(~/bin $path)' >>$HOME/.zshrc
+_lazyspace_setup_run direnvtest $SANDBOX 'print -r -- $LZS_DIRENV >~/direnv.out'
+check 'setup loads direnv first' eval 'waitfor ~/direnv.out && gq -x loaded ~/direnv.out'
+_lazyspace_tmux kill-session -t '=direnvtest' 2>/dev/null
+rm -rf $HOME/bin ~/direnv.out
+
 # rm -D reports a failed branch delete
 lazyspace new feat/lockref --no-open >/dev/null 2>&1
 mkdir -p $repo/.git/refs/heads/feat && : >$repo/.git/refs/heads/feat/lockref.lock

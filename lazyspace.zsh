@@ -244,8 +244,13 @@ _lazyspace_setup_run() {
     for line; do print -r -- "printf '\\033[2m%s\\033[0m\\n' ${(qq)line}"; done
     print -r -- $cmd
   } >| $f
-  src="source ${(q)f}"
-  [[ ${sh:t} == fish ]] && src="/bin/sh ${(q)f}"
+  # a -c command runs before the first prompt, so direnv's prompt hook hasn't
+  # loaded this worktree's .envrc yet (or still has another one's): load it first
+  case ${sh:t} in
+    (fish) src="command -q direnv; and direnv export fish | source; /bin/sh ${(q)f}" ;;
+    (bash|zsh) src="command -v direnv >/dev/null 2>&1 && eval \"\$(direnv export ${sh:t})\"; source ${(q)f}" ;;
+    (*) src="source ${(q)f}" ;;
+  esac
   run="$sh -ic ${(qq)src}; printf '\\n\\033[2m# lazyspace: setup finished (exit %s)\\033[0m\\n' \$?; exec $sh -l"
   # tmux runs a command through its default-shell ($SHELL), which may not be POSIX
   run="/bin/sh -c ${(qq)run}"
