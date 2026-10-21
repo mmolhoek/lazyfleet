@@ -2,7 +2,9 @@
 
 A tiny, shell-only take on [Supacode](https://supacode.sh): git worktrees, each with its own tmux session, driven from a lazygit-style TUI. It's pure zsh plus `git`, `tmux` and a recent `fzf` (tested with 0.74).
 
-`●` means the worktree has a live tmux session, `*` means it has uncommitted changes, and `↑n ↓m` shows ahead/behind upstream.
+`●` means the worktree has a live tmux session, `*` means it has uncommitted changes, `↑n ↓m` shows ahead/behind upstream,
+and `🐳n` counts running Docker containers started from it (by their compose working directory or devcontainer folder).
+The Details pane lists those containers, and removing the worktree offers to stop them first.
 
 ## Install
 

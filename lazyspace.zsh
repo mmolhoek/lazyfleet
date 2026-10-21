@@ -250,6 +250,31 @@ _lazyspace_attach() {
   fi
 }
 
+# reply=("dir<TAB>name<TAB>status<TAB>id" ...): running Docker containers
+# started from a dir (compose working dir or devcontainer folder). Asking
+# docker takes ~0.4s, so it also refreshes a cache; -c only reads the cache.
+_lazyspace_containers() {
+  local f=${TMPDIR:-/tmp}/lazyspace-$UID/containers out line
+  reply=()
+  if [[ $1 == -c ]]; then
+    [[ -r $f ]] && out=$(<$f)
+  else
+    (( $+commands[docker] )) &&
+      out=$(docker ps --format '{{.Label "com.docker.compose.project.working_dir"}}{{.Label "devcontainer.local_folder"}}	{{.Names}}	{{.Status}}	{{.ID}}' 2>/dev/null)
+    mkdir -p -m 700 ${f:h} && print -r -- $out >| $f.$$ && mv -f $f.$$ $f
+  fi
+  for line in ${(f)out}; do [[ $line == $'\t'* ]] || reply+=($line); done
+}
+
+# reply=(containers from _lazyspace_containers [$2] that belong to dir $1)
+_lazyspace_containers_in() {
+  local d=${1:A} line
+  local -a mine
+  _lazyspace_containers $2
+  for line in $reply; do [[ ${${line%%$'\t'*}:A} == $d ]] && mine+=($line); done
+  reply=($mine)
+}
+
 # "* ↑1 ↓2" for worktree $1
 _lazyspace_wtstatus() {
   local out= ab a b
@@ -269,11 +294,11 @@ _lazyspace_rows() {
   setopt local_options no_monitor no_notify
   local -a o_s o_p
   zparseopts -D -E s=o_s p=o_p
-  local only=$1 repo e p s i tmp wn=0 wb=0
-  local c_repo=$'\e[34m' c_live=$'\e[32m' c_st=$'\e[33m' c_off=$'\e[0m'
-  (( $#o_p )) && c_repo= c_live= c_st= c_off=
-  local -A live
-  local -a repos paths names branches lives stats
+  local only=$1 repo e p s i tmp wn=0 wb=0 line d
+  local c_repo=$'\e[34m' c_live=$'\e[32m' c_st=$'\e[33m' c_dk=$'\e[36m' c_off=$'\e[0m'
+  (( $#o_p )) && c_repo= c_live= c_st= c_dk= c_off=
+  local -A live dk
+  local -a repos paths names branches lives stats docks
   for s in ${(f)"$(_lazyspace_tmux list-sessions -F '#S' 2>/dev/null)"}; do live[$s]=1; done
   _lazyspace_repos; repos=($reply)
   for repo in $repos; do
@@ -283,7 +308,7 @@ _lazyspace_rows() {
       p=${e%%$'\t'*}
       _lazyspace_session $repo $p ${e##*$'\t'}
       paths+=($p); names+=(${repo:t}); branches+=(${${e#*$'\t'}%$'\t'*})
-      lives+=("${live[$REPLY]:+●}"); stats+=('')
+      lives+=("${live[$REPLY]:+●}"); stats+=(''); docks+=('')
       (( $#names[-1] > wn )) && wn=$#names[-1]
       (( $#branches[-1] > wb )) && wb=$#branches[-1]
     done
@@ -292,29 +317,39 @@ _lazyspace_rows() {
     tmp=${TMPDIR:-/tmp}/lazyspace.$$.$RANDOM
     mkdir -p $tmp
     for i in {1..$#paths}; do _lazyspace_wtstatus $paths[i] >$tmp/$i & done
+    { _lazyspace_containers; print -rl -- $reply >$tmp/docker } &
     wait
     for i in {1..$#paths}; do stats[i]=$(<$tmp/$i); done
+    for line in ${(f)"$(<$tmp/docker)"}; do
+      d=${${line%%$'\t'*}:A}; dk[$d]=$(( ${dk[$d]:-0} + 1 ))
+    done
+    for i in {1..$#paths}; do docks[i]=${dk[${paths[i]:A}]:+🐳${dk[${paths[i]:A}]}}; done
     rm -rf $tmp
   fi
   for (( i = 1; i <= $#paths; i++ )); do
-    printf 'w\t%s\t%s%-*s%s  %-*s  %s%1s%s %s%s%s\n' $paths[i] \
+    printf 'w\t%s\t%s%-*s%s  %-*s  %s%1s%s %s%s%s%s%s%s\n' $paths[i] \
       "$c_repo" $wn $names[i] "$c_off" $wb $branches[i] \
-      "$c_live" "$lives[i]" "$c_off" "$c_st" "$stats[i]" "$c_off"
+      "$c_live" "$lives[i]" "$c_off" "$c_st" "$stats[i]" "$c_off" \
+      "$c_dk" "${docks[i]:+${stats[i]:+ }$docks[i]}" "$c_off"
   done
 }
 
 _lazyspace_reporows() {
-  local repo s n l wn=0
-  local -a repos sessions
+  local repo s n l c e line wn=0
+  local -a repos sessions containers
+  local -A wts
   sessions=(${(f)"$(_lazyspace_tmux list-sessions -F '#S' 2>/dev/null)"})
+  _lazyspace_containers -c; containers=($reply)
   _lazyspace_repos; repos=($reply)
   for repo in $repos; do (( $#repo:t > wn )) && wn=$#repo:t; done
   for repo in $repos; do
     _lazyspace_worktrees $repo; n=$#reply
-    l=0
+    wts=(); for e in $reply; do wts[${${e%%$'\t'*}:A}]=1; done
+    l=0 c=0
     for s in $sessions; do [[ $s == ${repo:t} || $s == ${repo:t}/* ]] && (( l++ )); done
-    printf 'r\t%s\t\e[34m%-*s\e[0m  %d worktree%s  \e[32m%s\e[0m\n' $repo $wn ${repo:t} \
-      $n ${${n:#1}:+s} ${${l:#0}:+● $l live}
+    for line in $containers; do (( ${+wts[${${line%%$'\t'*}:A}]} )) && (( c++ )); done
+    printf 'r\t%s\t\e[34m%-*s\e[0m  %d worktree%s  \e[32m%s\e[0m\e[36m%s\e[0m\n' $repo $wn ${repo:t} \
+      $n ${${n:#1}:+s} "${${l:#0}:+● $l live}" "${${c:#0}:+  🐳 $c running}"
   done
 }
 
@@ -448,6 +483,12 @@ _lazyspace_preview() {
     print -r -- $'\e[32m● session\e[0m  '${(j:  :)${(f)wins}}
   else
     print -r -- $'\e[2m○ no session\e[0m'
+  fi
+  _lazyspace_containers_in $p -c
+  if (( $#reply )); then
+    print -r -- $'\e[36m🐳 '$#reply' running\e[0m'
+    for e in $reply[1,10]; do e=${e#*$'\t'}; print -r -- "   ${e%%$'\t'*}  "$'\e[2m'"${${e#*$'\t'}%%$'\t'*}"$'\e[0m'; done
+    (( $#reply > 10 )) && print -r -- "   … $(( $#reply - 10 )) more"
   fi
   print
   git -C $p -c color.status=always status -sb | head -n 30
@@ -810,7 +851,20 @@ _lazyspace_ui_rm() {
   print -rn -- "Remove worktree ${1/#$HOME/~}? [y/N] "
   read -q </dev/tty || { print; return }
   print
-  local -a flags
+  local -a flags ids
+  local e
+  _lazyspace_containers_in $1
+  if (( $#reply )); then
+    print -r -- $'\e[33mWarning:\e[0m '"$#reply Docker container(s) from this worktree are running; their files can't be deleted until they stop:"
+    for e in $reply; do e=${e#*$'\t'}; print -r -- "   ${e%%$'\t'*}"; ids+=(${e##*$'\t'}); done
+    print -n "Stop them? [y/N] "
+    if read -q </dev/tty; then
+      print
+      docker stop $ids >/dev/null || _lazyspace_pause
+    else
+      print
+    fi
+  fi
   if [[ -n $br ]]; then
     _lazyspace_unpushed $1 $br
     [[ -n $REPLY ]] && print -r -- $'\e[33mWarning:\e[0m '$REPLY

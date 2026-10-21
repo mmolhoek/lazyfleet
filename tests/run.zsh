@@ -4,7 +4,8 @@
 setopt pipe_fail
 ROOT=${0:A:h:h}
 SANDBOX=${$(mktemp -d):A}
-export HOME=$SANDBOX XDG_CONFIG_HOME=$SANDBOX/.config LAZYSPACE_WORKTREES=$SANDBOX/wt
+export HOME=$SANDBOX XDG_CONFIG_HOME=$SANDBOX/.config LAZYSPACE_WORKTREES=$SANDBOX/wt TMPDIR=$SANDBOX/tmp
+mkdir -p $TMPDIR
 export LAZYSPACE_TMUX="tmux -L lazyspace-test-$$" SHELL=/bin/zsh
 unset TMUX
 source $ROOT/lazyspace.zsh
@@ -166,6 +167,35 @@ _lazyspace_tmux detach-client -s '=app/feat-x'
 check 'windows view returns after detach' waitpane tui Windows
 check 'windows view reselects the window it left' retry '_lazyspace_tmux capture-pane -p -t "=tui:" | gq "▌ app/feat-x *1:run"'
 _lazyspace_tmux kill-session -t '=tui' 2>/dev/null
+
+# docker: a fake docker reporting two containers from feat/x, one from elsewhere
+mkdir -p $SANDBOX/bin
+cat >$SANDBOX/bin/docker <<EOF
+#!/bin/sh
+case \$1 in
+  ps) printf '%s\t%s\t%s\t%s\n' $p web-1 'Up 5 minutes' id1 $p db-1 'Up 5 minutes' id2 /elsewhere x-1 'Up 1 hour' id3 ;;
+  stop) shift; echo "\$@" >>$SANDBOX/docker-stopped ;;
+esac
+EOF
+chmod +x $SANDBOX/bin/docker
+path=($SANDBOX/bin $path)
+check 'rows count docker containers' retry '_lazyspace_rows -s -p | gq "^w	$p	.*🐳2"'
+check 'rows without containers have no marker' eval '! _lazyspace_rows -s -p | grep "^w	$repo	" | gq "🐳"'
+check 'reporows count containers from the cache' eval '_lazyspace_reporows | gq "🐳 2 running"'
+check 'preview lists the containers' eval '_lazyspace_preview w $p | gq "web-1"'
+check 'containers_in matches by dir' eval '_lazyspace_containers_in $p && (( $#reply == 2 ))'
+_lazyspace_tmux new-session -d -s uirm -x 160 -y 12 "zsh -fc 'path=($SANDBOX/bin \$path); source $ROOT/lazyspace.zsh; _lazyspace_ui_rm $p; sleep 3'"
+waitpane uirm 'Remove worktree'
+_lazyspace_tmux send-keys -t '=uirm:' y
+check 'rm warns about running containers' waitpane uirm '2 Docker container(s) from this worktree are running'
+_lazyspace_tmux send-keys -t '=uirm:' y
+check 'rm stops the containers on yes' retry 'gq -sx "id1 id2" $SANDBOX/docker-stopped'
+# keep feat/x: no to deleting the branch, no to removing despite its changes
+waitpane uirm 'Also delete local branch'; _lazyspace_tmux send-keys -t '=uirm:' n
+waitpane uirm 'uncommitted changes'; _lazyspace_tmux send-keys -t '=uirm:' n
+sleep 0.3
+_lazyspace_tmux kill-session -t '=uirm' 2>/dev/null
+check 'worktree kept after saying no' test -d $p
 
 # pickers
 git -C $repo branch -q feat/y
