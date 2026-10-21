@@ -8,9 +8,21 @@ The Details pane lists those containers, and removing the worktree offers to sto
 
 ## Install
 
+`mise bootstrap` in any NU.nl repo that uses [nunl-env](../nunl-env/README.md) offers to install it. It installs
+tmux and fzf via Homebrew if needed, and adds a managed `# >>> lazyspace hook >>>` block to your shell's rc file(s):
+zsh sources this folder's `lazyspace.zsh` (command + completion; an existing `source .../lazyspace.zsh` line of your
+own is commented out), bash and fish get `bin/` on `$PATH` (the command, without completion). lazyspace itself is
+zsh, so zsh must be installed (it is on macOS), but it doesn't have to be your shell.
+
+To set it up by hand instead:
+
 ```sh
 # ~/.zshrc
-source /path/to/lazyspace/lazyspace.zsh
+source /path/to/nunl-developer-tools/lazyspace/lazyspace.zsh
+# ~/.bashrc
+export PATH="/path/to/nunl-developer-tools/lazyspace/bin:$PATH"
+# ~/.config/fish/config.fish
+fish_add_path /path/to/nunl-developer-tools/lazyspace/bin
 ```
 
 For a shorter command, add `alias lzs=lazyspace`.
@@ -18,8 +30,8 @@ For a shorter command, add `alias lzs=lazyspace`.
 You can also bind a switcher popup in `~/.tmux.conf`:
 
 ```sh
-bind w display-popup -E -w 80% -h 60% "/path/to/lazyspace/bin/lazyspace"
-bind W display-popup -E -w 80% -h 60% "/path/to/lazyspace/bin/lazyspace windows"
+bind w display-popup -E -w 80% -h 60% "/path/to/nunl-developer-tools/lazyspace/bin/lazyspace"
+bind W display-popup -E -w 80% -h 60% "/path/to/nunl-developer-tools/lazyspace/bin/lazyspace windows"
 ```
 
 ## Use
@@ -78,7 +90,9 @@ copy=.env .env.local
 
 - `setup`: run in the first window of a newly created worktree's session, through your interactive shell (so
   mise, direnv and aliases work). Questions your shell asks on entering the directory, such as a mise enter
-  hook, come first and wait for you. The window then stays open as a normal shell.
+  hook, come first and wait for you. The window then stays open as a normal shell. The setup is POSIX sh: under
+  fish it runs as a `/bin/sh` child of the interactive fish (which still sets up mise and direnv, but not fish
+  aliases).
 - `copy`: untracked files copied from the main worktree into new ones.
 
 A value can span several lines: put each line after `key=`, indented. The first continuation line's indent is
@@ -136,7 +150,7 @@ search_depth=3
 ## Test
 
 ```zsh
-zsh tests/run.zsh
+zsh lazyspace/tests/run.zsh
 ```
 
 The tests run in a throwaway HOME against an isolated tmux server.

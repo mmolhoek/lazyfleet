@@ -70,7 +70,7 @@ check 'new names the config section' gq -F '(~/.config/lazyspace/config [app])' 
 check 'new reports skipped copies' gq -F 'skipped .nope: not in the main worktree' $SANDBOX/new.err
 check 'new shows a multi-line setup' eval 'gq -F "setup   2-line script" $SANDBOX/new.err && gq -F "touch .ml-b" $SANDBOX/new.err'
 check 'setup window starts with the summary' eval 'head -1 $TMPDIR/lazyspace-$UID/app-feat-sum.setup | gq "lazyspace: new worktree"'
-check 'setup runs as the window command, not typed in' eval '_lazyspace_tmux display -p -t "=app/feat-sum:0" "#{pane_start_command}" | gq -- "-ic .source "'
+check 'setup runs as the window command, not typed in' eval '_lazyspace_tmux display -p -t "=app/feat-sum:0" "#{pane_start_command}" | gq -- "-ic .*source "'
 check 'multi-line setup still runs' waitfor $LAZYSPACE_WORKTREES/app/feat-sum/.ml-b
 rm $cfg
 lazyspace rm -f -D feat/sum 2>/dev/null

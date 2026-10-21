@@ -217,9 +217,11 @@ _lazyspace_say() {
 # $SHELL so mise, direnv and aliases are set up. Typing it into a fresh shell
 # instead would answer whatever that shell asks first (like a mise enter hook)
 # with our keys. The window prints lines $4.., runs the setup, then carries on
-# as a normal login shell.
+# as a normal login shell. fish can't source the (POSIX) setup script, so there
+# it runs as a child sh of the interactive fish, which still has mise/direnv's
+# env (not fish aliases).
 _lazyspace_setup_run() {
-  local s=$1 p=$2 cmd=$3 f line run sh=${SHELL:-/bin/sh}
+  local s=$1 p=$2 cmd=$3 f line run src sh=${SHELL:-/bin/sh}
   shift 3
   f=${TMPDIR:-/tmp}/lazyspace-$UID
   mkdir -p -m 700 $f || return 1
@@ -228,7 +230,11 @@ _lazyspace_setup_run() {
     for line; do print -r -- "printf '\\033[2m%s\\033[0m\\n' ${(qq)line}"; done
     print -r -- $cmd
   } >| $f
-  run="$sh -ic ${(qq):-source $f}; printf '\\n\\033[2m# lazyspace: setup finished (exit %s)\\033[0m\\n' \$?; exec $sh -l"
+  src="source ${(q)f}"
+  [[ ${sh:t} == fish ]] && src="/bin/sh ${(q)f}"
+  run="$sh -ic ${(qq)src}; printf '\\n\\033[2m# lazyspace: setup finished (exit %s)\\033[0m\\n' \$?; exec $sh -l"
+  # tmux runs a command through its default-shell ($SHELL), which may not be POSIX
+  run="/bin/sh -c ${(qq)run}"
   if _lazyspace_tmux has-session -t "=$s" 2>/dev/null; then
     _lazyspace_tmux new-window -t "=$s:" -n setup -c $p $run
   else
@@ -770,6 +776,7 @@ _lazyspace_ui() {
       fzf --ansi --style full --layout reverse --no-input --no-sort \
       --delimiter '\t' --with-nth 3 --query "$q" \
       --border-label ' lazyspace ' --preview-label ' Details ' \
+      --with-shell "${commands[zsh]:-/bin/zsh} -c" \
       --preview "$bin _preview {1} {2}" --pointer '▌' --gutter ' ' --info inline-right \
       --bind 'j:down,k:up' $start $binds) || return 0
     q= sel=
