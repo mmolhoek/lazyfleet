@@ -33,6 +33,19 @@ _lazyspace_tmux() {
 
 _lazyspace_err() { print -ru2 -- "lazyspace: $*"; return 1 }
 
+# REPLY=our private dir for setup scripts, caches and temp files. Its name is
+# predictable (shared /tmp when TMPDIR is unset), so refuse one that another
+# user could have planted: a symlink, or not ours. Ours gets mode 700.
+_lazyspace_tmpdir() {
+  REPLY=${TMPDIR:-/tmp}/lazyspace-$UID
+  mkdir -p -m 700 $REPLY 2>/dev/null
+  if [[ -L $REPLY || ! -d $REPLY || ! -O $REPLY ]]; then
+    _lazyspace_err "unsafe temp dir $REPLY (a symlink, or not owned by you) — remove it or set TMPDIR"
+    return 1
+  fi
+  chmod 700 $REPLY
+}
+
 # (into a local: a bare read would overwrite the caller's REPLY)
 _lazyspace_pause() { local k; print -n "${1:-press any key} "; read -sk1 k </dev/tty; print }
 
@@ -223,9 +236,8 @@ _lazyspace_say() {
 _lazyspace_setup_run() {
   local s=$1 p=$2 cmd=$3 f line run src sh=${SHELL:-/bin/sh}
   shift 3
-  f=${TMPDIR:-/tmp}/lazyspace-$UID
-  mkdir -p -m 700 $f || return 1
-  f+=/${s//\//-}.setup
+  _lazyspace_tmpdir || return 1
+  f=$REPLY/${s//\//-}.setup
   {
     for line; do print -r -- "printf '\\033[2m%s\\033[0m\\n' ${(qq)line}"; done
     print -r -- $cmd
@@ -305,14 +317,16 @@ _lazyspace_attach() {
 # started from a dir (compose working dir or devcontainer folder). Asking
 # docker takes ~0.4s, so it also refreshes a cache; -c only reads the cache.
 _lazyspace_containers() {
-  local f=${TMPDIR:-/tmp}/lazyspace-$UID/containers out line
+  local f out line
   reply=()
+  _lazyspace_tmpdir || return 1
+  f=$REPLY/containers
   if [[ $1 == -c ]]; then
     [[ -r $f ]] && out=$(<$f)
   else
     (( $+commands[docker] )) &&
-      out=$(docker ps --format '{{.Label "com.docker.compose.project.working_dir"}}{{.Label "devcontainer.local_folder"}}	{{.Names}}	{{.Status}}	{{.ID}}' 2>/dev/null)
-    mkdir -p -m 700 ${f:h} && print -r -- $out >| $f.$$ && mv -f $f.$$ $f
+      out=$(docker ps --format '{{with .Label "devcontainer.local_folder"}}{{.}}{{else}}{{.Label "com.docker.compose.project.working_dir"}}{{end}}	{{.Names}}	{{.Status}}	{{.ID}}' 2>/dev/null)
+    print -r -- $out >| $f.$$ && mv -f $f.$$ $f
   fi
   for line in ${(f)out}; do [[ $line == $'\t'* ]] || reply+=($line); done
 }
@@ -365,8 +379,9 @@ _lazyspace_rows() {
     done
   done
   if (( $#o_s && $#paths )); then
-    tmp=${TMPDIR:-/tmp}/lazyspace.$$.$RANDOM
-    mkdir -p $tmp
+    _lazyspace_tmpdir || return 1
+    tmp=$REPLY/status.$$.$RANDOM
+    mkdir -m 700 $tmp || return 1
     for i in {1..$#paths}; do _lazyspace_wtstatus $paths[i] >$tmp/$i & done
     { _lazyspace_containers; print -rl -- $reply >$tmp/docker } &
     wait
@@ -553,8 +568,14 @@ _lazyspace_preview() {
 
 _lazyspace_add() {
   _lazyspace_toplevel ${1:-$PWD} || { _lazyspace_err "not a git repo: ${1:-$PWD}"; return 1 }
-  local repo=$REPLY
+  local repo=$REPLY r
   _lazyspace_repos
+  # sessions (<repo>/...) and worktree dirs (<worktrees>/<repo>/...) are keyed
+  # by the repo's name, so two registered repos can't share one
+  for r in $reply; do
+    [[ $r != $repo && ${r:t} == ${repo:t} ]] &&
+      { _lazyspace_err "a repo named ${repo:t} is already registered: $r (lazyspace forget it first)"; return 1 }
+  done
   if (( ! ${reply[(Ie)$repo]} )); then
     _lazyspace_regfile
     mkdir -p ${REPLY:h}
@@ -698,7 +719,8 @@ _lazyspace_rm() {
       force=1
     fi
   fi
-  if [[ -z $force && -n $(git -C $p status --porcelain 2>/dev/null) ]]; then
+  # only an explicit -f skips this: accepting the lock prompt above doesn't
+  if (( ! $#o_f )) && [[ -n $(git -C $p status --porcelain 2>/dev/null) ]]; then
     [[ -t 0 ]] || { _lazyspace_err "$p has changes (use -f)"; return 1 }
     print -rn -- "${p/#$HOME/~} has uncommitted changes. Remove anyway? [y/N] "
     read -q </dev/tty || { print; return 1 }
@@ -747,8 +769,8 @@ _lazyspace_ui() {
   local -a binds lines start
   # coming back from a session, the first load puts the cursor on the row we
   # left (sel: its path or window target); this file hands that over once
-  local -x LAZYSPACE_POSFILE=${TMPDIR:-/tmp}/lazyspace-$UID/pos.$$
-  mkdir -p -m 700 ${LAZYSPACE_POSFILE:h}
+  _lazyspace_tmpdir || return 1
+  local -x LAZYSPACE_POSFILE=$REPLY/pos.$$
   # start on the Windows view when tmux has any (unless given a query)
   [[ -z $view && -z $q && -n $(_lazyspace_tmux list-windows -a -F x 2>/dev/null) ]] && view=windows
   # Query changes emitted by a transform are ignored by fzf, so the

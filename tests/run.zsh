@@ -313,9 +313,38 @@ check 'rm prompt says only the local branch goes' waitpane uirm 'Also delete loc
 _lazyspace_tmux send-keys -t '=uirm:' n
 check 'rm prompt asks about the lock' waitpane uirm 'feat-u is locked by supacode. Remove anyway?'
 _lazyspace_tmux send-keys -t '=uirm:' y
+# setup's untracked .setup-ran makes it dirty: that's still asked
+waitpane uirm 'has uncommitted changes. Remove anyway?'
+_lazyspace_tmux send-keys -t '=uirm:' y
 retry 'test ! -e $up'
 check 'rm keeps the branch when told not to delete it' eval 'test ! -e $up && git -C $repo show-ref -q --verify refs/heads/feat/u'
 _lazyspace_tmux kill-session -t '=uirm' 2>/dev/null
+
+# accepting the lock prompt still asks about uncommitted changes
+lp=$LAZYSPACE_WORKTREES/app/feat-lockdirty
+lazyspace new feat/lockdirty --no-open >/dev/null 2>/dev/null
+print dirty >$lp/dirty.txt
+git -C $repo worktree lock --reason test $lp
+_lazyspace_tmux new-session -d -s uirm -x 160 -y 10 "zsh -fc 'source $ROOT/lazyspace.zsh; lazyspace rm $lp; sleep 3'"
+waitpane uirm 'Remove anyway?'
+_lazyspace_tmux send-keys -t '=uirm:' y
+check 'rm asks about changes after accepting the lock' waitpane uirm 'has uncommitted changes. Remove anyway?'
+_lazyspace_tmux send-keys -t '=uirm:' n
+sleep 0.5
+check 'rm keeps a locked dirty worktree when told no' test -e $lp/dirty.txt
+_lazyspace_tmux kill-session -t '=uirm' 2>/dev/null
+lazyspace rm -f $lp >/dev/null 2>&1
+
+# a second repo with an already registered name is refused (sessions and
+# worktree dirs are keyed by name)
+twin=$SANDBOX/elsewhere/app
+mkdir -p $twin && git -C $twin init -q -b main && git -C $twin commit -q --allow-empty -m init
+check 'add refuses a second repo with the same name' eval 'out=$(lazyspace add $twin 2>&1); (( $? )) && [[ $out == *"a repo named app is already registered"* ]] && ! lazyspace repos | gq -x $twin'
+
+# a planted temp dir (not ours, or a symlink) is refused, not used
+check 'temp dir is private' eval '_lazyspace_tmpdir && [[ $(stat -f %Lp $REPLY 2>/dev/null || stat -c %a $REPLY) == 700 ]]'
+mkdir -p $SANDBOX/evil
+check 'a symlinked temp dir is refused' eval '(export TMPDIR=$SANDBOX/tmp2; mkdir -p $TMPDIR; ln -s $SANDBOX/evil $TMPDIR/lazyspace-$UID; ! _lazyspace_tmpdir 2>/dev/null)'
 
 # d on a main worktree offers to forget the repo instead
 lazyspace add $other >/dev/null
