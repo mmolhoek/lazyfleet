@@ -360,6 +360,20 @@ check 'rm keeps a locked dirty worktree when told no' test -e $lp/dirty.txt
 _lazyspace_tmux kill-session -t '=uirm' 2>/dev/null
 lazyspace rm -f $lp >/dev/null 2>&1
 
+# pull fast-forwards a worktree to its upstream, and never merges
+pl=$LAZYSPACE_WORKTREES/app/feat-pull clone=$SANDBOX/clone
+git -C $repo push -q origin main:feat/pull
+lazyspace new feat/pull --no-open >/dev/null 2>&1
+git clone -q -b feat/pull $bare $clone 2>/dev/null
+git -C $clone commit -q --allow-empty -m upstream && git -C $clone push -q
+check 'pull fast-forwards to the upstream' eval 'lazyspace pull feat/pull >/dev/null 2>&1 && [[ $(git -C $pl log -1 --format=%s) == upstream ]]'
+git -C $pl commit -q --allow-empty -m local
+git -C $clone commit -q --allow-empty -m again && git -C $clone push -q
+check 'pull refuses diverged branches' eval 'out=$(lazyspace pull feat/pull 2>&1); (( $? )) && [[ $out == *"… failed"* && $(git -C $pl log -1 --format=%s) == local ]]'
+check 'key p pulls the worktree' eval 'FZF_KEY=p FZF_LIST_LABEL=" Worktrees " _lazyspace_key w $pl | gq "^execute(.* _ui_pull {2})+.*reload("'
+check 'key p ignored on repos' test -z "$(FZF_KEY=p FZF_LIST_LABEL=' Repos ' _lazyspace_key r $repo)"
+lazyspace rm -f -D feat/pull 2>/dev/null
+
 # a second repo with an already registered name is refused (sessions and
 # worktree dirs are keyed by name)
 twin=$SANDBOX/elsewhere/app

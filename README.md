@@ -39,6 +39,7 @@ lazyspace ls                   list worktrees with status
 lazyspace new <branch> [-r repo] [-b base] [--no-open]
 lazyspace open [worktree]      attach (outside tmux) or switch-client (inside tmux)
 lazyspace rm [worktree] [-f] [-D]   -f: even if dirty or locked (e.g. by Supacode); -D: delete the local branch
+lazyspace pull [worktree]      fast-forward to its upstream (git pull --ff-only)
 lazyspace windows              TUI on all tmux windows; enter switches to one
 lazyspace config [repo]        edit the settings, or a repo's own config file, in $VISUAL / $EDITOR (vi)
 ```
@@ -54,6 +55,7 @@ You can name a worktree by its path, its branch (`feat/x`), its session name (`a
 | `enter`     | open session                                                       | show this repo's worktrees | switch to window   |
 | `n`         | new worktree in this row's repo: pick a branch, or type a new name | new worktree               |                    |
 | `d`         | remove worktree (asks; optionally deletes the branch)              | forget repo                | kill window (asks) |
+| `p`         | pull: fast-forward to its upstream (git's error if it can't)       |                            |                    |
 | `a`         | add repo: pick one found under your project dirs, or type a path   | add repo                   | add repo           |
 | `tab` · `w` | next view · Windows view                                           |                            |                    |
 | `c` · `C`   | edit the project config · the global settings                     | same                       | global settings     |

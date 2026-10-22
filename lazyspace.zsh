@@ -3,9 +3,9 @@
 
 typeset -g LAZYSPACE_DIR=${${(%):-%x}:A:h}
 # keys that type into the find input instead while it's shown
-typeset -g _LAZYSPACE_LETTERS='j,k,n,d,r,a,w,c,C,R,q,/'
+typeset -g _LAZYSPACE_LETTERS='j,k,n,d,p,r,a,w,c,C,R,q,/'
 typeset -g _LAZYSPACE_FOOTER_WT=$'↵ open  (n)ew worktree  (a)dd project
-(d)elete  (w)indows  ⇥ repos  / find
+(d)elete  (p)ull  (w)indows  ⇥ repos  / find
 (c) project config  (C) global settings
 (r)eload  (q)uit'
 typeset -g _LAZYSPACE_FOOTER_REPO=$'↵ worktrees  (n)ew worktree  (a)dd project
@@ -784,6 +784,23 @@ _lazyspace_rm() {
   return rc
 }
 
+# lazyspace pull [worktree] — fast-forward it to its upstream (never merges)
+_lazyspace_pull() {
+  local p br out
+  if [[ -n $1 ]]; then
+    _lazyspace_resolve $1 || { _lazyspace_err "no unique worktree for '$1' ($REPLY matches)"; return 1 }
+    p=$REPLY
+  else
+    p=$(git rev-parse --show-toplevel 2>/dev/null) || { _lazyspace_err 'usage: lazyspace pull <worktree>'; return 1 }
+  fi
+  br=$(git -C $p branch --show-current 2>/dev/null)
+  [[ -n $br ]] || { _lazyspace_err "${p/#$HOME/~} is not on a branch"; return 1 }
+  _lazyspace_step "Pulling $br in ${p/#$HOME/~}"
+  # git's own output only when it fails: it would land after the "… "
+  out=$(git -C $p pull -q --ff-only 2>&1)
+  _lazyspace_done || { print -ru2 -- $out; return 1 }
+}
+
 # Progress for slow steps, on stderr: "msg… " now, then "done"/"failed" by the
 # status of the command run in between
 _lazyspace_step() { print -nu2 -- "$1… " }
@@ -812,7 +829,7 @@ _lazyspace_ui() {
   # Query changes emitted by a transform are ignored by fzf, so the
   # view-switching keys reset the input with directly chained actions.
   local reset="+clear-query+hide-input+rebind($_LAZYSPACE_LETTERS)"
-  for k in / n d r a c C R q; do binds+=(--bind "${k}:transform:$bin _key {1} {2}"); done
+  for k in / n d p r a c C R q; do binds+=(--bind "${k}:transform:$bin _key {1} {2}"); done
   for k in enter tab esc w; do binds+=(--bind "${k}:transform($bin _key {1} {2})$reset"); done
   binds+=(--bind "load:transform:$bin _loaded")
   while :; do
@@ -953,6 +970,7 @@ _lazyspace_key() {
         (t) print -r -- "execute($bin _ui_killwin {2})+$rl" ;;
         (*) print -r -- "execute($bin _ui_rm {2})+$rl" ;;
       esac ;;
+    (p) [[ $kind == w && -n $p ]] && print -r -- "execute($bin _ui_pull {2})+$rl" ;;
   esac
 }
 
@@ -1042,6 +1060,8 @@ _lazyspace_unpushed() {
   REPLY+=" (git reflog can still find them for a while)"
 }
 
+_lazyspace_ui_pull() { _lazyspace_pull $1 || _lazyspace_pause }
+
 _lazyspace_ui_rm() {
   local br repo
   if _lazyspace_toplevel $1 && [[ ${1:A} == ${REPLY:A} ]]; then
@@ -1096,6 +1116,7 @@ lazyspace — git worktrees, each in its own tmux session
   lazyspace rm [worktree] [-f] [-D]
                                  remove a worktree (-f: even if dirty or locked,
                                  -D: delete its local branch too)
+  lazyspace pull [worktree]      fast-forward a worktree to its upstream
   lazyspace windows              open the TUI on all tmux windows (enter switches)
   lazyspace config [repo]        edit the settings, or a repo's copy=/setup= file, in $EDITOR
 
@@ -1116,7 +1137,7 @@ _lazyspace_main() {
   (( $# )) && shift
   case $cmd in
     ('') _lazyspace_ui ;;
-    (add|forget|new|open|rm|ls|config) _lazyspace_$cmd "$@" ;;
+    (add|forget|new|open|rm|pull|ls|config) _lazyspace_$cmd "$@" ;;
     (windows) _lazyspace_ui -w ;;
     (repos) _lazyspace_repos; print -rl -- $reply ;;
     (help|-h|--help) _lazyspace_help ;;
