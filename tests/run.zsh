@@ -141,30 +141,33 @@ check 'windows sorted by session' test "$sessions" = "$(print -r -- $sessions | 
 check 'windows sorted by number' test "$(_lazyspace_winrows | cut -f2 | grep '^=alpha:' | tr '\n' ' ')" = '=alpha:0 =alpha:9 =alpha:10 '
 _lazyspace_tmux kill-session -t '=Zeta'; _lazyspace_tmux kill-session -t '=alpha'
 check 'reporows include repo' eval '_lazyspace_reporows | gq "^r	$repo	"'
-check 'key enter opens' eval 'FZF_KEY=enter FZF_LIST_LABEL=" Worktrees " _lazyspace_key w $p | gq "^become(printf .* open $p)$"'
-check 'key enter on repo filters' eval 'FZF_KEY=enter FZF_LIST_LABEL=" Repos " _lazyspace_key r $repo | gq "Worktrees: app"'
-check 'key a leaves filtered view' eval 'FZF_KEY=a FZF_LIST_LABEL=" Worktrees: app " _lazyspace_key w $p | tr "\n" " " | gq "change-list-label( Worktrees · loading… ).*reload(.* _rows ..) $"'
+check 'key enter opens' eval 'FZF_KEY=enter FZF_LIST_LABEL=" Worktrees " _lazyspace_key w $p | gq "^become(printf .* open {2})$"'
+check 'key enter on repo filters' eval 'FZF_KEY=enter FZF_LIST_LABEL=" Repos " _lazyspace_key r $repo | gq "transform-list-label(.* _wtlabel loading {2})+reload(.* _rows -L)+first"'
+check 'the filtered label names the repo' test "$(_lazyspace_wtlabel loading $repo)" = ' Worktrees: app · loading… '
+check 'key a leaves filtered view' eval 'FZF_KEY=a FZF_LIST_LABEL=" Worktrees: app " _lazyspace_key w $p | tr "\n" " " | gq "change-list-label( Worktrees · loading… ).*reload(.* _rows) $"'
 check 'winrows list session windows' retry '_lazyspace_winrows | gq "^t	=app/feat-x:1	.*1:extra"'
 _lazyspace_tmux send-keys -t '=app/feat-x:0' 'echo preview-marker' Enter; sleep 0.3
 check 'window preview shows pane content' eval '_lazyspace_preview t "=app/feat-x:0" | gq preview-marker'
-check 'key enter on window switches' eval 'FZF_KEY=enter FZF_LIST_LABEL=" Windows " _lazyspace_key t "=app/feat-x:1" | gq "^become(printf .* window \\\\=app/feat-x:1)$"'
+check 'key enter on window switches' eval 'FZF_KEY=enter FZF_LIST_LABEL=" Windows " _lazyspace_key t "=app/feat-x:1" | gq "^become(printf .* window {2})$"'
 check 'key tab cycles repos -> windows' eval 'FZF_KEY=tab FZF_LIST_LABEL=" Repos " _lazyspace_key r $repo | tr "\n" " " | gq "Windows .*_winrows"'
-check 'key tab cycles windows -> worktrees' eval 'FZF_KEY=tab FZF_LIST_LABEL=" Windows " _lazyspace_key t x | tr "\n" " " | gq "Worktrees · loading… .*_rows ..)"'
+check 'key tab cycles windows -> worktrees' eval 'FZF_KEY=tab FZF_LIST_LABEL=" Windows " _lazyspace_key t x | tr "\n" " " | gq "Worktrees · loading… .*_rows)"'
 check 'windows view widens the preview' eval 'FZF_KEY=w FZF_LIST_LABEL=" Worktrees " _lazyspace_key w x | tr "\n" " " | gq "change-preview-window(right,70%)"'
 check 'leaving windows view restores the split' eval 'FZF_KEY=tab FZF_LIST_LABEL=" Windows " _lazyspace_key t x | tr "\n" " " | gq "change-preview-window(right,50%)"'
 check 'key d on window kills it' eval 'FZF_KEY=d FZF_LIST_LABEL=" Windows " _lazyspace_key t "=app/feat-x:1" | gq "_ui_killwin"'
 check 'key n ignored on window' test -z "$(FZF_KEY=n FZF_LIST_LABEL=' Windows ' _lazyspace_key t x)"
-check 'load: plain rows, then status rows' eval 'FZF_LIST_LABEL=" Worktrees · loading… " _lazyspace_loaded | gq "change-list-label( Worktrees · checking status… )+reload-sync(.* _rows -s ..)$"'
-check 'load: filtered view keeps its filter' eval 'FZF_LIST_LABEL=" Worktrees: app · loading… " _lazyspace_loaded | gq "( Worktrees: app · checking status… )+reload-sync(.* _rows -s app)$"'
-check 'load: status done clears the marker' test "$(FZF_LIST_LABEL=' Worktrees · checking status… ' _lazyspace_loaded)" = 'change-list-label( Worktrees )'
+check 'load: plain rows, then status rows' eval 'FZF_LIST_LABEL=" Worktrees · loading… " _lazyspace_loaded | gq "^transform-list-label(.* _wtlabel checking)+reload-sync(.* _rows -s -L)$"'
+check 'load: checking label' test "$(FZF_LIST_LABEL=' Worktrees · loading… ' _lazyspace_wtlabel checking)" = ' Worktrees · checking status… '
+check 'load: filtered view keeps its filter' test "$(FZF_LIST_LABEL=' Worktrees: app · loading… ' _lazyspace_wtlabel checking)" = ' Worktrees: app · checking status… '
+check 'rows -L filter by the label' eval '[[ -n $(_lazyspace_rows -p app) && $(FZF_LIST_LABEL=" Worktrees: app · loading… " _lazyspace_rows -p -L) == $(_lazyspace_rows -p app) && -z $(FZF_LIST_LABEL=" Worktrees: nope " _lazyspace_rows -p -L) ]]'
+check 'load: status done clears the marker' eval '[[ $(FZF_LIST_LABEL=" Worktrees · checking status… " _lazyspace_loaded) == *"_wtlabel done)" && $(FZF_LIST_LABEL=" Worktrees · checking status… " _lazyspace_wtlabel done) == " Worktrees " ]]'
 pf=$SANDBOX/posfile
 print 3 >$pf
 check 'load: moves to the handed-over row once' eval '[[ $(LAZYSPACE_POSFILE=$pf FZF_LIST_LABEL=" Windows " _lazyspace_loaded) == "pos(3)" && ! -e $pf ]]'
 print 2 >$pf
-check 'load: handed-over row before status reload' eval 'LAZYSPACE_POSFILE=$pf FZF_LIST_LABEL=" Worktrees · loading… " _lazyspace_loaded | gq "^pos(2)+change-list-label( Worktrees · checking status… )+reload-sync("'
+check 'load: handed-over row before status reload' eval 'LAZYSPACE_POSFILE=$pf FZF_LIST_LABEL=" Worktrees · loading… " _lazyspace_loaded | gq "^pos(2)+transform-list-label(.* _wtlabel checking)+reload-sync("'
 check 'load: other views do nothing' test -z "$(FZF_LIST_LABEL=' Repos ' _lazyspace_loaded)"
-check 'keys see through the loading marker' eval 'FZF_KEY=R FZF_LIST_LABEL=" Worktrees: app · checking status… " _lazyspace_key w $p | gq "( Worktrees: app · loading… )+reload(.* _rows app)"'
-check 'c on a worktree opens its project config' eval 'FZF_KEY=c FZF_LIST_LABEL=" Worktrees " _lazyspace_key w $p | gq "^execute(.* config .*feat-x)+.*reload("'
+check 'keys see through the loading marker' eval 'FZF_KEY=R FZF_LIST_LABEL=" Worktrees: app · checking status… " _lazyspace_key w $p | gq "transform-list-label(.* _wtlabel loading)+reload(.* _rows -L)" && [[ $(FZF_LIST_LABEL=" Worktrees: app · checking status… " _lazyspace_wtlabel loading) == " Worktrees: app · loading… " ]]'
+check 'c on a worktree opens its project config' eval 'FZF_KEY=c FZF_LIST_LABEL=" Worktrees " _lazyspace_key w $p | gq "^execute(.* config {2})+.*reload("'
 check 'c in the windows view opens the settings' eval 'FZF_KEY=c FZF_LIST_LABEL=" Windows " _lazyspace_key t x | gq "^execute(.* config)+reload(.*_winrows)$"'
 check 'C opens the settings' eval 'FZF_KEY=C FZF_LIST_LABEL=" Repos " _lazyspace_key r $repo | gq "^execute(.* config)+reload(.*_reporows)$"'
 check 'r reloads' eval 'FZF_KEY=r FZF_LIST_LABEL=" Repos " _lazyspace_key r $repo | gq "^reload(.*_reporows)"'
@@ -388,6 +391,23 @@ _lazyspace_tmux send-keys -t '=uirm:' y
 sleep 0.5
 check 'd on main worktree forgets repo' eval '! lazyspace repos | gq -x $other && test -d $other/.git'
 _lazyspace_tmux kill-session -t '=uirm' 2>/dev/null
+
+# a ")" in a repo name can't add fzf actions: enter on its Repos row only filters
+evil=$SANDBOX/z/'demo)+execute-silent(touch PWNED)+change-list-label(x'
+mkdir -p $evil && git -C $evil init -q -b main && git -C $evil commit -q --allow-empty -m init
+lazyspace add $evil >/dev/null
+_lazyspace_tmux new-session -d -s tui -x 160 -y 20 -c $SANDBOX "env -u TMUX $ROOT/bin/lazyspace; sleep 5"
+waitpane tui ' Windows '
+_lazyspace_tmux send-keys -t '=tui:' Tab; sleep 0.5
+_lazyspace_tmux send-keys -t '=tui:' Tab; waitpane tui ' Repos '
+_lazyspace_tmux send-keys -t '=tui:' / ; sleep 0.3
+_lazyspace_tmux send-keys -t '=tui:' -l 'demo'; sleep 0.5
+_lazyspace_tmux send-keys -t '=tui:' Enter
+check 'a repo name with ")" filters the view' waitpane tui 'Worktrees: demo)+execute-silent(touch PWNED)+change-list-label(x'
+check 'repo names and paths stay out of the action text' eval 'for k in enter c d n; do FZF_KEY=$k FZF_LIST_LABEL=" Repos " _lazyspace_key r $evil; FZF_KEY=$k FZF_LIST_LABEL=" Worktrees " _lazyspace_key w $evil; done | { ! gq PWNED }'
+check 'a repo name with ")" runs nothing' eval 'sleep 0.5; [[ -z $(find $SANDBOX -name PWNED) ]]'
+_lazyspace_tmux kill-session -t '=tui' 2>/dev/null
+lazyspace forget $evil >/dev/null 2>&1
 
 # 7. forget
 lazyspace forget app

@@ -361,12 +361,14 @@ _lazyspace_wtstatus() {
 
 # --- rows for the TUI: "kind<TAB>path<TAB>display" ---------------------------
 
-# _lazyspace_rows [-s (with git status)] [-p (plain)] [repo name filter]
+# _lazyspace_rows [-s (with git status)] [-p (plain)] [-L | repo name filter]
+# -L: the filter of the Worktrees view's list label ($FZF_LIST_LABEL)
 _lazyspace_rows() {
   setopt local_options no_monitor no_notify
-  local -a o_s o_p
-  zparseopts -D -E s=o_s p=o_p
+  local -a o_s o_p o_l
+  zparseopts -D -E s=o_s p=o_p L=o_l
   local only=$1 repo e p s i tmp wn=0 wb=0 line d
+  (( $#o_l )) && { _lazyspace_labelrepo; only=$REPLY }
   local c_repo=$'\e[34m' c_live=$'\e[32m' c_st=$'\e[33m' c_dk=$'\e[36m' c_off=$'\e[0m'
   (( $#o_p )) && c_repo= c_live= c_st= c_dk= c_off=
   local -A live dk
@@ -829,32 +831,57 @@ _lazyspace_ui() {
 
 # The Worktrees view loads in two steps, tracked in the list label: plain
 # rows first ("· loading…"), then _lazyspace_loaded swaps in rows with git
-# status ("· checking status…"). Worktrees view filtered to repo $1:
+# status ("· checking status…"). Repo names and paths never go into the
+# action text itself (a ")" in one would end the action and could add
+# others): fzf hands them over through {2} and $FZF_LIST_LABEL.
+# Worktrees view of all repos; -r: filtered to the current row's repo;
+# -l: keeping the label's filter
 _lazyspace_wtload() {
-  REPLY="change-list-label( Worktrees${1:+: $1} · loading… )+reload($bin _rows ${(q)1})"
+  case $1 in
+    (-r) REPLY="transform-list-label($bin _wtlabel loading {2})+reload($bin _rows -L)" ;;
+    (-l) REPLY="transform-list-label($bin _wtlabel loading)+reload($bin _rows -L)" ;;
+    (*) REPLY="change-list-label( Worktrees · loading… )+reload($bin _rows)" ;;
+  esac
+}
+
+# REPLY=repo name filter of the Worktrees view's list label ("" for all)
+_lazyspace_labelrepo() {
+  local base=${${${FZF_LIST_LABEL# }% }% · *}
+  [[ $base == 'Worktrees: '* ]] && REPLY=${base#Worktrees: } || REPLY=
+}
+
+# Print the Worktrees list label for stage $1 (loading, checking, done),
+# filtered to repo path $2's name, else to the current label's filter
+_lazyspace_wtlabel() {
+  local name stage
+  if [[ -n $2 ]]; then name=${2:t}; else _lazyspace_labelrepo; name=$REPLY; fi
+  case $1 in
+    (loading) stage=' · loading…' ;;
+    (checking) stage=' · checking status…' ;;
+  esac
+  print -r -- " Worktrees${name:+: $name}$stage "
 }
 
 # fzf load event: move to the row handed over in $LAZYSPACE_POSFILE (once),
 # and after the plain worktree rows, fetch the ones with git status
 _lazyspace_loaded() {
-  local bin=${(q)LAZYSPACE_DIR}/bin/lazyspace lbl=${${FZF_LIST_LABEL# }% } base f
+  local bin=${(q)LAZYSPACE_DIR}/bin/lazyspace lbl=${${FZF_LIST_LABEL# }% }
   local -a acts
   if [[ -n $LAZYSPACE_POSFILE && -s $LAZYSPACE_POSFILE ]]; then
     acts+=("pos($(<$LAZYSPACE_POSFILE))")
     rm -f $LAZYSPACE_POSFILE
   fi
-  base=${lbl% · *}
-  [[ $base == 'Worktrees: '* ]] && f=${base#Worktrees: }
   case $lbl in
-    (Worktrees*' · loading…') acts+=("change-list-label( $base · checking status… )+reload-sync($bin _rows -s ${(q)f})") ;;
-    (Worktrees*' · checking status…') acts+=("change-list-label( $base )") ;;
+    (Worktrees*' · loading…') acts+=("transform-list-label($bin _wtlabel checking)+reload-sync($bin _rows -s -L)") ;;
+    (Worktrees*' · checking status…') acts+=("transform-list-label($bin _wtlabel done)") ;;
   esac
   (( $#acts )) && print -r -- ${(j:+:)acts}
 }
 
 # Key dispatcher: prints fzf actions. Args: row kind, row path.
 _lazyspace_key() {
-  local bin=${(q)LAZYSPACE_DIR}/bin/lazyspace kind=$1 p=$2 qp=${(q)2}
+  # the row's path is passed on as {2}, never as text in the actions
+  local bin=${(q)LAZYSPACE_DIR}/bin/lazyspace kind=$1 p=$2
   local lbl=${${${FZF_LIST_LABEL# }% }% · *} rl foot=$_LAZYSPACE_FOOTER_WT out wt
   local win="change-list-label( Windows )+change-footer($_LAZYSPACE_FOOTER_WIN)+change-preview-window($_LAZYSPACE_PW_WIN)+reload($bin _winrows)+first"
   local pw="change-preview-window($_LAZYSPACE_PW)"
@@ -862,7 +889,7 @@ _lazyspace_key() {
   case $lbl in
     (Repos) rl="reload($bin _reporows)"; foot=$_LAZYSPACE_FOOTER_REPO ;;
     (Windows) rl="reload($bin _winrows)"; foot=$_LAZYSPACE_FOOTER_WIN ;;
-    ('Worktrees: '*) _lazyspace_wtload ${lbl#Worktrees: }; rl=$REPLY ;;
+    ('Worktrees: '*) _lazyspace_wtload -l; rl=$REPLY ;;
     (*) rl=$wt ;;
   esac
   case $FZF_KEY in
@@ -872,7 +899,7 @@ _lazyspace_key() {
     (q) print abort ;;
     (c)
       # the row's project; the Windows view has none, so the settings
-      if [[ $kind == [wr] && -n $p ]]; then print -r -- "execute($bin config $qp)+$rl"
+      if [[ $kind == [wr] && -n $p ]]; then print -r -- "execute($bin config {2})+$rl"
       else print -r -- "execute($bin config)+$rl"; fi ;;
     (C) print -r -- "execute($bin config)+$rl" ;;
     (r|R) print -r -- "$rl+change-footer($foot)" ;;
@@ -886,14 +913,14 @@ _lazyspace_key() {
     (enter)
       [[ -n $p ]] || return 0
       if [[ $kind == r ]]; then
-        _lazyspace_wtload ${p:t}
+        _lazyspace_wtload -r
         print -r -- "change-footer($_LAZYSPACE_FOOTER_WT)+$REPLY+first"
       elif [[ $kind == t ]]; then
-        print -r -- "become(printf '%s\\n' window $qp)"
+        print -r -- "become(printf '%s\\n' window {2})"
       else
-        print -r -- "become(printf '%s\\n' open $qp)"
+        print -r -- "become(printf '%s\\n' open {2})"
       fi ;;
-    (n) [[ $kind == t ]] || print -r -- "become(printf '%s\\n' new $qp)" ;;
+    (n) [[ $kind == t ]] || print -r -- "become(printf '%s\\n' new {2})" ;;
     (a)
       # a filtered list would hide the new repo
       if [[ $lbl == Repos ]]; then print -r -- "execute($bin _ui_add)+$rl"
@@ -901,9 +928,9 @@ _lazyspace_key() {
     (d)
       [[ -n $p ]] || return 0
       case $kind in
-        (r) print -r -- "execute($bin _ui_forget $qp)+$rl" ;;
-        (t) print -r -- "execute($bin _ui_killwin $qp)+$rl" ;;
-        (*) print -r -- "execute($bin _ui_rm $qp)+$rl" ;;
+        (r) print -r -- "execute($bin _ui_forget {2})+$rl" ;;
+        (t) print -r -- "execute($bin _ui_killwin {2})+$rl" ;;
+        (*) print -r -- "execute($bin _ui_rm {2})+$rl" ;;
       esac ;;
   esac
 }
