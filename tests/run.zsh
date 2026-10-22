@@ -57,7 +57,9 @@ check 'add deduplicates' test "$(lazyspace repos | wc -l | tr -d ' ')" = 1
 p=$LAZYSPACE_WORKTREES/app/feat-x
 lazyspace new feat/x --no-open >/dev/null 2>$SANDBOX/new.err
 check 'new creates worktree' test -d $p
-check 'new -q keeps the summary out of the terminal' eval '[[ -z $(lazyspace new -q feat/quiet --no-open 2>&1 >/dev/null) ]]; lazyspace rm -f -D feat/quiet 2>/dev/null'
+out=$(lazyspace new -q feat/quiet --no-open 2>&1 >/dev/null); rc=$?
+lazyspace rm -f -D feat/quiet 2>/dev/null
+check 'new -q keeps the summary out of the terminal' eval '(( rc == 0 )) && [[ -z $out ]]'
 check 'new reports the branch' gq -F 'branch  feat/x (new, from HEAD)' $SANDBOX/new.err
 check 'new reports what it copied' gq -F 'copy    .env  from ~/src/app (.lazyspace)' $SANDBOX/new.err
 check 'new reports the setup' gq -F 'setup   touch .setup-ran  (.lazyspace) → running in session app/feat-x' $SANDBOX/new.err
@@ -72,7 +74,7 @@ check 'new names the config section' gq -F '(~/.config/lazyspace/config [app])' 
 check 'new reports skipped copies' gq -F 'skipped .nope: not in the main worktree' $SANDBOX/new.err
 check 'new shows a multi-line setup' eval 'gq -F "setup   2-line script" $SANDBOX/new.err && gq -F "touch .ml-b" $SANDBOX/new.err'
 check 'setup window starts with the summary' eval 'head -1 $TMPDIR/lazyspace-$UID/app-feat-sum.setup.* | gq "lazyspace: new worktree"'
-check 'setup runs as the window command, not typed in' eval '_lazyspace_tmux display -p -t "=app/feat-sum:0" "#{pane_start_command}" | gq -- "-ic .*source "'
+check 'setup runs as the window command, not typed in' eval '_lazyspace_tmux display -p -t "=app/feat-sum:0" "#{pane_start_command}" | gq -- "-ic .*[.] "'
 check 'multi-line setup still runs' waitfor $LAZYSPACE_WORKTREES/app/feat-sum/.ml-b
 rm $cfg
 lazyspace rm -f -D feat/sum 2>/dev/null
@@ -375,6 +377,13 @@ _lazyspace_setup_run api/feat-x $SANDBOX 'print one'
 _lazyspace_setup_run api-feat/x $SANDBOX 'print two'
 check 'setup scripts are per run' eval 'scripts=($TMPDIR/lazyspace-$UID/api-feat-x.setup.*(N)); (( $#scripts == 2 )) && gq -x "print one" $scripts[1] $scripts[2] && gq -x "print two" $scripts[1] $scripts[2]'
 _lazyspace_tmux kill-session -t '=api/feat-x' 2>/dev/null; _lazyspace_tmux kill-session -t '=api-feat/x' 2>/dev/null
+
+# a POSIX $SHELL (dash has no `source`) still runs the setup script
+if [[ -x /bin/dash ]]; then
+  SHELL=/bin/dash _lazyspace_setup_run dashtest $SANDBOX 'echo ran >~/dash.out'
+  check 'setup runs under a POSIX-only shell' eval 'waitfor ~/dash.out && gq -x ran ~/dash.out'
+  _lazyspace_tmux kill-session -t '=dashtest' 2>/dev/null; rm -f ~/dash.out
+fi
 
 # setup sees the worktree's direnv env, which its prompt hook hasn't loaded yet
 mkdir -p $HOME/bin

@@ -249,8 +249,9 @@ _lazyspace_setup_run() {
   # loaded this worktree's .envrc yet (or still has another one's): load it first
   case ${sh:t} in
     (fish) src="command -q direnv; and direnv export fish | source; /bin/sh ${(q)f}" ;;
-    (bash|zsh) src="command -v direnv >/dev/null 2>&1 && eval \"\$(direnv export ${sh:t})\"; source ${(q)f}" ;;
-    (*) src="source ${(q)f}" ;;
+    # `.`, not `source`: POSIX shells like dash (or /bin/sh when $SHELL is unset) lack it
+    (bash|zsh) src="command -v direnv >/dev/null 2>&1 && eval \"\$(direnv export ${sh:t})\"; . ${(q)f}" ;;
+    (*) src=". ${(q)f}" ;;
   esac
   run="$sh -ic ${(qq)src}; printf '\\n\\033[2m# lazyspace: setup finished (exit %s)\\033[0m\\n' \$?; exec $sh -l"
   # tmux runs a command through its default-shell ($SHELL), which may not be POSIX
