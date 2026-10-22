@@ -106,6 +106,12 @@ check 'ls clean has no *' eval '! lazyspace ls | grep "feat/x" | gq "\*"'
 mv $SANDBOX/setup-ran.keep $p/.setup-ran
 print change >> $p/.lazyspace
 check 'ls dirty shows *' eval 'lazyspace ls | grep "feat/x" | gq "\*"'
+# status and preview don't take index.lock (a commit or pull in that
+# worktree would fail on it): a touched clean file leaves the index stale
+idx=$(git -C $p rev-parse --path-format=absolute --git-path index)
+sleep 1.1; touch $p/.gitignore; m0=$(zstat +mtime $idx 2>/dev/null || stat -f %m $idx)
+_lazyspace_wtstatus $p >/dev/null; _lazyspace_preview w $p >/dev/null 2>&1
+check 'status leaves the index alone' eval '[[ $(zstat +mtime $idx 2>/dev/null || stat -f %m $idx) == $m0 ]]'
 check 'resolve by branch' eval '_lazyspace_resolve feat/x && [[ $REPLY == $p ]]'
 check 'resolve by session' eval '_lazyspace_resolve app/feat-x && [[ $REPLY == $p ]]'
 
@@ -431,6 +437,17 @@ check 'repo names and paths stay out of the action text' eval 'for k in enter c 
 check 'a repo name with ")" runs nothing' eval 'sleep 0.5; [[ -z $(find $SANDBOX -name PWNED) ]]'
 _lazyspace_tmux kill-session -t '=tui' 2>/dev/null
 lazyspace forget $evil >/dev/null 2>&1
+
+# a submodule or --separate-git-dir checkout keeps its metadata elsewhere:
+# the main worktree is the checkout, not that metadata dir
+sub=$SANDBOX/odd/sub super=$SANDBOX/odd/super sep=$SANDBOX/odd/sep
+mkdir -p $sub && git -C $sub init -q -b main && git -C $sub commit -q --allow-empty -m init
+mkdir -p $super && git -C $super init -q -b main && git -C $super -c protocol.file.allow=always submodule add -q $sub s 2>/dev/null
+git -C $super/s worktree add -q $SANDBOX/odd/s-wt -b feat/s
+git init -q -b main --separate-git-dir=$SANDBOX/odd/sep.git $sep
+check 'main worktree of a submodule' eval '_lazyspace_toplevel $super/s && [[ $REPLY == $super/s ]]'
+check 'main worktree from a submodule worktree' eval '_lazyspace_toplevel $SANDBOX/odd/s-wt && [[ $REPLY == $super/s ]]'
+check 'main worktree of a --separate-git-dir checkout' eval '_lazyspace_toplevel $sep && [[ $REPLY == $sep ]]'
 
 # 7. forget
 lazyspace forget app

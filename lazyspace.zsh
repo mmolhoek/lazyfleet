@@ -83,7 +83,18 @@ _lazyspace_toplevel() {
     [[ $gd == */.git/worktrees/* ]] && { REPLY=${gd:A}; REPLY=${REPLY%/.git/worktrees/*}; return 0 }
   fi
   common=$(git -C $d rev-parse --path-format=absolute --git-common-dir 2>/dev/null) || return 1
-  [[ ${common:t} == .git ]] && REPLY=${common:h} || REPLY=$common
+  [[ ${common:t} == .git ]] && { REPLY=${common:h}; return 0 }
+  # metadata kept elsewhere (a submodule, git init --separate-git-dir): the
+  # checkout is core.worktree if set (submodules), or $d if it isn't a linked
+  # worktree; otherwise git doesn't record where the main checkout is
+  if [[ -n $(git --git-dir=$common config core.worktree 2>/dev/null) ]]; then
+    REPLY=$(git --git-dir=$common rev-parse --show-toplevel 2>/dev/null)
+  elif [[ $(git -C $d rev-parse --path-format=absolute --git-dir 2>/dev/null) == $common ]]; then
+    REPLY=$(git -C $d rev-parse --show-toplevel 2>/dev/null)
+  else
+    REPLY=
+  fi
+  [[ -n $REPLY ]]
 }
 
 # REPLY=registered repo matching a name or path
@@ -352,8 +363,10 @@ _lazyspace_containers_in() {
 # "* ↑1 ↓2" for worktree $1
 _lazyspace_wtstatus() {
   local out= ab a b
-  # untracked files too, like rm's dirty check (git's ignore rules apply)
-  [[ -n $(git -C $1 status --porcelain 2>/dev/null) ]] && out='*'
+  # untracked files too, like rm's dirty check (git's ignore rules apply).
+  # --no-optional-locks: a plain status rewrites the index under index.lock,
+  # which makes a commit or pull running in that worktree (lazygit) fail
+  [[ -n $(git -C $1 --no-optional-locks status --porcelain 2>/dev/null) ]] && out='*'
   if ab=$(git -C $1 rev-list --left-right --count 'HEAD...@{u}' 2>/dev/null); then
     a=${ab%%[[:space:]]*}; b=${ab##*[[:space:]]}
     (( a )) && out+=" ↑$a"
@@ -572,7 +585,7 @@ _lazyspace_preview() {
     (( $#reply > 10 )) && print -r -- "   … $(( $#reply - 10 )) more"
   fi
   print
-  git -C $p -c color.status=always status -sb | head -n 30
+  git -C $p --no-optional-locks -c color.status=always status -sb | head -n 30
   print
   git -C $p log --oneline --color=always -n 15
 }
