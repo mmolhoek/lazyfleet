@@ -65,6 +65,13 @@ check 'new reports what it copied' gq -F 'copy    .env  from ~/src/app (.lazyspa
 check 'new reports the setup' gq -F 'setup   touch .setup-ran  (.lazyspace) → running in session app/feat-x' $SANDBOX/new.err
 check 'new copies .env' test -f $p/.env
 check 'new creates session' _lazyspace_tmux has-session -t '=app/feat-x'
+# #() in the status bar only runs for an attached client
+_lazyspace_tmux new-session -d -s sb -x 150 -y 5 "env -u TMUX $LAZYSPACE_TMUX attach -t \"=app/feat-x\""
+check 'the status bar shows the branch' retry '_lazyspace_tmux capture-pane -p -t "=sb:" | tail -1 | gq -F feat/x'
+_lazyspace_tmux kill-session -t '=sb'
+LAZYSPACE_STATUS_BRANCH=off lazyspace new feat/nosb --no-open >/dev/null 2>&1
+check 'status_branch=off leaves the status bar alone' eval '_lazyspace_tmux has-session -t "=app/feat-nosb" && [[ -z $(_lazyspace_tmux show -v -t "=app/feat-nosb:" status-right) ]]'
+lazyspace rm -f -D feat/nosb 2>/dev/null
 check 'new runs setup' waitfor $p/.setup-ran
 cfg=$XDG_CONFIG_HOME/lazyspace/config
 mkdir -p ${cfg:h}

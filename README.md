@@ -130,6 +130,7 @@ same meaning wins when it's set.
 | `search`: where `a` looks for repos (space-separated dirs) | `LAZYSPACE_SEARCH`       | whichever of `~/Projects`, `~/code`, `~/src`, `~/dev`, `~/work`, `~/git`, `~/repos`, `~/workspace` exist, else `~` |
 | `search_depth`: how deep `a` looks                         | `LAZYSPACE_SEARCH_DEPTH` | `4`                                                                                                                |
 | `worktrees`: where new worktrees go                        | `LAZYSPACE_WORKTREES`    | `~/.lazyspace/worktrees`                                                                                           |
+| `status_branch`: `off` hides the branch in the status bar  | `LAZYSPACE_STATUS_BRANCH` | `on`                                                                                                              |
 
 ```
 search=~/Projects ~/work
@@ -141,6 +142,9 @@ search_depth=3
 - Registry: `~/.config/lazyspace/repos`, one path per line.
 - Settings: `~/.config/lazyspace/config`; per-repo config: `~/.config/lazyspace/projects/<repo>.conf` (see above).
 - Session names: `<repo>` for the main worktree and `<repo>/<worktree-dir>` for the others.
+- The sessions lazyspace starts show the branch of the active pane's checkout at the start of their tmux
+  `status-right` (followed by your global one, as it was when the session started). It follows checkouts,
+  within `status-interval`.
 - `LAZYSPACE_TMUX` overrides the tmux command (e.g. `tmux -L other`).
 
 ## Test

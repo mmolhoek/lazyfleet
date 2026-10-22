@@ -270,8 +270,23 @@ _lazyspace_setup_run() {
   if _lazyspace_tmux has-session -t "=$s" 2>/dev/null; then
     _lazyspace_tmux new-window -t "=$s:" -n setup -c $p $run
   else
-    _lazyspace_tmux new-session -d -s $s -c $p $run
+    _lazyspace_tmux new-session -d -s $s -c $p $run && _lazyspace_statusbranch $s
   fi
+}
+
+# Put the branch of the active pane's checkout in front of new session $1's
+# status-right (a copy of the global one), unless status_branch=off. tmux runs
+# the #() in the background: again every status-interval, and right away when
+# the pane's directory changes. Leaves REPLY alone.
+_lazyspace_statusbranch() {
+  local REPLY git='git -C #{q:pane_current_path}'
+  local -a g
+  _lazyspace_setting status_branch LAZYSPACE_STATUS_BRANCH on
+  [[ $REPLY == (off|no|false|0) ]] && return 0
+  g=("${(@f)$(_lazyspace_tmux show -gv status-right \; show -gv status-right-length)}")
+  _lazyspace_tmux \
+    set -t "=$1:" status-right "#[bold]#($git symbolic-ref -q --short HEAD 2>/dev/null || $git rev-parse -q --short HEAD 2>/dev/null)#[nobold] $g[1]" \; \
+    set -t "=$1:" status-right-length $(( ${g[2]:-40} + 40 ))
 }
 
 # REPLY=worktree path for a path, session name, branch or dir name
@@ -302,7 +317,7 @@ _lazyspace_ensure() {
   [[ $p == ${repo:A} ]] && m=1
   _lazyspace_session $repo $p $m
   _lazyspace_tmux has-session -t "=$REPLY" 2>/dev/null ||
-    _lazyspace_tmux new-session -d -s $REPLY -c $p
+    { _lazyspace_tmux new-session -d -s $REPLY -c $p && _lazyspace_statusbranch $REPLY }
 }
 
 _lazyspace_open_path() {
@@ -1040,12 +1055,13 @@ _lazyspace_config() {
     else
       cat >$f <<'EOF'
 # lazyspace settings. Lines starting with # are ignored.
-# Env vars LAZYSPACE_SEARCH, LAZYSPACE_SEARCH_DEPTH and LAZYSPACE_WORKTREES
-# win over these. Per-project copy=/setup= go in projects/<name>.conf
-# (press c on a project in lazyspace).
+# Env vars LAZYSPACE_SEARCH, LAZYSPACE_SEARCH_DEPTH, LAZYSPACE_WORKTREES and
+# LAZYSPACE_STATUS_BRANCH win over these. Per-project copy=/setup= go in
+# projects/<name>.conf (press c on a project in lazyspace).
 # search=~/Projects ~/work
 # search_depth=4
 # worktrees=~/.lazyspace/worktrees
+# status_branch=off   (no branch in the tmux status bar of new sessions)
 EOF
     fi
   fi
@@ -1143,7 +1159,7 @@ lazyspace — git worktrees, each in its own tmux session
 .lazyspace (repo root, key=value; indent lines to continue a value):
   setup=…  copy=file1 file2
 ~/.config/lazyspace/projects/<repo>.conf: the same keys, for one repo (wins)
-~/.config/lazyspace/config: search=dirs  search_depth=n  worktrees=dir
+~/.config/lazyspace/config: search=dirs  search_depth=n  worktrees=dir  status_branch=off
 EOF
 }
 
