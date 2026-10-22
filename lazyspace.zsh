@@ -350,7 +350,8 @@ _lazyspace_containers_in() {
 # "* ↑1 ↓2" for worktree $1
 _lazyspace_wtstatus() {
   local out= ab a b
-  [[ -n $(git -C $1 status --porcelain --untracked-files=no 2>/dev/null) ]] && out='*'
+  # untracked files too, like rm's dirty check (git's ignore rules apply)
+  [[ -n $(git -C $1 status --porcelain 2>/dev/null) ]] && out='*'
   if ab=$(git -C $1 rev-list --left-right --count 'HEAD...@{u}' 2>/dev/null); then
     a=${ab%%[[:space:]]*}; b=${ab##*[[:space:]]}
     (( a )) && out+=" ↑$a"

@@ -88,7 +88,11 @@ check 'new refuses existing' eval '! lazyspace new feat/x --no-open 2>/dev/null'
 
 # 3. ls / status
 check 'ls shows row' eval 'lazyspace ls | grep "feat/x" >/dev/null'
+# the setup's own .setup-ran is untracked, so it counts as a change
+check 'ls untracked shows *' eval 'lazyspace ls | grep "feat/x" | gq "\*"'
+mv $p/.setup-ran $SANDBOX/setup-ran.keep
 check 'ls clean has no *' eval '! lazyspace ls | grep "feat/x" | gq "\*"'
+mv $SANDBOX/setup-ran.keep $p/.setup-ran
 print change >> $p/.lazyspace
 check 'ls dirty shows *' eval 'lazyspace ls | grep "feat/x" | gq "\*"'
 check 'resolve by branch' eval '_lazyspace_resolve feat/x && [[ $REPLY == $p ]]'
