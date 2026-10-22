@@ -2,7 +2,8 @@
 # Source this file from .zshrc, then run `lazyspace` (TUI) or `lazyspace help`.
 
 typeset -g LAZYSPACE_DIR=${${(%):-%x}:A:h}
-typeset -g _LAZYSPACE_LETTERS='j,k,n,d,r,a,w,c,C,R,q'
+# keys that type into the find input instead while it's shown
+typeset -g _LAZYSPACE_LETTERS='j,k,n,d,r,a,w,c,C,R,q,/'
 typeset -g _LAZYSPACE_FOOTER_WT=$'↵ open  (n)ew worktree  (a)dd project
 (d)elete  (w)indows  ⇥ repos  / find
 (c) project config  (C) global settings
@@ -655,7 +656,12 @@ _lazyspace_new() {
   if _lazyspace_conf copy $p $repo; then
     for f in ${=REPLY}; do
       if [[ -e $repo/$f ]]; then
-        mkdir -p $p/${f:h} && cp -R $repo/$f $p/$f && copied+=($f)
+        # setup may need these files: don't start it without them
+        mkdir -p $p/${f:h} && cp -R $repo/$f $p/$f || {
+          _lazyspace_err "could not copy $f into ${p/#$HOME/~}; the worktree is there, but setup didn't run"
+          return 1
+        }
+        copied+=($f)
       else
         skipped+=($f)
       fi

@@ -11,6 +11,8 @@ mkdir -p $TMPDIR
 # enter hook
 print -r -- '[[ -e ~/.ask ]] && { rm ~/.ask; read -r ans; print -r -- $ans >~/answer }' >$SANDBOX/.zshrc
 # keep the test tmux server's socket in the sandbox, so it goes away with it
+# every fixture repo commits, also on hosts without a git identity
+export GIT_AUTHOR_NAME=t GIT_AUTHOR_EMAIL=t@t GIT_COMMITTER_NAME=t GIT_COMMITTER_EMAIL=t@t
 export TMUX_TMPDIR=$SANDBOX
 export LAZYSPACE_TMUX="tmux -L lazyspace-test-$$" SHELL=/bin/zsh
 unset TMUX
@@ -32,7 +34,7 @@ trap cleanup EXIT
 # 1. repo with .lazyspace, registered
 repo=$SANDBOX/src/app
 mkdir -p $repo && cd $repo
-git init -q -b main && git config user.email t@t && git config user.name t
+git init -q -b main
 print 'secret' > .env
 print '.env' > .gitignore
 cat > .lazyspace <<'EOF'
@@ -74,6 +76,13 @@ check 'setup runs as the window command, not typed in' eval '_lazyspace_tmux dis
 check 'multi-line setup still runs' waitfor $LAZYSPACE_WORKTREES/app/feat-sum/.ml-b
 rm $cfg
 lazyspace rm -f -D feat/sum 2>/dev/null
+# a file that can't be copied fails new before setup starts
+print -l '[app]' 'copy=.env .locked' 'setup=touch .setup-ran' >$cfg
+print x >$repo/.locked; chmod 000 $repo/.locked
+check 'new fails when a copy fails' eval '! lazyspace new feat/cpfail --no-open >/dev/null 2>$SANDBOX/new.err && gq -F "could not copy .locked" $SANDBOX/new.err'
+check 'a failed copy starts no setup' eval '! _lazyspace_tmux has-session -t "=app/feat-cpfail" 2>/dev/null && sleep 0.5 && test ! -e $LAZYSPACE_WORKTREES/app/feat-cpfail/.setup-ran'
+rm -f $cfg $repo/.locked
+lazyspace rm -f -D feat/cpfail 2>/dev/null
 # a question while the shell starts gets the user's answer, not our setup keys
 touch $HOME/.ask
 lazyspace new feat/ask --no-open >/dev/null 2>/dev/null
@@ -204,7 +213,8 @@ _lazyspace_tmux kill-session -t '=tui' 2>/dev/null
 _lazyspace_tmux new-session -d -s tui -x 120 -y 20 "env -u TMUX $ROOT/bin/lazyspace windows; sleep 5"
 waitpane tui '1:extra'
 _lazyspace_tmux send-keys -t '=tui:' /; sleep 0.3
-_lazyspace_tmux send-keys -t '=tui:' -l 'feat-x 1:extra'; sleep 0.5
+_lazyspace_tmux send-keys -t '=tui:' -l 'app/feat-x 1:extra'; sleep 0.5
+check 'find input takes a /' waitpane tui '> app/feat-x 1:extra'
 _lazyspace_tmux send-keys -t '=tui:' Enter; sleep 1
 check 'windows enter attaches to that window' eval '_lazyspace_tmux list-clients -F "#S #W" | gq -x "app/feat-x extra"'
 _lazyspace_tmux detach-client -s '=app/feat-x'
