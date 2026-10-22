@@ -223,6 +223,8 @@ waitpane tui '1:extra'
 _lazyspace_tmux send-keys -t '=tui:' /; sleep 0.3
 _lazyspace_tmux send-keys -t '=tui:' -l 'app/feat-x 1:extra'; sleep 0.5
 check 'find input takes a /' waitpane tui '> app/feat-x 1:extra'
+_lazyspace_tmux send-keys -t '=app/feat-x:1' 'echo live-$((6*7))' Enter
+check 'window preview follows the pane' waitpane tui 'live-42'
 _lazyspace_tmux send-keys -t '=tui:' Enter; sleep 1
 check 'windows enter attaches to that window' eval '_lazyspace_tmux list-clients -F "#S #W" | gq -x "app/feat-x extra"'
 _lazyspace_tmux detach-client -s '=app/feat-x'

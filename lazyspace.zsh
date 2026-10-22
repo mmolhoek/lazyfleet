@@ -541,21 +541,41 @@ _lazyspace_names() {
   done
 }
 
+# REPLY=preview of tmux window $1: a header line, then the pane's last
+# screenful without its trailing blank lines; fails once the window is gone
+_lazyspace_winframe() {
+  local head
+  local -a out
+  head=$(_lazyspace_tmux display-message -p -t $1 '#{pane_current_command}  #{pane_current_path}' 2>/dev/null) || return 1
+  out=("${(@f)$(_lazyspace_tmux capture-pane -ep -t $1)}")
+  local n=$(( ${FZF_PREVIEW_LINES:-40} - 2 ))
+  (( $#out > n )) && out=(${out[-n,-1]})
+  REPLY=$'\e[1m'${1#=}$'\e[0m  '$head$'\n\n'${(F)out}
+}
+
+# _lazyspace_preview [-f] kind path — -f: a window preview keeps redrawing
+# (when its pane changes) until fzf stops it for another row
 _lazyspace_preview() {
+  local -a o_f
+  zparseopts -D -E f=o_f
   local kind=$1 p=$2 e
   if [[ -z $p ]]; then
     [[ $FZF_LIST_LABEL == *Windows* ]] && print 'No tmux windows.' || print 'No repos yet — press a to add one.'
     return
   fi
   if [[ $kind == t ]]; then
-    local -a out
-    print -r -- $'\e[1m'${p#=}$'\e[0m  '"$(_lazyspace_tmux display-message -p -t $p '#{pane_current_command}  #{pane_current_path}')"
-    print
-    # the pane's last screenful, without its trailing blank lines
-    out=("${(@f)$(_lazyspace_tmux capture-pane -ep -t $p)}")
-    local n=$(( ${FZF_PREVIEW_LINES:-40} - 2 ))
-    (( $#out > n )) && out=(${out[-n,-1]})
-    print -rl -- "${out[@]}"
+    local last
+    _lazyspace_winframe $p || return
+    print -r -- $REPLY
+    (( $#o_f )) || return 0
+    zmodload zsh/zselect
+    last=$REPLY
+    # no fork per tick: zselect -t sleeps (in 1/100 s) without a sleep process
+    while zselect -t 50 || :; _lazyspace_winframe $p; do
+      [[ $REPLY == $last ]] && continue
+      last=$REPLY
+      print -rn -- $'\e[2J'; print -r -- $REPLY
+    done
     return
   fi
   if [[ $kind == r ]]; then
@@ -852,7 +872,7 @@ _lazyspace_ui() {
       --delimiter '\t' --with-nth 3 --query "$q" \
       --border-label ' lazyspace ' --preview-label ' Details ' \
       --with-shell "${commands[zsh]:-/bin/zsh} -c" \
-      --preview "$bin _preview {1} {2}" --pointer '▌' --gutter ' ' --info inline-right \
+      --preview "$bin _preview -f {1} {2}" --pointer '▌' --gutter ' ' --info inline-right \
       --bind 'j:down,k:up' $start $binds) || return 0
     q= sel=
     lines=(${(f)out})
