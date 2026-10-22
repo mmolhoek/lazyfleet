@@ -8,12 +8,12 @@ The Details pane lists those containers, and removing the worktree offers to sto
 
 ## Install
 
-It's optional: run `mise bootstrap` in any NU.nl repo that uses [nunl-env](../nunl-env/README.md) with
-`NUNL_DEVELOPER_TOOLS_LAZYSPACE=true` exported, and it's installed without asking:
+It's optional: add `NUNL_DEVELOPER_TOOLS_LAZYSPACE=true` to your shell setup, then run `mise bootstrap` in any NU.nl
+repo that uses [nunl-env](../nunl-env/README.md), and it's installed without asking:
 
 ```sh
+# ~/.zshrc or ~/.bashrc (fish: set -gx NUNL_DEVELOPER_TOOLS_LAZYSPACE true)
 export NUNL_DEVELOPER_TOOLS_LAZYSPACE=true
-mise bootstrap
 ```
 
 Without it, bootstrap's checklist lists lazyspace as optional (`○`), and a `mise bootstrap` without the variable
