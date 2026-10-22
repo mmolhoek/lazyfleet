@@ -8,29 +8,15 @@ The Details pane lists those containers, and removing the worktree offers to sto
 
 ## Install
 
-It's optional: add `NUNL_DEVELOPER_TOOLS_LAZYSPACE=true` to your shell setup, then run `mise bootstrap` in any NU.nl
-repo that uses [nunl-env](../nunl-env/README.md), and it's installed without asking:
+lazyspace itself is zsh, so zsh must be installed (it is on macOS), but it doesn't have to be your shell:
 
 ```sh
-# ~/.zshrc or ~/.bashrc (fish: set -gx NUNL_DEVELOPER_TOOLS_LAZYSPACE true)
-export NUNL_DEVELOPER_TOOLS_LAZYSPACE=true
-```
-
-Without it, bootstrap's checklist lists lazyspace as optional (`○`), and a `mise bootstrap` without the variable
-removes an earlier install again (its rc file blocks; tmux and fzf stay). It installs tmux and fzf via Homebrew if needed, and adds a managed `# >>> lazyspace hook >>>` block to your shell's rc file(s):
-zsh sources this folder's `lazyspace.zsh` (command + completion; an existing `source .../lazyspace.zsh` line of your
-own is commented out), bash and fish get `bin/` on `$PATH` (the command, without completion). lazyspace itself is
-zsh, so zsh must be installed (it is on macOS), but it doesn't have to be your shell.
-
-To set it up by hand instead:
-
-```sh
-# ~/.zshrc
-source /path/to/nunl-developer-tools/lazyspace/lazyspace.zsh
-# ~/.bashrc
-export PATH="/path/to/nunl-developer-tools/lazyspace/bin:$PATH"
+# ~/.zshrc (command + completion)
+source /path/to/lazyspace/lazyspace.zsh
+# ~/.bashrc (the command, without completion)
+export PATH="/path/to/lazyspace/bin:$PATH"
 # ~/.config/fish/config.fish
-fish_add_path /path/to/nunl-developer-tools/lazyspace/bin
+fish_add_path /path/to/lazyspace/bin
 ```
 
 For a shorter command, add `alias lzs=lazyspace`.
@@ -38,8 +24,8 @@ For a shorter command, add `alias lzs=lazyspace`.
 You can also bind a switcher popup in `~/.tmux.conf`:
 
 ```sh
-bind w display-popup -E -w 80% -h 60% "/path/to/nunl-developer-tools/lazyspace/bin/lazyspace"
-bind W display-popup -E -w 80% -h 60% "/path/to/nunl-developer-tools/lazyspace/bin/lazyspace windows"
+bind w display-popup -E -w 80% -h 60% "/path/to/lazyspace/bin/lazyspace"
+bind W display-popup -E -w 80% -h 60% "/path/to/lazyspace/bin/lazyspace windows"
 ```
 
 ## Use
