@@ -8,8 +8,16 @@ The Details pane lists those containers, and removing the worktree offers to sto
 
 ## Install
 
-`mise bootstrap` in any NU.nl repo that uses [nunl-env](../nunl-env/README.md) offers to install it. It installs
-tmux and fzf via Homebrew if needed, and adds a managed `# >>> lazyspace hook >>>` block to your shell's rc file(s):
+It's optional: run `mise bootstrap` in any NU.nl repo that uses [nunl-env](../nunl-env/README.md) with
+`NUNL_DEVELOPER_TOOLS_LAZYSPACE=true` exported, and it's installed without asking:
+
+```sh
+export NUNL_DEVELOPER_TOOLS_LAZYSPACE=true
+mise bootstrap
+```
+
+Without it, bootstrap's checklist lists lazyspace as optional (`○`). Once installed, every later `mise bootstrap`
+keeps it up to date, with or without the variable. It installs tmux and fzf via Homebrew if needed, and adds a managed `# >>> lazyspace hook >>>` block to your shell's rc file(s):
 zsh sources this folder's `lazyspace.zsh` (command + completion; an existing `source .../lazyspace.zsh` line of your
 own is commented out), bash and fish get `bin/` on `$PATH` (the command, without completion). lazyspace itself is
 zsh, so zsh must be installed (it is on macOS), but it doesn't have to be your shell.
