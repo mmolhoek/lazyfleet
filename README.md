@@ -55,7 +55,7 @@ You can name a worktree by its path, its branch (`feat/x`), its session name (`a
 | `enter`     | open session                                                       | show this repo's worktrees | switch to window   |
 | `n`         | new worktree in this row's repo: pick a branch, or type a new name | new worktree               |                    |
 | `d`         | remove worktree (asks; optionally deletes the branch)              | forget repo                | kill window (asks) |
-| `p`         | pull: fast-forward to its upstream (git's error if it can't)       |                            |                    |
+| `p`         | pull in the background (⟳ on its row); git's error if it fails     |                            |                    |
 | `a`         | add repo: pick one found under your project dirs, or type a path   | add repo                   | add repo           |
 | `tab` · `w` | next view · Windows view                                           |                            |                    |
 | `c` · `C`   | edit the project config · the global settings                     | same                       | global settings     |

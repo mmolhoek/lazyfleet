@@ -432,7 +432,9 @@ _lazyspace_rows() {
     for i in {1..$#paths}; do docks[i]=${dk[${paths[i]:A}]:+🐳${dk[${paths[i]:A}]}}; done
     rm -rf $tmp
   fi
+  _lazyspace_pulldir
   for (( i = 1; i <= $#paths; i++ )); do
+    [[ -e $REPLY/${paths[i]//\//%} ]] && stats[i]="⟳ pulling${stats[i]:+ $stats[i]}"
     printf 'w\t%s\t%s%-*s%s  %-*s  %s%1s%s %s%s%s%s%s%s\n' $paths[i] \
       "$c_repo" $wn $names[i] "$c_off" $wb $branches[i] \
       "$c_live" "$lives[i]" "$c_off" "$c_st" "$stats[i]" "$c_off" \
@@ -836,6 +838,28 @@ _lazyspace_pull() {
   _lazyspace_done || { print -ru2 -- $out; return 1 }
 }
 
+# REPLY=dir of the TUI's background pulls: a file per worktree being pulled
+# (its path with / as %), and <that>.err with the output of a failed one
+_lazyspace_pulldir() {
+  _lazyspace_tmpdir 2>/dev/null || return 1
+  REPLY+=/pull
+  [[ -d $REPLY ]] || mkdir -m 700 $REPLY 2>/dev/null
+}
+
+# Send fzf action $1 to the TUI's fzf, through its --listen socket ($FZF_SOCK)
+_lazyspace_fzfpost() {
+  setopt local_options no_multibyte  # Content-Length counts bytes
+  local fd r
+  [[ -S $FZF_SOCK ]] || return 1
+  zmodload zsh/net/socket || return 1
+  zsocket $FZF_SOCK 2>/dev/null || return 1
+  fd=$REPLY
+  print -rn -- "POST / HTTP/1.1"$'\r\n'"Host: lazyspace"$'\r\n'"Content-Length: $#1"$'\r\n\r\n'"$1" >&$fd
+  read -r -t 5 r <&$fd
+  exec {fd}>&-
+  [[ $r == 'HTTP/1.1 200'* ]]
+}
+
 # Progress for slow steps, on stderr: "msg… " now, then "done"/"failed" by the
 # status of the command run in between
 _lazyspace_step() { print -nu2 -- "$1… " }
@@ -853,12 +877,16 @@ _lazyspace_done() {
 _lazyspace_ui() {
   local -a o_w
   zparseopts -D -E w=o_w
-  local bin=${(q)LAZYSPACE_DIR}/bin/lazyspace k q=$1 out view=${o_w:+windows} rows sel i
+  local bin=${(q)LAZYSPACE_DIR}/bin/lazyspace k q=$1 out view=${o_w:+windows} rows sel i rc
   local -a binds lines start
   # coming back from a session, the first load puts the cursor on the row we
   # left (sel: its path or window target); this file hands that over once
   _lazyspace_tmpdir || return 1
   local -x LAZYSPACE_POSFILE=$REPLY/pos.$$
+  # background jobs (pull) send fzf actions here; unix socket paths are
+  # limited to 103 bytes; without it p pulls in the foreground
+  local sock=$REPLY/fzf.$$.sock
+  (( $#sock < 104 )) && binds+=(--listen=$sock) || sock=
   # start on the Windows view when tmux has any (unless given a query)
   [[ -z $view && -z $q && -n $(_lazyspace_tmux list-windows -a -F x 2>/dev/null) ]] && view=windows
   # Query changes emitted by a transform are ignored by fzf, so the
@@ -888,7 +916,10 @@ _lazyspace_ui() {
       --border-label ' lazyspace ' --preview-label ' Details ' \
       --with-shell "${commands[zsh]:-/bin/zsh} -c" \
       --preview "$bin _preview -f {1} {2}" --pointer '▌' --gutter ' ' --info inline-right \
-      --bind 'j:down,k:up' $start $binds) || return 0
+      --bind 'j:down,k:up' $start $binds)
+    rc=$?
+    [[ -n $sock ]] && rm -f $sock
+    (( rc )) && return 0
     q= sel=
     lines=(${(f)out})
     case $lines[1] in
@@ -1005,7 +1036,11 @@ _lazyspace_key() {
         (t) print -r -- "execute($bin _ui_killwin {2})+$rl" ;;
         (*) print -r -- "execute($bin _ui_rm {2})+$rl" ;;
       esac ;;
-    (p) [[ $kind == w && -n $p ]] && print -r -- "execute($bin _ui_pull {2})+$rl" ;;
+    (p)
+      [[ $kind == w && -n $p ]] || return 0
+      # in the background when fzf listens: the row shows ⟳ until it's done
+      if [[ -n $FZF_SOCK ]]; then print -r -- "execute-silent($bin _ui_pull {2})+$rl"
+      else print -r -- "execute($bin _ui_pull {2})+$rl"; fi ;;
   esac
 }
 
@@ -1096,7 +1131,37 @@ _lazyspace_unpushed() {
   REPLY+=" (git reflog can still find them for a while)"
 }
 
-_lazyspace_ui_pull() { _lazyspace_pull $1 || _lazyspace_pause }
+# Pull worktree $1; with $FZF_SOCK in a detached job that marks the row as
+# pulling, then has fzf reload (and show git's output if it failed)
+_lazyspace_ui_pull() {
+  [[ -n $FZF_SOCK ]] || { _lazyspace_pull $1 || _lazyspace_pause; return }
+  _lazyspace_pulldir || return 1
+  local m=$REPLY/${1//\//%} bin=${(q)LAZYSPACE_DIR}/bin/lazyspace
+  [[ -e $m ]] && return 0  # already pulling
+  : >$m
+  {
+    local out
+    out=$(_lazyspace_pull $1 2>&1) || print -r -- $out >$m.err
+    rm -f $m
+    _lazyspace_fzfpost "transform($bin _pulled)"
+  } </dev/null >/dev/null 2>&1 &!
+}
+
+# fzf actions once a background pull is done: show failed pulls, then reload
+_lazyspace_pulled() {
+  local bin=${(q)LAZYSPACE_DIR}/bin/lazyspace
+  _lazyspace_pulldir || return
+  local -a errs=($REPLY/*.err(N))
+  (( $#errs )) && print -rn -- "execute($bin _ui_pullfail)+"
+  FZF_KEY=r _lazyspace_key
+}
+
+_lazyspace_ui_pullfail() {
+  local e
+  _lazyspace_pulldir || return
+  for e in $REPLY/*.err(N); do print -r -- "$(<$e)"; print; rm -f $e; done
+  _lazyspace_pause
+}
 
 _lazyspace_ui_rm() {
   local br repo

@@ -380,6 +380,17 @@ git -C $pl commit -q --allow-empty -m local
 git -C $clone commit -q --allow-empty -m again && git -C $clone push -q
 check 'pull refuses diverged branches' eval 'out=$(lazyspace pull feat/pull 2>&1); (( $? )) && [[ $out == *"… failed"* && $(git -C $pl log -1 --format=%s) == local ]]'
 check 'key p pulls the worktree' eval 'FZF_KEY=p FZF_LIST_LABEL=" Worktrees " _lazyspace_key w $pl | gq "^execute(.* _ui_pull {2})+.*reload("'
+check 'key p pulls in the background when fzf listens' eval 'FZF_SOCK=$SANDBOX/x.sock FZF_KEY=p FZF_LIST_LABEL=" Worktrees " _lazyspace_key w $pl | gq "^execute-silent(.* _ui_pull {2})+.*reload("'
+# background pull of the diverged branch: ⟳ on its row meanwhile, then git's
+# error for fzf to show (no fzf listening here, so nothing gets the reload)
+_lazyspace_pulldir; pd=$REPLY
+git() { [[ $3 == pull ]] && sleep 1; command git "$@" }
+FZF_SOCK=$SANDBOX/x.sock _lazyspace_ui_pull $pl
+check 'background pull marks the row' eval '_lazyspace_rows | gq "feat/pull.*⟳ pulling"'
+unfunction git
+check 'failed background pull keeps git'"'"'s error' retry '[[ ! -e $pd/${pl//\//%} && -s $pd/${pl//\//%}.err ]]'
+check 'and has fzf show it' eval '_lazyspace_pulled | gq "^execute(.* _ui_pullfail)+.*reload("'
+check 'which clears it' eval '_lazyspace_ui_pullfail </dev/null >/dev/null 2>&1; [[ -z $(_lazyspace_pulled | grep pullfail) ]]'
 check 'key p ignored on repos' test -z "$(FZF_KEY=p FZF_LIST_LABEL=' Repos ' _lazyspace_key r $repo)"
 lazyspace rm -f -D feat/pull 2>/dev/null
 
