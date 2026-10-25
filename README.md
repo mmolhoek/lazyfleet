@@ -1,4 +1,4 @@
-# lazyspace
+# lazyfleet
 
 A tiny, shell-only take on [Supacode](https://supacode.sh): git worktrees, each with its own tmux session, driven from a lazygit-style TUI. It's pure zsh plus `git`, `tmux` and a recent `fzf` (tested with 0.74).
 
@@ -8,45 +8,45 @@ The Details pane lists those containers, and removing the worktree offers to sto
 
 ## Install
 
-lazyspace itself is zsh, so zsh must be installed (it is on macOS), but it doesn't have to be your shell:
+lazyfleet itself is zsh, so zsh must be installed (it is on macOS), but it doesn't have to be your shell:
 
 ```sh
 # ~/.zshrc (command + completion)
-source /path/to/lazyspace/lazyspace.zsh
+source /path/to/lazyfleet/lazyfleet.zsh
 # ~/.bashrc (the command, without completion)
-export PATH="/path/to/lazyspace/bin:$PATH"
+export PATH="/path/to/lazyfleet/bin:$PATH"
 # ~/.config/fish/config.fish
-fish_add_path /path/to/lazyspace/bin
+fish_add_path /path/to/lazyfleet/bin
 ```
 
-For a shorter command, add `alias lzs=lazyspace`.
+For a shorter command, add `alias lzs=lazyfleet`.
 
 You can also bind a switcher popup in `~/.tmux.conf`:
 
 ```sh
-bind w display-popup -E -w 80% -h 60% "/path/to/lazyspace/bin/lazyspace"
-bind W display-popup -E -w 80% -h 60% "/path/to/lazyspace/bin/lazyspace windows"
+bind w display-popup -E -w 80% -h 60% "/path/to/lazyfleet/bin/lazyfleet"
+bind W display-popup -E -w 80% -h 60% "/path/to/lazyfleet/bin/lazyfleet windows"
 ```
 
 ## Use
 
 ```sh
-lazyspace                      TUI
-lazyspace add [path]           register a repo
-lazyspace forget [repo]        unregister a repo (files are kept)
-lazyspace repos                list registered repos
-lazyspace ls                   list worktrees with status
-lazyspace new <branch> [-r repo] [-b base] [--no-open]
-lazyspace open [worktree]      attach (outside tmux) or switch-client (inside tmux)
-lazyspace rm [worktree] [-f] [-D]   -f: even if dirty or locked (e.g. by Supacode); -D: delete the local branch
-lazyspace pull [worktree]      fast-forward to its upstream (git pull --ff-only)
-lazyspace windows              TUI on all tmux windows; enter switches to one
-lazyspace config [repo]        edit the settings, or a repo's own config file, in $VISUAL / $EDITOR (vi)
+lazyfleet                      TUI
+lazyfleet add [path]           register a repo
+lazyfleet forget [repo]        unregister a repo (files are kept)
+lazyfleet repos                list registered repos
+lazyfleet ls                   list worktrees with status
+lazyfleet new <branch> [-r repo] [-b base] [--no-open]
+lazyfleet open [worktree]      attach (outside tmux) or switch-client (inside tmux)
+lazyfleet rm [worktree] [-f] [-D]   -f: even if dirty or locked (e.g. by Supacode); -D: delete the local branch
+lazyfleet pull [worktree]      fast-forward to its upstream (git pull --ff-only)
+lazyfleet windows              TUI on all tmux windows; enter switches to one
+lazyfleet config [repo]        edit the settings, or a repo's own config file, in $VISUAL / $EDITOR (vi)
 ```
 
 You can name a worktree by its path, its branch (`feat/x`), its session name (`app/feat-x`) or its directory name.
 
-`new` reuses an existing local branch first, then tries `origin/<branch>`, and otherwise creates the branch from `-b base` (default `origin/HEAD`, then `HEAD`). New worktrees go to `<worktrees>/<repo>/<branch-slug>` (default `~/.lazyspace/worktrees`; see [Settings](#settings)).
+`new` reuses an existing local branch first, then tries `origin/<branch>`, and otherwise creates the branch from `-b base` (default `origin/HEAD`, then `HEAD`). New worktrees go to `<worktrees>/<repo>/<branch-slug>` (default `~/.lazyfleet/worktrees`; see [Settings](#settings)).
 
 ### TUI keys
 
@@ -62,7 +62,7 @@ You can name a worktree by its path, its branch (`feat/x`), its session name (`a
 | `/` · `esc` | fuzzy filter · leave filter                                        |                            |                    |
 | `r` · `q`   | reload · quit                                                      |                            |                    |
 
-`lazyspace` opens on the Windows view when tmux has any windows open, and on Worktrees otherwise. All lists are
+`lazyfleet` opens on the Windows view when tmux has any windows open, and on Worktrees otherwise. All lists are
 sorted alphabetically.
 
 The Windows view lists every tmux window in every session, with its command and directory, and previews what's on its
@@ -74,7 +74,7 @@ Inside tmux, it switches the client and the TUI closes.
 In the `n` and `a` pickers, Enter takes the highlighted entry. If nothing matches, Enter takes what you typed
 (a new branch name or a path), and `ctrl-n` always takes what you typed.
 
-## `.lazyspace`
+## `.lazyfleet`
 
 This is an optional file in the repo root, made of `key=value` lines. It is read as data and never sourced. The new worktree's
 copy takes precedence over the main one's.
@@ -101,36 +101,36 @@ setup=
   npm run migrate
 ```
 
-The setup is written to a script in `$TMPDIR/lazyspace-$UID/` that first prints what lazyspace did for the new
+The setup is written to a script in `$TMPDIR/lazyfleet-$UID/` that first prints what lazyfleet did for the new
 worktree (branch, copies, setup) and then runs the commands in order.
 
 ### Personal config
 
 To set these keys without committing anything to the repo, give the repo its own file:
-`~/.config/lazyspace/projects/<repo-name>.conf`, with the same `key=value` lines. Press `c` on a repo or worktree
-(or run `lazyspace config <repo>`) to edit it. A missing file is created with a commented template, which also
-shows the repo's `.lazyspace` for reference. The project file wins over the repo's `.lazyspace` files.
+`~/.config/lazyfleet/projects/<repo-name>.conf`, with the same `key=value` lines. Press `c` on a repo or worktree
+(or run `lazyfleet config <repo>`) to edit it. A missing file is created with a commented template, which also
+shows the repo's `.lazyfleet` for reference. The project file wins over the repo's `.lazyfleet` files.
 
 ```
-# ~/.config/lazyspace/projects/app.conf
+# ~/.config/lazyfleet/projects/app.conf
 copy=.env .env.local
 setup=npm ci
 ```
 
-`[repo]` sections in `~/.config/lazyspace/config` (the older layout) still work, between the project file and
-`.lazyspace` in precedence.
+`[repo]` sections in `~/.config/lazyfleet/config` (the older layout) still work, between the project file and
+`.lazyfleet` in precedence.
 
 ### Settings
 
-Global settings go in `~/.config/lazyspace/config` (`C` in the TUI, or `lazyspace config`). An env var with the
+Global settings go in `~/.config/lazyfleet/config` (`C` in the TUI, or `lazyfleet config`). An env var with the
 same meaning wins when it's set.
 
 | setting                                                    | env var                  | default                                                                                                            |
 | ---------------------------------------------------------- | ------------------------ | ------------------------------------------------------------------------------------------------------------------ |
-| `search`: where `a` looks for repos (space-separated dirs) | `LAZYSPACE_SEARCH`       | whichever of `~/Projects`, `~/code`, `~/src`, `~/dev`, `~/work`, `~/git`, `~/repos`, `~/workspace` exist, else `~` |
-| `search_depth`: how deep `a` looks                         | `LAZYSPACE_SEARCH_DEPTH` | `4`                                                                                                                |
-| `worktrees`: where new worktrees go                        | `LAZYSPACE_WORKTREES`    | `~/.lazyspace/worktrees`                                                                                           |
-| `status_branch`: `off` hides the branch in the status bar  | `LAZYSPACE_STATUS_BRANCH` | `on`                                                                                                              |
+| `search`: where `a` looks for repos (space-separated dirs) | `LAZYFLEET_SEARCH`       | whichever of `~/Projects`, `~/code`, `~/src`, `~/dev`, `~/work`, `~/git`, `~/repos`, `~/workspace` exist, else `~` |
+| `search_depth`: how deep `a` looks                         | `LAZYFLEET_SEARCH_DEPTH` | `4`                                                                                                                |
+| `worktrees`: where new worktrees go                        | `LAZYFLEET_WORKTREES`    | `~/.lazyfleet/worktrees`                                                                                           |
+| `status_branch`: `off` hides the branch in the status bar  | `LAZYFLEET_STATUS_BRANCH` | `on`                                                                                                              |
 
 ```
 search=~/Projects ~/work
@@ -139,18 +139,18 @@ search_depth=3
 
 ## State
 
-- Registry: `~/.config/lazyspace/repos`, one path per line.
-- Settings: `~/.config/lazyspace/config`; per-repo config: `~/.config/lazyspace/projects/<repo>.conf` (see above).
+- Registry: `~/.config/lazyfleet/repos`, one path per line.
+- Settings: `~/.config/lazyfleet/config`; per-repo config: `~/.config/lazyfleet/projects/<repo>.conf` (see above).
 - Session names: `<repo>` for the main worktree and `<repo>/<worktree-dir>` for the others.
-- The sessions lazyspace starts show the branch of the active pane's checkout at the start of their tmux
+- The sessions lazyfleet starts show the branch of the active pane's checkout at the start of their tmux
   `status-right` (followed by your global one, as it was when the session started). It follows checkouts,
   within `status-interval`.
-- `LAZYSPACE_TMUX` overrides the tmux command (e.g. `tmux -L other`).
+- `LAZYFLEET_TMUX` overrides the tmux command (e.g. `tmux -L other`).
 
 ## Test
 
 ```zsh
-zsh lazyspace/tests/run.zsh
+zsh lazyfleet/tests/run.zsh
 ```
 
 The tests run in a throwaway HOME against an isolated tmux server.

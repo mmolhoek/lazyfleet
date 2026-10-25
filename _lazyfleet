@@ -1,4 +1,4 @@
-#compdef lazyspace
+#compdef lazyfleet
 
 local -a cmds=(
   'add:register a repo'
@@ -18,8 +18,8 @@ if (( CURRENT == 2 )); then
   return
 fi
 case $words[2] in
-  (open|rm|pull) compadd -- ${(f)"$(lazyspace _names)"} ;;
-  (forget|config) compadd -- ${${(f)"$(lazyspace repos)"}:t} ;;
+  (open|rm|pull) compadd -- ${(f)"$(lazyfleet _names)"} ;;
+  (forget|config) compadd -- ${${(f)"$(lazyfleet repos)"}:t} ;;
   (add) _directories ;;
-  (new) _arguments '-r[repo]:repo:(${${(f)"$(lazyspace repos)"}:t})' '-b[base ref]:ref:' '--no-open[do not open the session]' '1:branch:' ;;
+  (new) _arguments '-r[repo]:repo:(${${(f)"$(lazyfleet repos)"}:t})' '-b[base ref]:ref:' '--no-open[do not open the session]' '1:branch:' ;;
 esac
