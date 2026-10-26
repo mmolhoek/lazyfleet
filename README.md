@@ -83,6 +83,10 @@ A checkout never checks. Turn it off with `update_check=off` (see Settings) or `
 To look right now instead of waiting for the daily check, run `lazyfleet update`. It asks GitHub in the foreground,
 says whether you are up to date (or what to run to update), and works even when the daily check is off.
 
+`lazyfleet update --install` (or `-i`) then installs the release it found: it downloads that release's `install.sh`
+and runs it on this installation, so it works only for a copy that `install.sh` put there. Anything else gets the way
+to update it by hand.
+
 You can also bind a switcher popup in `~/.tmux.conf`:
 
 ```sh
@@ -105,7 +109,7 @@ lazyfleet pull [worktree]      fast-forward to its upstream (git pull --ff-only)
 lazyfleet windows              TUI on all tmux windows; enter switches to one
 lazyfleet config [repo]        edit the settings, or a repo's own config file, in $VISUAL / $EDITOR (vi)
 lazyfleet version              show the installed version
-lazyfleet update               look for a newer release now
+lazyfleet update [--install]   look for a newer release now; --install installs it
 ```
 
 You can name a worktree by its path, its branch (`feat/x`), its session name (`app/feat-x`) or its directory name.
