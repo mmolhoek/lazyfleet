@@ -190,5 +190,37 @@ check 'without -d nothing is removed' test -e $AGENTS/claude.$(keyof $SOCK %9)
 rm -rf $AGENTS; _lazyfleet_agents -d
 check 'a missing record dir is fine' true
 
+
+# ======================================================= tally and marks
+tallied() { local -A agtally; _lazyfleet_agent_tally $1; local k; for k in ${(ko)agtally}; do print -r -- "$k=$agtally[$k]"; done }
+_lazyfleet_tmux() {
+  case $1 in
+    (list-panes) print -r -- $panes_out ;;
+    (capture-pane) cat $SCREEN ;;
+    (list-windows) print -r -- $windows_out ;;
+    (*) return 1 ;;
+  esac
+}
+rm -rf $AGENTS; : >$SCREEN
+hook $SOCK %1 claude waiting; hook $SOCK %2 copilot done; hook $SOCK %4 omp working
+t=$(tallied)
+check 'the tally counts per session and kind' gq -x 'alpha:claude=1' <<<$t
+check 'the tally counts the state too' gq -x 'alpha:claude:waiting=1' <<<$t
+check 'every kind has its own state count' gq -x 'alpha:copilot:done=1' <<<$t
+check 'an agent of unknown state has no state count' not gq 'beta:claude:' <<<$t
+check 'the tally by window includes the window' gq -x 'alpha:1:copilot:done=1' <<<"$(tallied w)"
+marks_for() { local -A agtally; _lazyfleet_agent_tally; _lazyfleet_agent_marks_at $1 -p; print -r -- $REPLY }
+check 'a session shows its agents and states' test "$(marks_for alpha)" = '✻! ✦✓'
+check 'a session with an agent in an unknown state shows only the icon' test "$(marks_for beta)" = '✻'
+check 'a working agent shows …' test "$(marks_for gamma)" = 'π…'
+check 'a session without agents shows nothing' test -z "$(marks_for nothere)"
+# the windows view
+windows_out=$'alpha\t0:shell\tzsh\t/tmp\t\nalpha\t1:agent\tnode\t/tmp\t'
+rows=$(_lazyfleet_winrows | plain)
+check 'the windows view shows a waiting Claude' eval 'print -r -- $rows | grep -E "alpha +0:shell" | gq "✻!"'
+check 'the windows view shows a finished Copilot' eval 'print -r -- $rows | grep -E "alpha +1:agent" | gq "✦✓"'
+rows=$(LAZYFLEET_AGENT_ICONS=off _lazyfleet_winrows | plain)
+check 'no marks at all when the icons are off' not eval 'print -r -- $rows | gq -E "✻|✦|π"'
+
 (( fails )) && { print -P "\n%F{red}$fails failed%f"; exit 1 }
 print -P "\n%F{green}all passed%f"

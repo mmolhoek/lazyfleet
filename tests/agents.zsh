@@ -133,6 +133,21 @@ check 'colours by default' eval 'gq $'"'"'\e'"'"' <<<"$(mk claude=1 omp=1)"'
 check 'the colours leave the marks readable' test "$(mk claude=1 copilot=1 omp=1 | plain)" = '✻ ✦ π'
 check 'each kind has its own colour' test "$(mk claude=1 copilot=1 omp=1 | grep -o $'\e\\[[0-9;]*m' | grep -v '0m' | sort -u | wc -l | tr -d ' ')" = 3
 
+# --- the state marks
+check 'waiting shows a !' test "$(mk -p claude=1 claude:waiting=1)" = '✻!'
+check 'done shows a ✓' test "$(mk -p copilot=1 copilot:done=1)" = '✦✓'
+check 'working shows a …' test "$(mk -p omp=1 omp:working=1)" = 'π…'
+check 'idle shows nothing extra' test "$(mk -p claude=1 claude:idle=1)" = '✻'
+check 'the count goes before the state' test "$(mk -p claude=3 claude:waiting=1)" = '✻3!'
+check 'waiting beats done and working' test "$(mk -p claude=3 claude:working=1 claude:done=1 claude:waiting=1)" = '✻3!'
+check 'done beats working' test "$(mk -p claude=2 claude:working=1 claude:done=1)" = '✻2✓'
+check 'each kind has its own state' test "$(mk -p claude=1 claude:waiting=1 omp=1 omp:working=1)" = '✻! π…'
+check 'a state without its kind shows nothing' test -z "$(mk -p claude:waiting=1)"
+check 'a zero state count is no state' test "$(mk -p claude=1 claude:waiting=0)" = '✻'
+check 'waiting is coloured differently from done' test "$(mk claude=1 claude:waiting=1 | grep -o $'\e\\[1;33m!')" = $'\e[1;33m!'
+check 'plain marks have no escapes' not eval 'mk -p claude=1 claude:waiting=1 | gq $'"'"'\e'"'"
+check 'the colours leave state marks readable' test "$(mk claude=1 claude:done=1 omp=1 omp:working=1 | plain)" = '✻✓ π…'
+
 # --- the setting
 unset LAZYFLEET_AGENT_ICONS; rm -rf $XDG_CONFIG_HOME/lazyfleet
 check 'on by default' _lazyfleet_agent_icons_on

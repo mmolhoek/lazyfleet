@@ -540,13 +540,19 @@ _lazyfleet_agent_icons_on() {
   [[ ${REPLY:l} != (off|no|false|0) ]]
 }
 
-# REPLY=the marks for the agents given as kind=count arguments, in a fixed
-# order, like "✻2 π": a count shows above one. Coloured, unless the first
-# argument is -p. (Each count names its kind, so an absent one can not shift
-# the others.)
+# What each state looks like after an agent's icon, most urgent first
+typeset -ga _LAZYFLEET_AGENT_STATES=(waiting done working)
+typeset -gA _LAZYFLEET_AGENT_STATE_MARK=(waiting ! done ✓ working …)
+typeset -gA _LAZYFLEET_AGENT_STATE_COLOR=(waiting $'\e[1;33m' done $'\e[32m' working $'\e[2m')
+
+# REPLY=the marks for the agents given as arguments, in a fixed order, like
+# "✻2! π✓": the icon, a count above one, and the most urgent state of that
+# kind (! waiting for you, ✓ done, … working; idle shows nothing). Coloured,
+# unless the first argument is -p. The arguments are kind=count and
+# kind:state=count, so an absent kind can not shift the others.
 _lazyfleet_agent_marks() {
   emulate -L zsh
-  local plain= kind n out= col end arg
+  local plain= kind n out= col end arg st sm sc
   local -A cnt
   [[ $1 == -p ]] && { plain=1; shift }
   for arg in "$@"; do cnt[${arg%%=*}]=${arg#*=}; done
@@ -556,21 +562,30 @@ _lazyfleet_agent_marks() {
     col=$_LAZYFLEET_AGENT_COLOR[$kind] end=$'\e[0m'
     [[ -n $plain ]] && col= end=
     out+="${out:+ }${col}${_LAZYFLEET_AGENT_ICON[$kind]}${${n:#1}}${end}"
+    for st in $_LAZYFLEET_AGENT_STATES; do
+      (( ${cnt[$kind:$st]:-0} )) || continue
+      sc=$_LAZYFLEET_AGENT_STATE_COLOR[$st]
+      [[ -n $plain ]] && sc=
+      out+="${sc}${_LAZYFLEET_AGENT_STATE_MARK[$st]}${end}"
+      break
+    done
   done
   REPLY=$out
 }
 
 # Count the agents from _lazyfleet_agents into the caller's associative array
-# agtally, keyed "session:kind" (or, with w, "session:window:kind")
+# agtally, keyed "session:kind" (or, with w, "session:window:kind") and, for
+# agents whose state is known, "...:kind:state"
 _lazyfleet_agent_tally() {
   emulate -L zsh
   local line k
   local -a f
-  _lazyfleet_agents
+  _lazyfleet_agents -d
   for line in $reply; do
     f=("${(@ps:\t:)line}")
     k=$f[1]; [[ $1 == w ]] && k+=:$f[2]
     agtally[$k:$f[3]]=$(( ${agtally[$k:$f[3]]:-0} + 1 ))
+    [[ -n $f[4] ]] && agtally[$k:$f[3]:$f[4]]=$(( ${agtally[$k:$f[3]:$f[4]]:-0} + 1 ))
   done
 }
 
@@ -578,10 +593,14 @@ _lazyfleet_agent_tally() {
 # agtally; -p as $2 for plain marks
 _lazyfleet_agent_marks_at() {
   emulate -L zsh
-  local kind
+  local kind st
   local -a mk
   for kind in $_LAZYFLEET_AGENT_KINDS; do
-    [[ -n ${agtally[$1:$kind]} ]] && mk+=($kind=${agtally[$1:$kind]})
+    [[ -n ${agtally[$1:$kind]} ]] || continue
+    mk+=($kind=${agtally[$1:$kind]})
+    for st in $_LAZYFLEET_AGENT_STATES; do
+      [[ -n ${agtally[$1:$kind:$st]} ]] && mk+=($kind:$st=${agtally[$1:$kind:$st]})
+    done
   done
   _lazyfleet_agent_marks $2 $mk
 }
