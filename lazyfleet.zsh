@@ -390,6 +390,133 @@ _lazyfleet_wtstatus() {
   print -rn -- ${out# }
 }
 
+# --- coding agents ----------------------------------------------------------
+# Claude Code and GitHub Copilot CLI sessions running in tmux panes, found by
+# looking at the processes below each pane's shell. This reads command lines,
+# so it is a heuristic: it knows the usual ways each tool is started.
+
+# The tools, in the order their marks show, with each one's mark and colour
+typeset -ga _LAZYFLEET_AGENT_KINDS=(claude copilot omp)
+typeset -gA _LAZYFLEET_AGENT_ICON=(claude ✻ copilot ✦ omp π)
+typeset -gA _LAZYFLEET_AGENT_COLOR=(claude $'\e[38;5;208m' copilot $'\e[35m' omp $'\e[36m')
+
+# REPLY=claude, copilot or omp if command line $1 is one of those tools, else empty
+_lazyfleet_agent_kind() {
+  emulate -L zsh
+  local -a w
+  local x a
+  w=(${(z)1})
+  REPLY=
+  case ${w[1]:t} in
+    (claude) REPLY=claude ;;
+    (copilot) REPLY=copilot ;;
+    (omp) REPLY=omp ;;
+    # the native installer runs a versioned binary: .../claude/versions/2.0.1
+    (<->.<->.<->) [[ ${w[1]} == */claude/* ]] && REPLY=claude ;;
+    (node|bun|deno)
+      for x in ${w[2,-1]}; do [[ $x == -* ]] || { a=$x; break }; done
+      case $a in
+        (*/@anthropic-ai/claude-code/*|*/claude-code/*|*/bin/claude) REPLY=claude ;;
+        (*/@github/copilot/*|*/bin/copilot) REPLY=copilot ;;
+        (*/@oh-my-pi/*|*/bin/omp) REPLY=omp ;;
+      esac ;;
+    (gh) [[ ${w[2]} == copilot ]] && REPLY=copilot ;;
+  esac
+  [[ -n $REPLY ]]
+}
+
+# reply=("session<TAB>window<TAB>claude|copilot|omp" ...): one entry per tmux pane
+# that has such a tool running below its shell (or as its shell)
+_lazyfleet_agents() {
+  emulate -L zsh
+  local sep='@@lf@@' line pid ppid args p n out
+  local -a f
+  local -A parent kinds panes seen
+  reply=()
+  (( $+commands[ps] )) || return 0
+  # tmux 3.4 turns tabs in -F output into "_", so split on a printable separator
+  out=$(_lazyfleet_tmux list-panes -a -F "#{pane_pid}${sep}#{session_name}${sep}#{window_index}" 2>/dev/null) || return 0
+  for line in ${(f)out}; do
+    line=${line//$sep/$'\t'}
+    f=("${(@ps:\t:)line}")
+    [[ $f[1] == <-> && -n $f[2] ]] && panes[$f[1]]="$f[2]"$'\t'"$f[3]"
+  done
+  (( $#panes )) || return 0
+  for line in ${(f)"$(ps -axo pid=,ppid=,args= 2>/dev/null)"}; do
+    read -r pid ppid args <<<$line
+    [[ $pid == <-> && $ppid == <-> ]] || continue
+    parent[$pid]=$ppid
+    # most processes are no agent: only look closer at lines that could be
+    [[ $args == *(claude|copilot|omp|gh)* ]] && _lazyfleet_agent_kind $args && kinds[$pid]=$REPLY
+  done
+  for pid in ${(k)kinds}; do
+    p=$pid n=0
+    while [[ -n $p && $p != 0 && $p != 1 ]] && (( n++ < 64 )); do
+      if [[ -n $panes[$p] ]]; then
+        if [[ -z $seen[$p:$kinds[$pid]] ]]; then
+          seen[$p:$kinds[$pid]]=1
+          reply+=("$panes[$p]"$'\t'"$kinds[$pid]")
+        fi
+        break
+      fi
+      p=$parent[$p]
+    done
+  done
+  reply=(${(o)reply})
+}
+
+# are the agent icons on? (agent_icons=off or LAZYFLEET_AGENT_ICONS=off turns them off)
+_lazyfleet_agent_icons_on() {
+  _lazyfleet_setting agent_icons LAZYFLEET_AGENT_ICONS on
+  [[ ${REPLY:l} != (off|no|false|0) ]]
+}
+
+# REPLY=the marks for the agents given as kind=count arguments, in a fixed
+# order, like "✻2 π": a count shows above one. Coloured, unless the first
+# argument is -p. (Each count names its kind, so an absent one can not shift
+# the others.)
+_lazyfleet_agent_marks() {
+  emulate -L zsh
+  local plain= kind n out= col end arg
+  local -A cnt
+  [[ $1 == -p ]] && { plain=1; shift }
+  for arg in "$@"; do cnt[${arg%%=*}]=${arg#*=}; done
+  for kind in $_LAZYFLEET_AGENT_KINDS; do
+    n=${cnt[$kind]:-0}
+    (( n )) || continue
+    col=$_LAZYFLEET_AGENT_COLOR[$kind] end=$'\e[0m'
+    [[ -n $plain ]] && col= end=
+    out+="${out:+ }${col}${_LAZYFLEET_AGENT_ICON[$kind]}${${n:#1}}${end}"
+  done
+  REPLY=$out
+}
+
+# Count the agents from _lazyfleet_agents into the caller's associative array
+# agtally, keyed "session:kind" (or, with w, "session:window:kind")
+_lazyfleet_agent_tally() {
+  emulate -L zsh
+  local line k
+  local -a f
+  _lazyfleet_agents
+  for line in $reply; do
+    f=("${(@ps:\t:)line}")
+    k=$f[1]; [[ $1 == w ]] && k+=:$f[2]
+    agtally[$k:$f[3]]=$(( ${agtally[$k:$f[3]]:-0} + 1 ))
+  done
+}
+
+# REPLY=the marks for key $1 (a session, or session:window) from the caller's
+# agtally; -p as $2 for plain marks
+_lazyfleet_agent_marks_at() {
+  emulate -L zsh
+  local kind
+  local -a mk
+  for kind in $_LAZYFLEET_AGENT_KINDS; do
+    [[ -n ${agtally[$1:$kind]} ]] && mk+=($kind=${agtally[$1:$kind]})
+  done
+  _lazyfleet_agent_marks $2 $mk
+}
+
 # --- rows for the TUI: "kind<TAB>path<TAB>display" ---------------------------
 
 # _lazyfleet_rows [-s (with git status)] [-p (plain)] [-L | repo name filter]
@@ -402,8 +529,8 @@ _lazyfleet_rows() {
   (( $#o_l )) && { _lazyfleet_labelrepo; only=$REPLY }
   local c_repo=$'\e[34m' c_live=$'\e[32m' c_st=$'\e[33m' c_dk=$'\e[36m' c_off=$'\e[0m'
   (( $#o_p )) && c_repo= c_live= c_st= c_dk= c_off=
-  local -A live dk
-  local -a repos paths names branches lives stats docks
+  local -A live dk agtally
+  local -a repos paths names branches lives stats docks sess
   for s in ${(f)"$(_lazyfleet_tmux list-sessions -F '#S' 2>/dev/null)"}; do live[$s]=1; done
   _lazyfleet_repos; repos=($reply)
   for repo in $repos; do
@@ -413,11 +540,12 @@ _lazyfleet_rows() {
       p=${e%%$'\t'*}
       _lazyfleet_session $repo $p ${e##*$'\t'}
       paths+=($p); names+=(${repo:t}); branches+=(${${e#*$'\t'}%$'\t'*})
-      lives+=("${live[$REPLY]:+●}"); stats+=(''); docks+=('')
+      lives+=("${live[$REPLY]:+●}"); stats+=(''); docks+=(''); sess+=($REPLY)
       (( $#names[-1] > wn )) && wn=$#names[-1]
       (( $#branches[-1] > wb )) && wb=$#branches[-1]
     done
   done
+  _lazyfleet_agent_icons_on && _lazyfleet_agent_tally
   if (( $#o_s && $#paths )); then
     _lazyfleet_tmpdir || return 1
     tmp=$REPLY/status.$$.$RANDOM
@@ -435,10 +563,11 @@ _lazyfleet_rows() {
   _lazyfleet_pulldir
   for (( i = 1; i <= $#paths; i++ )); do
     [[ -e $REPLY/${paths[i]//\//%} ]] && stats[i]="⟳ pulling${stats[i]:+ $stats[i]}"
-    printf 'w\t%s\t%s%-*s%s  %-*s  %s%1s%s %s%s%s%s%s%s\n' $paths[i] \
+    _lazyfleet_agent_marks_at $sess[i] ${o_p:+-p}
+    printf 'w\t%s\t%s%-*s%s  %-*s  %s%1s%s %s%s%s%s%s%s%s\n' $paths[i] \
       "$c_repo" $wn $names[i] "$c_off" $wb $branches[i] \
       "$c_live" "$lives[i]" "$c_off" "$c_st" "$stats[i]" "$c_off" \
-      "$c_dk" "${docks[i]:+${stats[i]:+ }$docks[i]}" "$c_off"
+      "$c_dk" "${docks[i]:+${stats[i]:+ }$docks[i]}" "$c_off" "${REPLY:+ $REPLY}"
   done
 }
 
@@ -525,12 +654,13 @@ _lazyfleet_pick() {
 # One row per tmux window: "t<TAB>=session:index<TAB>display"; ● marks the
 # window an attached client is looking at
 _lazyfleet_winrows() {
-  local line ws=0 wn=0 wc=0 i
+  local line ws=0 wn=0 wc=0 i k
   # tmux >= 3.4 turns control characters (tabs) in -F output into "_" unless
   # it writes to a terminal, so use a printable ASCII separator (safe in any
   # locale) and turn it into tabs
   local sep='@@lf@@'
   local -a f S N C P M keyed
+  local -A agtally
   # by session name, then window number
   for line in ${(f)"$(_lazyfleet_tmux list-windows -a -F "#{session_name}${sep}#{window_index}:#{window_name}${sep}#{pane_current_command}${sep}#{pane_current_path}${sep}#{?#{&&:#{window_active},#{session_attached}},●,}" 2>/dev/null)"}; do
     line=${line//$sep/$'\t'}
@@ -544,9 +674,12 @@ _lazyfleet_winrows() {
     (( $#f[2] > wn )) && wn=$#f[2]
     (( $#f[3] > wc )) && wc=$#f[3]
   done
+  _lazyfleet_agent_icons_on && _lazyfleet_agent_tally w
   for (( i = 1; i <= $#S; i++ )); do
-    printf 't\t=%s:%s\t\e[34m%-*s\e[0m  %-*s  \e[33m%-*s\e[0m  %s \e[32m%s\e[0m\n' \
-      $S[i] ${N[i]%%:*} $ws $S[i] $wn $N[i] $wc $C[i] $P[i] "$M[i]"
+    k=$S[i]:${N[i]%%:*}
+    _lazyfleet_agent_marks_at $k
+    printf 't\t=%s:%s\t\e[34m%-*s\e[0m  %-*s  \e[33m%-*s\e[0m  %s \e[32m%s\e[0m%s\n' \
+      $S[i] ${N[i]%%:*} $ws $S[i] $wn $N[i] $wc $C[i] $P[i] "$M[i]" "${REPLY:+ $REPLY}"
   done
 }
 
@@ -1106,6 +1239,7 @@ _lazyfleet_config() {
 # worktrees=~/.lazyfleet/worktrees
 # status_branch=off   (no branch in the tmux status bar of new sessions)
 # update_check=off     (don't look for a newer release once a day; LAZYFLEET_UPDATE_CHECK)
+# agent_icons=off      (no ✻ Claude Code / ✦ Copilot CLI / π omp marks on worktrees and windows; LAZYFLEET_AGENT_ICONS)
 EOF
     fi
   fi
@@ -1237,7 +1371,7 @@ _lazyfleet_help() {
 .lazyfleet (repo root, key=value; indent lines to continue a value):
   setup=…  copy=file1 file2
 ~/.config/lazyfleet/projects/<repo>.conf: the same keys, for one repo (wins)
-~/.config/lazyfleet/config: search=dirs  search_depth=n  worktrees=dir  status_branch=off  update_check=off
+~/.config/lazyfleet/config: search=dirs  search_depth=n  worktrees=dir  status_branch=off  update_check=off  agent_icons=off
 EOF
   if _lazyfleet_update_available; then
     tag=$REPLY; _lazyfleet_update_hint
