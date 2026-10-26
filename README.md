@@ -40,7 +40,8 @@ An install from the install script looks for a newer release once a day, in the 
 request to github.com, which carries no data from lazyfleet). The TUI's title then reads
 `lazyfleet · v1.2.3 available`, and quitting prints how to update: run the install command above again.
 The installed version is always shown on the last line of the TUI's key help (with the update, when there is one),
-at the top of `lazyfleet help`, and by `lazyfleet version`.
+at the top of `lazyfleet help`, and by `lazyfleet version`. An install of a branch shows its name instead
+(`lazyfleet feat/x (branch)`) and never checks for updates.
 A checkout never checks. Turn it off with `update_check=off` (see Settings) or `LAZYFLEET_UPDATE_CHECK=off`.
 
 To look right now instead of waiting for the daily check, run `lazyfleet update`. It asks GitHub in the foreground,

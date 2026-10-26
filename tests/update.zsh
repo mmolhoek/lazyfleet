@@ -189,6 +189,20 @@ check 'the version line stays quiet about updates when they are off' eval '_lazy
 unset LAZYFLEET_UPDATE_CHECK
 reset; check 'there is no version line without a version' not _lazyfleet_version_line
 
+# an install of a branch: its name stands in for the version, and it never checks for updates
+reset 0.1.0;   check 'a release is labelled v1.2.3' eval '_lazyfleet_version_label && test "$REPLY" = v0.1.0'
+reset feat/x;  check 'a branch install is labelled with the branch' eval '_lazyfleet_version_label && test "$REPLY" = "feat/x (branch)"'
+reset;         check 'a checkout has no label' not _lazyfleet_version_label
+reset $'x\e[31m'; check 'a VERSION with control characters has no label' not _lazyfleet_version_label
+reset 'a b';   check 'a VERSION with spaces inside has no label' not _lazyfleet_version_label
+reset feat/x;  check 'the version line names the branch' eval '_lazyfleet_version_line && test "$REPLY" = "lazyfleet feat/x (branch)"'
+reset feat/x; seed $EPOCHSECONDS v9.9.9
+check 'a branch install is never told of an update' eval '_lazyfleet_version_line && test "$REPLY" = "lazyfleet feat/x (branch)"'
+reset feat/x; check 'help names the branch' eval '_lazyfleet_help | head -1 | gq -x "lazyfleet feat/x (branch) — git worktrees, each in its own tmux session"'
+reset feat/x; check 'lazyfleet version names the branch' test "$(_lazyfleet_main version)" = 'lazyfleet feat/x (branch)'
+reset feat/x; _lazyfleet_update_refresh; sleep 0.3
+check 'a branch install never calls curl' test "$(calls)" = 0
+
 # the footers are globals: each case runs in a subshell
 footer_cases() {
   local wt0=$_LAZYFLEET_FOOTER_WT repo0=$_LAZYFLEET_FOOTER_REPO win0=$_LAZYFLEET_FOOTER_WIN

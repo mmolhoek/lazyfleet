@@ -1208,7 +1208,7 @@ _lazyfleet_ui_rm() {
 
 _lazyfleet_help() {
   local v= tag
-  _lazyfleet_version && v=" v$REPLY"
+  _lazyfleet_version_label && v=" $REPLY"
   print -r -- "lazyfleet$v — git worktrees, each in its own tmux session"
   cat <<'EOF'
 
@@ -1243,7 +1243,7 @@ Update available: $tag. Update: $REPLY"
 
 # lazyfleet version
 _lazyfleet_versioncmd() {
-  if _lazyfleet_version; then print -r -- "lazyfleet v$REPLY"
+  if _lazyfleet_version_label; then print -r -- "lazyfleet $REPLY"
   else print -r -- "lazyfleet (unknown version: not installed from a release)"; fi
 }
 
@@ -1366,18 +1366,32 @@ _lazyfleet_ui_label() {
   else REPLY=' lazyfleet '; fi
 }
 
+# REPLY=what to call this copy: "v1.2.3" for a release, "feat/x (branch)" for
+# an install of a branch (install.sh records the branch name as the version).
+# Fails when this copy does not know. Only plain name characters are shown,
+# since the VERSION file's content ends up on the terminal.
+_lazyfleet_version_label() {
+  emulate -L zsh
+  local v
+  if _lazyfleet_version; then REPLY=v$REPLY; return 0; fi
+  [[ -r $LAZYFLEET_DIR/VERSION ]] || return 1
+  v=${$(<$LAZYFLEET_DIR/VERSION)//[[:space:]]/}
+  [[ $v =~ '^[A-Za-z0-9._/-]+$' ]] || return 1
+  REPLY="$v (branch)"
+}
+
 # REPLY=the version line for the TUI footers: "lazyfleet v1.2.3", followed by
 # "update available: v1.2.4" when the cache knows a newer release. Fails when
 # this copy does not know its version.
 _lazyfleet_version_line() {
   emulate -L zsh
-  local cur tag
-  _lazyfleet_version || return 1
-  cur=$REPLY
+  local label tag
+  _lazyfleet_version_label || return 1
+  label=$REPLY
   if _lazyfleet_update_available; then
-    tag=$REPLY; REPLY="lazyfleet v$cur · update available: $tag"
+    tag=$REPLY; REPLY="lazyfleet $label · update available: $tag"
   else
-    REPLY="lazyfleet v$cur"
+    REPLY="lazyfleet $label"
   fi
 }
 
