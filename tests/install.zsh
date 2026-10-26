@@ -25,10 +25,10 @@ not() { ! "$@" }
 # one top-level directory, named after the ref without its v. $2 names a file
 # to leave out.
 publish() {
-  local ref=$1 dir=${1#v} kind=tags
+  local ref=$1 dir=${${1#v}//\//-} kind=tags    # GitHub names the top directory with / as -
   [[ $ref == v<->.<->.<-> ]] || kind=heads
   local tree=$SANDBOX/tree/lazyfleet-$dir
-  rm -rf $tree; mkdir -p $tree $site/mmolhoek/lazyfleet/archive/refs/$kind
+  rm -rf $tree; mkdir -p $tree $site/mmolhoek/lazyfleet/archive/refs/$kind/${ref:h}
   cp -R $ROOT/lazyfleet.zsh $ROOT/bin $ROOT/_lazyfleet $ROOT/LICENSE $tree/
   [[ -n $2 ]] && rm -rf $tree/$2
   tar -czf $site/mmolhoek/lazyfleet/archive/refs/$kind/$ref.tar.gz -C $SANDBOX/tree lazyfleet-$dir
@@ -98,13 +98,24 @@ check 'installing the same version again says Installed' eval 'gq "Installed laz
 fresh; publish main; LAZYFLEET_VERSION=main run
 check 'a branch install succeeds' test $rc = 0
 check 'a branch install records the branch' test "$(<$INST/VERSION)" = main
+for br in feat/show-version fix/a/b release-1.0 v1.2 under_score; do
+  fresh; publish $br; LAZYFLEET_VERSION=$br run
+  check "installs the branch '$br'" eval 'test $rc = 0 && test "$(<$INST/VERSION)" = "$br" && test -f $INST/lazyfleet.zsh'
+  check "'$br' installs a working command" eval 'HOME=$SANDBOX/h2 $BIN/lazyfleet help | gq tmux'
+done
+fresh; publish v1.0.0; publish feat/x; LAZYFLEET_VERSION=feat/x run
+check 'a branch install records itself as the installer' test -f $INST/INSTALLER
+check 'a branch install can be updated to a release' eval 'LAZYFLEET_VERSION=v1.0.0 run; test $rc = 0 && test "$(<$INST/VERSION)" = 1.0.0'
 
-# --- bad input
-for bad in 'v1.2' 'v1.2.3-rc1' '../etc' 'a b' 'v1.0.0;touch$IFS/tmp/pwned' 'x/y'; do
+# --- bad input: refused by the validation itself, before any download
+for bad in '../etc' 'a b' 'v1.0.0;touch$IFS/tmp/pwned' '/abs' 'a//b' 'a/../b' 'a/..' '..' 'feat/' '-x' 'a/-x' '.hidden' 'a/.hidden' 'x..y' 'x.lock' 'x.' 'a?b' 'a*b' 'a~b' 'a:b' 'a\\b'; do
   fresh; publish v1.0.0; LAZYFLEET_VERSION=$bad run
-  check "rejects the version '$bad'" test $rc != 0
+  check "rejects the version '$bad' as invalid" eval 'test $rc != 0 && gq "invalid version" <<<$out'
   check "'$bad' installs nothing" not installed
 done
+fresh; publish v1.0.0; LAZYFLEET_VERSION=v1.2.3-rc1 run
+check 'a prerelease-style tag is not a release: it fails at the download' eval 'test $rc != 0 && gq "download failed" <<<$out'
+check 'and installs nothing' not installed
 fresh; publish v1.0.0; LAZYFLEET_REPO='a/b;c' LAZYFLEET_VERSION=v1.0.0 run
 check 'rejects a strange repository' test $rc != 0
 fresh; run frobnicate

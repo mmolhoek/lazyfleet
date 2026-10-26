@@ -16,7 +16,8 @@ curl -fsSL https://raw.githubusercontent.com/mmolhoek/lazyfleet/main/install.sh 
 ```
 
 Run it again to update, or `curl -fsSL https://raw.githubusercontent.com/mmolhoek/lazyfleet/main/install.sh | sh -s -- uninstall`
-to remove it. To pin a version, set `LAZYFLEET_VERSION=v1.2.3` (and `LAZYFLEET_SHA256` to verify the download);
+to remove it. To pin a version, set `LAZYFLEET_VERSION=v1.2.3` (and `LAZYFLEET_SHA256` to verify the download), or a branch
+name such as `main` or `feat/x` to try unreleased work (that install does not check for updates);
 `LAZYFLEET_INSTALL_DIR` and `LAZYFLEET_BIN_DIR` change the locations. You need `zsh`, `git`, `tmux` and
 `fzf` 0.58 or newer; the script warns about any that are missing.
 
