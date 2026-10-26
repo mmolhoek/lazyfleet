@@ -8,7 +8,19 @@ The Details pane lists those containers, and removing the worktree offers to sto
 
 ## Install
 
-lazyfleet itself is zsh, so zsh must be installed (it is on macOS), but it doesn't have to be your shell:
+With the install script, which puts the files in `~/.local/share/lazyfleet` and links `~/.local/bin/lazyfleet`
+(it never edits your rc files, and tells you what to add):
+
+```sh
+curl -fsSL https://raw.githubusercontent.com/mmolhoek/lazyfleet/main/install.sh | sh
+```
+
+Run it again to update, or `curl -fsSL https://raw.githubusercontent.com/mmolhoek/lazyfleet/main/install.sh | sh -s -- uninstall`
+to remove it. To pin a version, set `LAZYFLEET_VERSION=v1.2.3` (and `LAZYFLEET_SHA256` to verify the download);
+`LAZYFLEET_INSTALL_DIR` and `LAZYFLEET_BIN_DIR` change the locations. You need `zsh`, `git`, `tmux` and
+`fzf` 0.58 or newer; the script warns about any that are missing.
+
+Or from a checkout. lazyfleet itself is zsh, so zsh must be installed (it is on macOS), but it doesn't have to be your shell:
 
 ```sh
 # ~/.zshrc (command + completion)
@@ -20,6 +32,13 @@ fish_add_path /path/to/lazyfleet/bin
 ```
 
 For a shorter command, add `alias lzs=lazyfleet`.
+
+### Updates
+
+An install from the install script looks for a newer release once a day, in the background (a single
+request to github.com, which carries no data from lazyfleet). The TUI's title then reads
+`lazyfleet · v1.2.3 available`, and quitting prints how to update: run the install command above again.
+A checkout never checks. Turn it off with `update_check=off` (see Settings) or `LAZYFLEET_UPDATE_CHECK=off`.
 
 You can also bind a switcher popup in `~/.tmux.conf`:
 
@@ -131,6 +150,7 @@ same meaning wins when it's set.
 | `search_depth`: how deep `a` looks                         | `LAZYFLEET_SEARCH_DEPTH` | `4`                                                                                                                |
 | `worktrees`: where new worktrees go                        | `LAZYFLEET_WORKTREES`    | `~/.lazyfleet/worktrees`                                                                                           |
 | `status_branch`: `off` hides the branch in the status bar  | `LAZYFLEET_STATUS_BRANCH` | `on`                                                                                                              |
+| `update_check`: `off` stops the daily check for a new release | `LAZYFLEET_UPDATE_CHECK` | `on`                                                                                                           |
 
 ```
 search=~/Projects ~/work
@@ -150,7 +170,9 @@ search_depth=3
 ## Test
 
 ```zsh
-zsh lazyfleet/tests/run.zsh
+zsh lazyfleet/tests/run.zsh       # the end-to-end suite (needs tmux and a recent fzf)
+zsh lazyfleet/tests/update.zsh    # the update check
+zsh lazyfleet/tests/install.zsh   # install.sh
 ```
 
 The tests run in a throwaway HOME against an isolated tmux server.
