@@ -58,6 +58,7 @@ check 'a pinned install succeeds' test $rc = 0
 check 'it installs the program files' test -f $INST/lazyfleet.zsh -a -x $INST/bin/lazyfleet -a -f $INST/_lazyfleet
 check 'it records the version' test "$(<$INST/VERSION)" = 1.0.0
 check 'it marks itself as the installer' test -f $INST/INSTALLER
+check 'it installs the agent hook script, executable' test -x $INST/bin/lazyfleet-hook
 check 'it links the command' test "$(readlink $BIN/lazyfleet)" = $INST/bin/lazyfleet
 check 'the linked command runs' eval 'HOME=$SANDBOX/h2 $BIN/lazyfleet help | gq "git worktrees, each in its own tmux session"'
 check 'it says what it installed' eval 'gq "Installed lazyfleet 1.0.0" <<<$out'
