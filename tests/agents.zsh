@@ -37,7 +37,12 @@ for cl in 'copilot' '/usr/local/bin/copilot --banner' \
           'gh copilot suggest'; do
   check "Copilot CLI: $cl" kind_is copilot $cl
 done
-for cl in 'zsh' '-zsh' '/bin/bash -l' 'vim claude.md' 'grep claude notes.txt' 'cat /home/u/claude' \
+for cl in 'omp' 'omp --resume' '/home/u/.bun/bin/omp' \
+          'bun /home/u/.bun/install/global/node_modules/@oh-my-pi/pi-coding-agent/src/cli.ts' \
+          'bun /home/u/.bun/bin/omp' 'node --enable-source-maps /usr/local/bin/omp'; do
+  check "omp: $cl" kind_is omp $cl
+done
+for cl in 'zsh' '-zsh' 'ompd' 'omp-server' 'vim omp.md' 'grep omp notes' 'cat /home/u/omp' 'make omp' 'bun run build' 'compiz' '/bin/bash -l' 'vim claude.md' 'grep claude notes.txt' 'cat /home/u/claude' \
           'ssh claude@host' 'less copilot' 'node server.js' 'node /srv/app/bin/copilot-proxy.js' \
           'gh pr list' 'claude-desktop' 'Claude' '/Applications/Claude.app/Contents/MacOS/Claude' \
           'sleep 60' '/usr/bin/2.0.14' 'tmux new-session -s claude' '' ; do
@@ -67,7 +72,8 @@ panes_out="100${S}alpha${S}0
 300${S}beta${S}0
 400${S}gamma${S}2
 700${S}delta${S}3
-701${S}delta${S}3"
+701${S}delta${S}3
+800${S}eps${S}0"
 cat >$PS_TABLE <<'TABLE'
     1     0 /sbin/init
   100     1 -zsh
@@ -86,9 +92,11 @@ cat >$PS_TABLE <<'TABLE'
   701     1 -zsh
   710   700 claude
   711   701 claude
+  800     1 -zsh
+  801   800 bun /home/u/.bun/bin/omp
 TABLE
 _lazyfleet_agents
-expected=($'alpha\t0\tclaude' $'alpha\t1\tcopilot' $'delta\t3\tclaude' $'delta\t3\tclaude' $'gamma\t2\tclaude')
+expected=($'alpha\t0\tclaude' $'alpha\t1\tcopilot' $'delta\t3\tclaude' $'delta\t3\tclaude' $'eps\t0\tomp' $'gamma\t2\tclaude')
 check 'finds every agent, once per pane and kind' test "${(j:,:)reply}" = "${(j:,:)expected}"
 has() { [[ -n ${reply[(r)$1]} ]] }
 count() { local -a m; m=(${(M)reply:#$1}); print $#m }
@@ -97,7 +105,8 @@ check 'an agent buried under other processes is found' has alpha$'\t'1$'\t'copil
 check 'an agent that is the pane process itself is found' has gamma$'\t'2$'\t'claude
 check 'two panes in one window count twice' test "$(count delta$'\t'3$'\t'claude)" = 2
 check 'a file named like an agent is not one' test -z "${(M)reply:#beta*}"
-check 'agents outside any pane, and a process loop, are ignored' test $#reply = 5
+check 'omp run by bun is found' has eps$'\t'0$'\t'omp
+check 'agents outside any pane, and a process loop, are ignored' test $#reply = 6
 
 panes_out=''
 _lazyfleet_agents
@@ -107,15 +116,22 @@ _lazyfleet_agents
 check 'no tmux server, no agents' test $#reply = 0
 
 # --- the marks
-_lazyfleet_agent_marks 1 0 p; check 'one Claude' test "$REPLY" = '✻'
-_lazyfleet_agent_marks 0 1 p; check 'one Copilot' test "$REPLY" = '✦'
-_lazyfleet_agent_marks 2 0 p; check 'two Claudes show a count' test "$REPLY" = '✻2'
-_lazyfleet_agent_marks 1 3 p; check 'both, with a count where above one' test "$REPLY" = '✻ ✦3'
-_lazyfleet_agent_marks 0 2 p; check 'only Copilot, with a count' test "$REPLY" = '✦2'
-_lazyfleet_agent_marks 0 0 p; check 'none shows nothing' test -z "$REPLY"
-_lazyfleet_agent_marks '' '' p; check 'empty counts show nothing' test -z "$REPLY"
-_lazyfleet_agent_marks 1 1; check 'colours by default' eval 'gq $'"'"'\e'"'"' <<<$REPLY'
-_lazyfleet_agent_marks 1 1; check 'the colours leave the marks readable' test "$(plain <<<$REPLY)" = '✻ ✦'
+mk() { _lazyfleet_agent_marks "$@"; print -r -- $REPLY }
+check 'one Claude' test "$(mk -p claude=1)" = '✻'
+check 'one Copilot' test "$(mk -p copilot=1)" = '✦'
+check 'one omp' test "$(mk -p omp=1)" = 'π'
+check 'two Claudes show a count' test "$(mk -p claude=2)" = '✻2'
+check 'only Copilot, with a count' test "$(mk -p copilot=2)" = '✦2'
+check 'all three, with counts where above one' test "$(mk -p claude=1 copilot=3 omp=2)" = '✻ ✦3 π2'
+check 'the order is fixed, whatever the arguments' test "$(mk -p omp=1 claude=1)" = '✻ π'
+check 'a missing kind does not shift the others' test "$(mk -p omp=1)" = 'π'
+check 'none shows nothing' test -z "$(mk -p)"
+check 'a zero count shows nothing' test -z "$(mk -p claude=0 omp=0)"
+check 'an empty count shows nothing' test -z "$(mk -p claude=)"
+check 'an unknown kind shows nothing' test -z "$(mk -p vim=1)"
+check 'colours by default' eval 'gq $'"'"'\e'"'"' <<<"$(mk claude=1 omp=1)"'
+check 'the colours leave the marks readable' test "$(mk claude=1 copilot=1 omp=1 | plain)" = '✻ ✦ π'
+check 'each kind has its own colour' test "$(mk claude=1 copilot=1 omp=1 | grep -o $'\e\\[[0-9;]*m' | grep -v '0m' | sort -u | wc -l | tr -d ' ')" = 3
 
 # --- the setting
 unset LAZYFLEET_AGENT_ICONS; rm -rf $XDG_CONFIG_HOME/lazyfleet
@@ -127,10 +143,11 @@ check 'the env var wins over the config' env LAZYFLEET_AGENT_ICONS=on zsh -f -c 
 rm -rf $XDG_CONFIG_HOME/lazyfleet
 
 # --- the windows view, from canned tmux output (real tabs: no tmux 3.4 mangling)
-windows_out=$'alpha\t0:shell\tzsh\t/tmp\t\nalpha\t1:agent\tnode\t/tmp\t●\nbeta\t0:vim\tvim\t/tmp\t'
+windows_out=$'alpha\t0:shell\tzsh\t/tmp\t\nalpha\t1:agent\tnode\t/tmp\t●\nbeta\t0:vim\tvim\t/tmp\t\neps\t0:pi\tbun\t/tmp\t'
 panes_out="100${S}alpha${S}0
 200${S}alpha${S}1
-300${S}beta${S}0"
+300${S}beta${S}0
+800${S}eps${S}0"
 _lazyfleet_tmux() {
   case $1 in
     (list-panes) print -r -- $panes_out ;;
@@ -142,10 +159,11 @@ rows=$(_lazyfleet_winrows | plain)
 row() { print -r -- $rows | grep -E "$1" }
 check 'a window with Claude gets the Claude mark' eval 'row "alpha +0:shell" | gq "✻"'
 check 'a window with Copilot gets the Copilot mark' eval 'row "alpha +1:agent" | gq "✦"'
-check 'a window without agents gets no mark' not eval 'row "beta +0:vim" | gq -E "✻|✦"'
+check 'a window with omp gets the omp mark' eval 'row "eps +0:pi" | gq "π"'
+check 'a window without agents gets no mark' not eval 'row "beta +0:vim" | gq -E "✻|✦|π"'
 check 'the live marker is kept next to the mark' eval 'row "alpha +1:agent" | gq "● ✦"'
 rows=$(LAZYFLEET_AGENT_ICONS=off _lazyfleet_winrows | plain)
-check 'no marks when the icons are off' not eval 'print -r -- $rows | gq -E "✻|✦"'
+check 'no marks when the icons are off' not eval 'print -r -- $rows | gq -E "✻|✦|π"'
 unset -f _lazyfleet_tmux; source $ROOT/lazyfleet.zsh
 export LAZYFLEET_TMUX="tmux -L lazyfleet-agents-$$"
 rm -f $SANDBOX/stub/ps; rehash
@@ -163,12 +181,18 @@ check 'the mark sits on the worktree row, after the live marker' eval '_lazyflee
 check 'the same on the full rows' eval '_lazyfleet_rows | plain | grep "^w"$'"'"'\t'"'"'"$repo" | gq "✻"'
 _lazyfleet_tmux new-window -d -t '=app:' "zsh -fc 'exec -a copilot sleep 120'"
 check 'a running Copilot is added' retry '_lazyfleet_rows -p | gq "✻ ✦"'
-check 'icons off hides them' not eval 'LAZYFLEET_AGENT_ICONS=off _lazyfleet_rows -p | gq -E "✻|✦"'
+check 'icons off hides them' not eval 'LAZYFLEET_AGENT_ICONS=off _lazyfleet_rows -p | gq -E "✻|✦|π"'
 _lazyfleet_tmux kill-session -t '=app'
 check 'a stopped agent shows no more' retry '! _lazyfleet_rows -p | gq -E "✻|✦"'
 _lazyfleet_tmux new-session -d -s app "zsh -fc 'exec -a copilot sleep 120'"
 check 'a worktree with only Copilot shows the Copilot mark' retry '_lazyfleet_rows -p | gq "✦"'
 check 'a worktree with only Copilot does not show the Claude mark' not eval '_lazyfleet_rows -p | gq "✻"'
+_lazyfleet_tmux kill-session -t '=app'
+_lazyfleet_tmux new-session -d -s app "zsh -fc 'exec -a omp sleep 120'"
+check 'a worktree running omp shows the omp mark' retry '_lazyfleet_rows -p | gq "π"'
+check 'a worktree with only omp shows no other mark' not eval '_lazyfleet_rows -p | gq -E "✻|✦"'
+_lazyfleet_tmux new-window -d -t '=app:' "zsh -fc 'exec -a claude sleep 120'"
+check 'all kinds together show in order' retry '_lazyfleet_rows -p | gq "✻ π"'
 _lazyfleet_tmux kill-session -t '=app'
 if [[ $(_lazyfleet_tmux list-windows -a -F $'a\tb' 2>/dev/null | head -1) == $'a\tb' ]]; then
   _lazyfleet_tmux new-session -d -s app2 "zsh -fc 'exec -a claude sleep 120'"

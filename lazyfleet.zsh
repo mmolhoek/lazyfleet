@@ -395,7 +395,12 @@ _lazyfleet_wtstatus() {
 # looking at the processes below each pane's shell. This reads command lines,
 # so it is a heuristic: it knows the usual ways each tool is started.
 
-# REPLY=claude or copilot if command line $1 is one of those tools, else empty
+# The tools, in the order their marks show, with each one's mark and colour
+typeset -ga _LAZYFLEET_AGENT_KINDS=(claude copilot omp)
+typeset -gA _LAZYFLEET_AGENT_ICON=(claude ✻ copilot ✦ omp π)
+typeset -gA _LAZYFLEET_AGENT_COLOR=(claude $'\e[38;5;208m' copilot $'\e[35m' omp $'\e[36m')
+
+# REPLY=claude, copilot or omp if command line $1 is one of those tools, else empty
 _lazyfleet_agent_kind() {
   emulate -L zsh
   local -a w
@@ -405,6 +410,7 @@ _lazyfleet_agent_kind() {
   case ${w[1]:t} in
     (claude) REPLY=claude ;;
     (copilot) REPLY=copilot ;;
+    (omp) REPLY=omp ;;
     # the native installer runs a versioned binary: .../claude/versions/2.0.1
     (<->.<->.<->) [[ ${w[1]} == */claude/* ]] && REPLY=claude ;;
     (node|bun|deno)
@@ -412,13 +418,14 @@ _lazyfleet_agent_kind() {
       case $a in
         (*/@anthropic-ai/claude-code/*|*/claude-code/*|*/bin/claude) REPLY=claude ;;
         (*/@github/copilot/*|*/bin/copilot) REPLY=copilot ;;
+        (*/@oh-my-pi/*|*/bin/omp) REPLY=omp ;;
       esac ;;
     (gh) [[ ${w[2]} == copilot ]] && REPLY=copilot ;;
   esac
   [[ -n $REPLY ]]
 }
 
-# reply=("session<TAB>window<TAB>claude|copilot" ...): one entry per tmux pane
+# reply=("session<TAB>window<TAB>claude|copilot|omp" ...): one entry per tmux pane
 # that has such a tool running below its shell (or as its shell)
 _lazyfleet_agents() {
   emulate -L zsh
@@ -440,7 +447,7 @@ _lazyfleet_agents() {
     [[ $pid == <-> && $ppid == <-> ]] || continue
     parent[$pid]=$ppid
     # most processes are no agent: only look closer at lines that could be
-    [[ $args == *(claude|copilot|gh)* ]] && _lazyfleet_agent_kind $args && kinds[$pid]=$REPLY
+    [[ $args == *(claude|copilot|omp|gh)* ]] && _lazyfleet_agent_kind $args && kinds[$pid]=$REPLY
   done
   for pid in ${(k)kinds}; do
     p=$pid n=0
@@ -464,18 +471,50 @@ _lazyfleet_agent_icons_on() {
   [[ ${REPLY:l} != (off|no|false|0) ]]
 }
 
-# REPLY=the marks for $1 Claude and $2 Copilot sessions, like "✻2 ✦": a count
-# shows above one. Coloured, unless $3 is p.
+# REPLY=the marks for the agents given as kind=count arguments, in a fixed
+# order, like "✻2 π": a count shows above one. Coloured, unless the first
+# argument is -p. (Each count names its kind, so an absent one can not shift
+# the others.)
 _lazyfleet_agent_marks() {
   emulate -L zsh
-  local c=${1:-0} p=${2:-0} cn= pn= out=
-  local oc=$'\e[38;5;208m' op=$'\e[35m' off=$'\e[0m'
-  [[ $3 == p ]] && oc= op= off=
-  (( c > 1 )) && cn=$c
-  (( p > 1 )) && pn=$p
-  (( c )) && out="${oc}✻${cn}${off}"
-  (( p )) && out+="${out:+ }${op}✦${pn}${off}"
+  local plain= kind n out= col end arg
+  local -A cnt
+  [[ $1 == -p ]] && { plain=1; shift }
+  for arg in "$@"; do cnt[${arg%%=*}]=${arg#*=}; done
+  for kind in $_LAZYFLEET_AGENT_KINDS; do
+    n=${cnt[$kind]:-0}
+    (( n )) || continue
+    col=$_LAZYFLEET_AGENT_COLOR[$kind] end=$'\e[0m'
+    [[ -n $plain ]] && col= end=
+    out+="${out:+ }${col}${_LAZYFLEET_AGENT_ICON[$kind]}${${n:#1}}${end}"
+  done
   REPLY=$out
+}
+
+# Count the agents from _lazyfleet_agents into the caller's associative array
+# agtally, keyed "session:kind" (or, with w, "session:window:kind")
+_lazyfleet_agent_tally() {
+  emulate -L zsh
+  local line k
+  local -a f
+  _lazyfleet_agents
+  for line in $reply; do
+    f=("${(@ps:\t:)line}")
+    k=$f[1]; [[ $1 == w ]] && k+=:$f[2]
+    agtally[$k:$f[3]]=$(( ${agtally[$k:$f[3]]:-0} + 1 ))
+  done
+}
+
+# REPLY=the marks for key $1 (a session, or session:window) from the caller's
+# agtally; -p as $2 for plain marks
+_lazyfleet_agent_marks_at() {
+  emulate -L zsh
+  local kind
+  local -a mk
+  for kind in $_LAZYFLEET_AGENT_KINDS; do
+    [[ -n ${agtally[$1:$kind]} ]] && mk+=($kind=${agtally[$1:$kind]})
+  done
+  _lazyfleet_agent_marks $2 $mk
 }
 
 # --- rows for the TUI: "kind<TAB>path<TAB>display" ---------------------------
@@ -490,7 +529,7 @@ _lazyfleet_rows() {
   (( $#o_l )) && { _lazyfleet_labelrepo; only=$REPLY }
   local c_repo=$'\e[34m' c_live=$'\e[32m' c_st=$'\e[33m' c_dk=$'\e[36m' c_off=$'\e[0m'
   (( $#o_p )) && c_repo= c_live= c_st= c_dk= c_off=
-  local -A live dk agc agp
+  local -A live dk agtally
   local -a repos paths names branches lives stats docks sess
   for s in ${(f)"$(_lazyfleet_tmux list-sessions -F '#S' 2>/dev/null)"}; do live[$s]=1; done
   _lazyfleet_repos; repos=($reply)
@@ -506,16 +545,7 @@ _lazyfleet_rows() {
       (( $#branches[-1] > wb )) && wb=$#branches[-1]
     done
   done
-  if _lazyfleet_agent_icons_on; then
-    _lazyfleet_agents
-    for line in $reply; do
-      s=${line%%$'\t'*}
-      case ${line##*$'\t'} in
-        (claude) agc[$s]=$(( ${agc[$s]:-0} + 1 )) ;;
-        (copilot) agp[$s]=$(( ${agp[$s]:-0} + 1 )) ;;
-      esac
-    done
-  fi
+  _lazyfleet_agent_icons_on && _lazyfleet_agent_tally
   if (( $#o_s && $#paths )); then
     _lazyfleet_tmpdir || return 1
     tmp=$REPLY/status.$$.$RANDOM
@@ -533,7 +563,7 @@ _lazyfleet_rows() {
   _lazyfleet_pulldir
   for (( i = 1; i <= $#paths; i++ )); do
     [[ -e $REPLY/${paths[i]//\//%} ]] && stats[i]="⟳ pulling${stats[i]:+ $stats[i]}"
-    _lazyfleet_agent_marks "${agc[$sess[i]]:-0}" "${agp[$sess[i]]:-0}" ${o_p:+p}
+    _lazyfleet_agent_marks_at $sess[i] ${o_p:+-p}
     printf 'w\t%s\t%s%-*s%s  %-*s  %s%1s%s %s%s%s%s%s%s%s\n' $paths[i] \
       "$c_repo" $wn $names[i] "$c_off" $wb $branches[i] \
       "$c_live" "$lives[i]" "$c_off" "$c_st" "$stats[i]" "$c_off" \
@@ -626,7 +656,7 @@ _lazyfleet_pick() {
 _lazyfleet_winrows() {
   local line ws=0 wn=0 wc=0 i k
   local -a f S N C P M keyed
-  local -A agc agp
+  local -A agtally
   # by session name, then window number
   for line in ${(f)"$(_lazyfleet_tmux list-windows -a -F $'#{session_name}\t#{window_index}:#{window_name}\t#{pane_current_command}\t#{pane_current_path}\t#{?#{&&:#{window_active},#{session_attached}},●,}' 2>/dev/null)"}; do
     f=("${(@ps:\t:)line}")
@@ -639,20 +669,10 @@ _lazyfleet_winrows() {
     (( $#f[2] > wn )) && wn=$#f[2]
     (( $#f[3] > wc )) && wc=$#f[3]
   done
-  if _lazyfleet_agent_icons_on; then
-    _lazyfleet_agents
-    for line in $reply; do
-      f=("${(@ps:\t:)line}")
-      k=$f[1]:$f[2]
-      case $f[3] in
-        (claude) agc[$k]=$(( ${agc[$k]:-0} + 1 )) ;;
-        (copilot) agp[$k]=$(( ${agp[$k]:-0} + 1 )) ;;
-      esac
-    done
-  fi
+  _lazyfleet_agent_icons_on && _lazyfleet_agent_tally w
   for (( i = 1; i <= $#S; i++ )); do
     k=$S[i]:${N[i]%%:*}
-    _lazyfleet_agent_marks "${agc[$k]:-0}" "${agp[$k]:-0}"
+    _lazyfleet_agent_marks_at $k
     printf 't\t=%s:%s\t\e[34m%-*s\e[0m  %-*s  \e[33m%-*s\e[0m  %s \e[32m%s\e[0m%s\n' \
       $S[i] ${N[i]%%:*} $ws $S[i] $wn $N[i] $wc $C[i] $P[i] "$M[i]" "${REPLY:+ $REPLY}"
   done
@@ -1214,7 +1234,7 @@ _lazyfleet_config() {
 # worktrees=~/.lazyfleet/worktrees
 # status_branch=off   (no branch in the tmux status bar of new sessions)
 # update_check=off     (don't look for a newer release once a day; LAZYFLEET_UPDATE_CHECK)
-# agent_icons=off      (no ✻ Claude Code / ✦ Copilot marks on worktrees and windows; LAZYFLEET_AGENT_ICONS)
+# agent_icons=off      (no ✻ Claude Code / ✦ Copilot CLI / π omp marks on worktrees and windows; LAZYFLEET_AGENT_ICONS)
 EOF
     fi
   fi
