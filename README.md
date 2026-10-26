@@ -6,6 +6,12 @@ A tiny, shell-only take on [Supacode](https://supacode.sh): git worktrees, each 
 and `🐳n` counts running Docker containers started from it (by their compose working directory or devcontainer folder).
 The Details pane lists those containers, and removing the worktree offers to stop them first.
 
+`✻` marks a running [Claude Code](https://claude.com/claude-code) and `✦` a running
+[GitHub Copilot CLI](https://github.com/features/copilot/cli), on the worktree and on the window it runs in. Two
+sessions of one kind show a count (`✻2`). lazyfleet finds them by looking for a `claude` or `copilot` process below
+a tmux pane's shell, so it sees the usual ways of starting them (the native binary, the npm package, `gh copilot`)
+and only those running in tmux. Turn the marks off with `agent_icons=off` (see Settings) or `LAZYFLEET_AGENT_ICONS=off`.
+
 ## Install
 
 With the install script, which puts the files in `~/.local/share/lazyfleet` and links `~/.local/bin/lazyfleet`
@@ -160,6 +166,7 @@ same meaning wins when it's set.
 | `worktrees`: where new worktrees go                        | `LAZYFLEET_WORKTREES`    | `~/.lazyfleet/worktrees`                                                                                           |
 | `status_branch`: `off` hides the branch in the status bar  | `LAZYFLEET_STATUS_BRANCH` | `on`                                                                                                              |
 | `update_check`: `off` stops the daily check for a new release | `LAZYFLEET_UPDATE_CHECK` | `on`                                                                                                           |
+| `agent_icons`: `off` hides the `✻` Claude and `✦` Copilot marks | `LAZYFLEET_AGENT_ICONS` | `on`                                                                                                           |
 
 ```
 search=~/Projects ~/work
@@ -182,6 +189,7 @@ search_depth=3
 zsh lazyfleet/tests/run.zsh       # the end-to-end suite (needs tmux and a recent fzf)
 zsh lazyfleet/tests/update.zsh    # the update check
 zsh lazyfleet/tests/install.zsh   # install.sh
+zsh lazyfleet/tests/agents.zsh    # the Claude / Copilot marks
 ```
 
 The tests run in a throwaway HOME against an isolated tmux server.
