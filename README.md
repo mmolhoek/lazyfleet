@@ -39,6 +39,8 @@ For a shorter command, add `alias lzs=lazyfleet`.
 An install from the install script looks for a newer release once a day, in the background (a single
 request to github.com, which carries no data from lazyfleet). The TUI's title then reads
 `lazyfleet · v1.2.3 available`, and quitting prints how to update: run the install command above again.
+The installed version is always shown on the last line of the TUI's key help (with the update, when there is one),
+at the top of `lazyfleet help`, and by `lazyfleet version`.
 A checkout never checks. Turn it off with `update_check=off` (see Settings) or `LAZYFLEET_UPDATE_CHECK=off`.
 
 To look right now instead of waiting for the daily check, run `lazyfleet update`. It asks GitHub in the foreground,
@@ -65,6 +67,7 @@ lazyfleet rm [worktree] [-f] [-D]   -f: even if dirty or locked (e.g. by Supacod
 lazyfleet pull [worktree]      fast-forward to its upstream (git pull --ff-only)
 lazyfleet windows              TUI on all tmux windows; enter switches to one
 lazyfleet config [repo]        edit the settings, or a repo's own config file, in $VISUAL / $EDITOR (vi)
+lazyfleet version              show the installed version
 lazyfleet update               look for a newer release now
 ```
 

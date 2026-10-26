@@ -881,6 +881,7 @@ _lazyfleet_ui() {
   local -a binds lines start
   # coming back from a session, the first load puts the cursor on the row we
   # left (sel: its path or window target); this file hands that over once
+  _lazyfleet_footers
   _lazyfleet_ui_label; local label=$REPLY
   _lazyfleet_tmpdir || return 1
   local -x LAZYFLEET_POSFILE=$REPLY/pos.$$
@@ -985,6 +986,7 @@ _lazyfleet_loaded() {
 
 # Key dispatcher: prints fzf actions. Args: row kind, row path.
 _lazyfleet_key() {
+  _lazyfleet_footers
   # the row's path is passed on as {2}, never as text in the actions
   local bin=${(q)LAZYFLEET_DIR}/bin/lazyfleet kind=$1 p=$2
   local lbl=${${${FZF_LIST_LABEL# }% }% · *} rl foot=$_LAZYFLEET_FOOTER_WT out wt
@@ -1205,8 +1207,10 @@ _lazyfleet_ui_rm() {
 }
 
 _lazyfleet_help() {
+  local v= tag
+  _lazyfleet_version && v=" v$REPLY"
+  print -r -- "lazyfleet$v — git worktrees, each in its own tmux session"
   cat <<'EOF'
-lazyfleet — git worktrees, each in its own tmux session
 
   lazyfleet                      open the TUI
   lazyfleet add [path]           register a repo
@@ -1222,6 +1226,7 @@ lazyfleet — git worktrees, each in its own tmux session
   lazyfleet pull [worktree]      fast-forward a worktree to its upstream
   lazyfleet windows              open the TUI on all tmux windows (enter switches)
   lazyfleet config [repo]        edit the settings, or a repo's copy=/setup= file, in $EDITOR
+  lazyfleet version              show the installed version
   lazyfleet update               look for a newer release now (otherwise once a day)
 
 .lazyfleet (repo root, key=value; indent lines to continue a value):
@@ -1229,6 +1234,17 @@ lazyfleet — git worktrees, each in its own tmux session
 ~/.config/lazyfleet/projects/<repo>.conf: the same keys, for one repo (wins)
 ~/.config/lazyfleet/config: search=dirs  search_depth=n  worktrees=dir  status_branch=off  update_check=off
 EOF
+  if _lazyfleet_update_available; then
+    tag=$REPLY; _lazyfleet_update_hint
+    print -r -- "
+Update available: $tag. Update: $REPLY"
+  fi
+}
+
+# lazyfleet version
+_lazyfleet_versioncmd() {
+  if _lazyfleet_version; then print -r -- "lazyfleet v$REPLY"
+  else print -r -- "lazyfleet (unknown version: not installed from a release)"; fi
 }
 
 # --- update check ------------------------------------------------------------
@@ -1350,6 +1366,34 @@ _lazyfleet_ui_label() {
   else REPLY=' lazyfleet '; fi
 }
 
+# REPLY=the version line for the TUI footers: "lazyfleet v1.2.3", followed by
+# "update available: v1.2.4" when the cache knows a newer release. Fails when
+# this copy does not know its version.
+_lazyfleet_version_line() {
+  emulate -L zsh
+  local cur tag
+  _lazyfleet_version || return 1
+  cur=$REPLY
+  if _lazyfleet_update_available; then
+    tag=$REPLY; REPLY="lazyfleet v$cur · update available: $tag"
+  else
+    REPLY="lazyfleet v$cur"
+  fi
+}
+
+# Put the version line under each TUI footer. The footers are globals that the
+# TUI and its key handler (a separate process) both use, so both call this;
+# doing it twice in one process changes nothing.
+typeset -g _LAZYFLEET_FOOTERS_DONE=
+_lazyfleet_footers() {
+  [[ -n $_LAZYFLEET_FOOTERS_DONE ]] && return 0
+  _LAZYFLEET_FOOTERS_DONE=1
+  _lazyfleet_version_line || return 0
+  _LAZYFLEET_FOOTER_WT+=$'\n'$REPLY
+  _LAZYFLEET_FOOTER_REPO+=$'\n'$REPLY
+  _LAZYFLEET_FOOTER_WIN+=$'\n'$REPLY
+}
+
 _lazyfleet_interactive() { [[ -t 1 && -t 2 ]] }
 
 # The TUI, plus the update check when run by a person: refresh the cache before
@@ -1376,6 +1420,7 @@ _lazyfleet_main() {
     (windows) _lazyfleet_ui_checked -w ;;
     (repos) _lazyfleet_repos; print -rl -- $reply ;;
     (help|-h|--help) _lazyfleet_help ;;
+    (version|-V|--version) _lazyfleet_versioncmd ;;
     (_*) _lazyfleet$cmd "$@" ;;
     (*) _lazyfleet_err "unknown command: $cmd"; _lazyfleet_help >&2; return 1 ;;
   esac
