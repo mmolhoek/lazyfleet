@@ -13,6 +13,35 @@ sessions of one kind show a count (`✻2`). lazyfleet finds them by looking for 
 below a tmux pane's shell, so it sees the usual ways of starting them (the native binary, the npm package run by
 node or bun, `gh copilot`) and only those running in tmux. Turn the marks off with `agent_icons=off` (see Settings) or `LAZYFLEET_AGENT_ICONS=off`.
 
+### What the agents are doing
+
+After an icon, a second mark says what that kind of agent is doing, the most urgent one winning: `!` waiting for
+you (a permission prompt), `✓` done, `…` working. Idle shows nothing extra (`✻!`, `π✓`, `✦…`).
+
+Where the state comes from:
+
+- **Hooks.** `lazyfleet hooks install` adds Claude Code hooks to `~/.claude/settings.json` (or
+  `$CLAUDE_CONFIG_DIR`). It needs `jq`, keeps your own settings and hooks, and saves the original once as
+  `settings.json.lazyfleet.bak`. `lazyfleet hooks uninstall` takes ours out again, `lazyfleet hooks status` says
+  whether they are in. Any other agent can report the same way:
+  `lazyfleet-hook <claude|copilot|omp> <working|waiting|done|idle|clear>` (from inside its tmux pane).
+- **The screen.** Claude Code without hooks still shows `…` while a turn runs (lazyfleet looks for
+  "esc to interrupt"), and a turn you interrupted with Esc is not left looking busy.
+- Copilot CLI and omp show state only when something calls `lazyfleet-hook` for them.
+
+Finished work in a pane you are looking at counts as seen, so `✓` only stays for what you have not looked at.
+
+**Notifications.** Add the segment to your tmux status bar:
+
+```tmux
+set -g status-right '#(lazyfleet status) %H:%M'
+```
+
+It names the sessions whose agent waits for you (`! app`) or has finished (`✓ api`), and nothing when there are
+none. It skips agents you can see right now. When an agent starts waiting or finishes, lazyfleet also refreshes
+the status bars and shows a short tmux message (`✻ app needs you`) on clients that are in other sessions. Turn the
+message off with `agent_notify=off` (or `LAZYFLEET_AGENT_NOTIFY=off`); the status segment stays.
+
 ## Install
 
 With the install script, which puts the files in `~/.local/share/lazyfleet` and links `~/.local/bin/lazyfleet`
@@ -168,6 +197,7 @@ same meaning wins when it's set.
 | `status_branch`: `off` hides the branch in the status bar  | `LAZYFLEET_STATUS_BRANCH` | `on`                                                                                                              |
 | `update_check`: `off` stops the daily check for a new release | `LAZYFLEET_UPDATE_CHECK` | `on`                                                                                                           |
 | `agent_icons`: `off` hides the `✻` `✦` `π` agent marks | `LAZYFLEET_AGENT_ICONS` | `on`                                                                                                           |
+| `agent_notify`: `off` stops the tmux message when an agent needs you or is done | `LAZYFLEET_AGENT_NOTIFY` | `on`                                                                                              |
 
 ```
 search=~/Projects ~/work
@@ -182,6 +212,8 @@ search_depth=3
 - The sessions lazyfleet starts show the branch of the active pane's checkout at the start of their tmux
   `status-right` (followed by your global one, as it was when the session started). It follows checkouts,
   within `status-interval`.
+- Agent state: one small file per agent and pane in `~/.cache/lazyfleet/agents` (`LAZYFLEET_AGENT_DIR` moves
+  it). Files of agents that have stopped are removed.
 - `LAZYFLEET_TMUX` overrides the tmux command (e.g. `tmux -L other`).
 
 ## Test
@@ -191,6 +223,7 @@ zsh lazyfleet/tests/run.zsh       # the end-to-end suite (needs tmux and a recen
 zsh lazyfleet/tests/update.zsh    # the update check
 zsh lazyfleet/tests/install.zsh   # install.sh
 zsh lazyfleet/tests/agents.zsh    # the Claude / Copilot / omp marks
+zsh lazyfleet/tests/agent-state.zsh  # agent state: hook script, marks, status, notifications, hooks install
 ```
 
 The tests run in a throwaway HOME against an isolated tmux server.

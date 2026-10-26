@@ -1,0 +1,43 @@
+#!/bin/sh
+# lazyfleet-hook <kind> <state>
+#
+# Called from a coding agent's hooks (see `lazyfleet hooks install`) to record
+# what the agent is doing in the tmux pane it runs in, so lazyfleet can show it.
+#
+#   kind   claude | copilot | omp
+#   state  working | waiting (needs you) | done (finished) | idle | clear
+#
+# It runs on every tool call, so it is plain sh with no dependencies, does
+# nothing outside tmux, and never fails the agent: it always exits 0.
+
+kind=${1:-} state=${2:-}
+[ -n "${TMUX:-}" ] && [ -n "${TMUX_PANE:-}" ] || exit 0
+case $kind in claude|copilot|omp) ;; *) exit 0 ;; esac
+case $state in working|waiting|done|idle|clear) ;; *) exit 0 ;; esac
+
+dir=${LAZYFLEET_AGENT_DIR:-${XDG_CACHE_HOME:-${HOME:-/tmp}/.cache}/lazyfleet/agents}
+# one file per agent and pane; the tmux socket tells servers apart, as pane ids
+# restart from %0 in each
+key=$(printf '%s%s' "${TMUX%%,*}" "$TMUX_PANE" | tr -c 'A-Za-z0-9' _)
+file=$dir/$kind.$key
+
+if [ "$state" = clear ]; then rm -f "$file" 2>/dev/null; exit 0; fi
+
+mkdir -p "$dir" 2>/dev/null || exit 0
+prev=
+if [ -r "$file" ]; then read -r prev _ <"$file" || :; fi
+[ "$prev" = "$state" ] && exit 0
+
+tmp=$file.$$
+if printf '%s %s\n' "$state" "$(date +%s)" >"$tmp" 2>/dev/null; then
+  mv -f "$tmp" "$file" 2>/dev/null || rm -f "$tmp" 2>/dev/null
+else
+  rm -f "$tmp" 2>/dev/null
+fi
+
+# an agent that now needs you, or has finished: let lazyfleet decide whether to
+# tell you (in the background, so the agent is never kept waiting)
+case $state in
+  waiting|done) "${0%/*}/lazyfleet" _agent_notify "$kind" "$state" >/dev/null 2>&1 & ;;
+esac
+exit 0
