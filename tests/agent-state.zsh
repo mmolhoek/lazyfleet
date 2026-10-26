@@ -323,5 +323,92 @@ _lazyfleet_tmux kill-session -t '=e2e'
 real_hook claude done
 check 'a stopped agent leaves no report, and its record goes' retry '[[ -z "$($ROOT/bin/lazyfleet status -p)" && -z "$(ls -A $AGENTS)" ]]'
 
+# ================================================================ hooks install
+if (( $+commands[jq] )); then
+CL=$SANDBOX/claude; export CLAUDE_CONFIG_DIR=$CL; SET=$CL/settings.json
+LAZYFLEET_DIR=$ROOT
+hq() { jq -r "$1" $SET }
+quiet() { "$@" >/dev/null 2>&1 }
+rm -rf $CL
+quiet _lazyfleet_hooks install
+check 'install creates the settings file' test -f $SET
+check 'the file is valid JSON' quiet jq -e . $SET
+check 'there is a hook for each of the six events' test "$(hq '.hooks | keys | join(",")')" = Notification,PostToolUse,SessionEnd,SessionStart,Stop,UserPromptSubmit
+check 'a prompt means working' gq -E "lazyfleet-hook' claude working\$" <<<"$(hq '.hooks.UserPromptSubmit[0].hooks[0].command')"
+check 'Stop means done' gq -E "claude done\$" <<<"$(hq '.hooks.Stop[0].hooks[0].command')"
+check 'the end of a session clears' gq -E "claude clear\$" <<<"$(hq '.hooks.SessionEnd[0].hooks[0].command')"
+check 'a permission prompt means waiting' gq -E "claude waiting\$" <<<"$(hq '.hooks.Notification[0].hooks[0].command')"
+check 'only prompts that need you count as waiting' test "$(hq '.hooks.Notification[0].matcher')" = 'permission_prompt|elicitation_dialog'
+check 'events without a matcher have none' test "$(hq '.hooks.Stop[0] | has("matcher")')" = false
+check 'there is no backup when there was nothing to back up' test ! -e $SET.lazyfleet.bak
+check 'status says installed' quiet _lazyfleet_hooks status
+quiet _lazyfleet_hooks install
+check 'installing twice does not duplicate' test "$(hq '[.hooks[][]] | length')" = 6
+
+# the installed command really runs the hook script, even with spaces in the path
+mkdir -p "$SANDBOX/with space/bin"; cp $HOOK "$SANDBOX/with space/bin/"
+LAZYFLEET_DIR="$SANDBOX/with space"; rm -rf $CL; quiet _lazyfleet_hooks install; LAZYFLEET_DIR=$ROOT
+rm -rf $AGENTS
+cmd=$(hq '.hooks.Stop[0].hooks[0].command')
+TMUX=$SOCK,1,0 TMUX_PANE=%7 sh -c "$cmd"
+check 'the installed command records the state' test "$(stateof claude $SOCK %7)" = done
+
+# merging into settings that exist
+rm -rf $CL; mkdir -p $CL
+cat >$SET <<'JSON'
+{"model":"opus","permissions":{"allow":["Bash(ls)"]},
+ "hooks":{"Stop":[{"hooks":[{"type":"command","command":"echo mine"}]}],
+          "PreToolUse":[{"matcher":"Bash","hooks":[{"type":"command","command":"check.sh"}]}]}}
+JSON
+orig=$(<$SET)
+out=$(_lazyfleet_hooks install 2>&1)
+check 'settings of the user stay' test "$(hq '.model + (.permissions.allow[0])')" = 'opusBash(ls)'
+check 'hooks of the user stay, on the same event' test "$(hq '.hooks.Stop[0].hooks[0].command')" = 'echo mine'
+check 'ours are added after theirs' gq 'lazyfleet-hook' <<<"$(hq '.hooks.Stop[1].hooks[0].command')"
+check 'hooks on other events stay' test "$(hq '.hooks.PreToolUse[0].matcher')" = Bash
+check 'the original is backed up' test "$(<$SET.lazyfleet.bak)" = "$orig"
+check 'the backup is mentioned' gq 'Backed up' <<<$out
+quiet _lazyfleet_hooks install
+check 'a second install keeps the first backup' test "$(<$SET.lazyfleet.bak)" = "$orig"
+check 'and still does not duplicate' test "$(hq '.hooks.Stop | length')" = 2
+LAZYFLEET_DIR="$SANDBOX/with space"; quiet _lazyfleet_hooks install; LAZYFLEET_DIR=$ROOT
+check 'installing from another place replaces our old entries' test "$(hq '[.hooks.Stop[].hooks[].command | select(contains("with space"))] | length')/$(hq '.hooks.Stop | length')" = 1/2
+
+quiet _lazyfleet_hooks uninstall
+check 'uninstall removes our hooks' test "$(hq '[.. | strings | select(contains("lazyfleet-hook"))] | length')" = 0
+check 'uninstall keeps the hooks of the user' test "$(hq '.hooks.Stop[0].hooks[0].command + .hooks.PreToolUse[0].matcher')" = 'echo mineBash'
+check 'uninstall drops events that are empty now' test "$(hq '.hooks | keys | join(",")')" = PreToolUse,Stop
+check 'uninstall keeps other settings' test "$(hq '.model')" = opus
+check 'status says not installed' not quiet _lazyfleet_hooks status
+quiet _lazyfleet_hooks uninstall
+check 'uninstalling twice is fine' true
+echo '{"hooks":{"Stop":[{"hooks":[{"type":"command","command":"x/lazyfleet-hook claude done"}]}]},"a":1}' >$SET
+quiet _lazyfleet_hooks uninstall
+check 'uninstall drops an empty hooks object' test "$(hq 'has("hooks")')" = false
+check 'and keeps the rest' test "$(hq '.a')" = 1
+
+rm -rf $CL
+out=$(_lazyfleet_hooks uninstall 2>&1)
+check 'uninstall without a settings file does nothing' test ! -e $SET
+echo '{ not json' >$CL.json 2>/dev/null; mkdir -p $CL; print -r -- '{ not json' >$SET
+quiet _lazyfleet_hooks install
+check 'invalid settings are refused' not quiet _lazyfleet_hooks install
+check 'and left as they were' test "$(<$SET)" = '{ not json'
+check 'with no backup made' test ! -e $SET.lazyfleet.bak
+check 'status on invalid settings does not claim anything' not quiet _lazyfleet_hooks status
+rm -rf $CL
+check 'an unknown subcommand is an error' not quiet _lazyfleet_hooks frobnicate
+check 'hooks is reachable through the dispatcher' gq 'not installed' <<<"$(_lazyfleet_main hooks status 2>&1)"
+unset CLAUDE_CONFIG_DIR
+HOME=$SANDBOX/home2 quiet _lazyfleet_hooks install
+check 'without CLAUDE_CONFIG_DIR it uses ~/.claude' test -f $SANDBOX/home2/.claude/settings.json
+LAZYFLEET_DIR=$SANDBOX/nowhere
+check 'it refuses to install a hook script that is not there' not quiet _lazyfleet_hooks install
+LAZYFLEET_DIR=$ROOT
+else
+  skip 'hooks install tests' 'jq is not installed'
+fi
+check 'without jq the command says what it needs' eval 'out=$(PATH=/nonexistent /bin/zsh -f -c "source $ROOT/lazyfleet.zsh; _lazyfleet_hooks install" 2>&1); [[ $out == *jq* ]]'
+
 (( fails )) && { print -P "\n%F{red}$fails failed%f"; exit 1 }
 print -P "\n%F{green}all passed%f"

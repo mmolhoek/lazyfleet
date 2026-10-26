@@ -609,6 +609,80 @@ _lazyfleet_agent_notify() {
   return 0
 }
 
+# --- Claude Code hooks --------------------------------------------------------
+# `lazyfleet hooks install` adds hooks to Claude Code's settings.json that run
+# bin/lazyfleet-hook, so lazyfleet knows when Claude works, waits for you or is
+# done. Entries of ours are told apart by "lazyfleet-hook" in their command;
+# everything else in the file is left as it is.
+
+# The jq filters. Our events: name, state, and (for Notification) which
+# notifications mean "waiting for you"
+typeset -g _LAZYFLEET_HOOKS_JQ_DEF='
+  def events: [
+    {n:"SessionStart", s:"idle"}, {n:"UserPromptSubmit", s:"working"},
+    {n:"PostToolUse", s:"working"},
+    {n:"Notification", s:"waiting", m:"permission_prompt|elicitation_dialog"},
+    {n:"Stop", s:"done"}, {n:"SessionEnd", s:"clear"} ];
+  def ours: (.hooks // []) | any(.[]; (.command // "") | contains("lazyfleet-hook"));
+  def without_ours: map(select(ours | not));'
+typeset -g _LAZYFLEET_HOOKS_JQ_INSTALL='
+  reduce events[] as $e (.;
+    .hooks[$e.n] = ((.hooks[$e.n] // []) | without_ours)
+      + [ ({hooks: [{type: "command", command: ($hook + " claude " + $e.s)}]}
+           + (if $e.m then {matcher: $e.m} else {} end)) ])'
+typeset -g _LAZYFLEET_HOOKS_JQ_UNINSTALL='
+  if has("hooks") and (.hooks | type == "object") then
+    .hooks |= (map_values(if type == "array" then without_ours else . end)
+               | with_entries(select(.value != [])))
+    | if .hooks == {} then del(.hooks) else . end
+  else . end'
+typeset -g _LAZYFLEET_HOOKS_JQ_COUNT='
+  [ .hooks // {} | to_entries[] | select(.value | type == "array" and any(.[]; ours)) ] | length'
+
+# lazyfleet hooks [install|uninstall|status]
+_lazyfleet_hooks() {
+  emulate -L zsh
+  local sub=${1:-status} file hook jq tmp n bak
+  (( $+commands[jq] )) || { _lazyfleet_err "hooks needs jq (https://jqlang.org)"; return 1 }
+  file=${CLAUDE_CONFIG_DIR:-$HOME/.claude}/settings.json
+  bak=$file.lazyfleet.bak
+  if [[ -e $file ]] && ! jq -e . $file >/dev/null 2>&1; then
+    _lazyfleet_err "$file is not valid JSON; left alone"; return 1
+  fi
+  case $sub in
+    (status)
+      n=0; [[ -r $file ]] && n=$(jq -r "$_LAZYFLEET_HOOKS_JQ_DEF $_LAZYFLEET_HOOKS_JQ_COUNT" $file)
+      if (( n )); then print -r -- "Claude Code hooks installed ($n events) in $file"
+      else print -r -- "Claude Code hooks not installed. Install: lazyfleet hooks install"; return 1
+      fi ;;
+    (install|uninstall)
+      if [[ $sub == install ]]; then
+        hook=$LAZYFLEET_DIR/bin/lazyfleet-hook
+        [[ -x $hook ]] || { _lazyfleet_err "no hook script at $hook"; return 1 }
+        hook=${(qq)hook}
+        jq="$_LAZYFLEET_HOOKS_JQ_DEF $_LAZYFLEET_HOOKS_JQ_INSTALL"
+      else
+        [[ -e $file ]] || { print -r -- "Nothing to remove: $file does not exist"; return 0 }
+        jq="$_LAZYFLEET_HOOKS_JQ_DEF $_LAZYFLEET_HOOKS_JQ_UNINSTALL"
+      fi
+      mkdir -p ${file:h} || return 1
+      if [[ -e $file && ! -e $bak ]]; then
+        cp -p $file $bak || { _lazyfleet_err "could not back up $file"; return 1 }
+        print -r -- "Backed up $file to $bak"
+      fi
+      tmp=$file.lazyfleet.$$
+      if [[ -e $file ]]; then jq --arg hook "$hook" "$jq" $file >$tmp
+      else print -r -- '{}' | jq --arg hook "$hook" "$jq" >$tmp
+      fi || { rm -f $tmp; _lazyfleet_err "could not update $file"; return 1 }
+      [[ -e $file ]] && chmod --reference=$file $tmp 2>/dev/null
+      mv -f $tmp $file || { rm -f $tmp; return 1 }
+      if [[ $sub == install ]]; then print -r -- "Claude Code hooks installed in $file"
+      else print -r -- "Claude Code hooks removed from $file"
+      fi ;;
+    (*) _lazyfleet_err "usage: lazyfleet hooks [install|uninstall|status]"; return 1 ;;
+  esac
+}
+
 # are the agent icons on? (agent_icons=off or LAZYFLEET_AGENT_ICONS=off turns them off)
 _lazyfleet_agent_icons_on() {
   _lazyfleet_setting agent_icons LAZYFLEET_AGENT_ICONS on
@@ -1523,13 +1597,17 @@ _lazyfleet_help() {
   lazyfleet pull [worktree]      fast-forward a worktree to its upstream
   lazyfleet windows              open the TUI on all tmux windows (enter switches)
   lazyfleet config [repo]        edit the settings, or a repo's copy=/setup= file, in $EDITOR
+  lazyfleet status               tmux status segment: sessions whose agent waits (!) or is done (✓)
+  lazyfleet hooks [install|uninstall|status]
+                                 let Claude Code report what it is doing (edits settings.json,
+                                 keeps a backup)
   lazyfleet version              show the installed version
   lazyfleet update               look for a newer release now (otherwise once a day)
 
 .lazyfleet (repo root, key=value; indent lines to continue a value):
   setup=…  copy=file1 file2
 ~/.config/lazyfleet/projects/<repo>.conf: the same keys, for one repo (wins)
-~/.config/lazyfleet/config: search=dirs  search_depth=n  worktrees=dir  status_branch=off  update_check=off  agent_icons=off
+~/.config/lazyfleet/config: search=dirs  search_depth=n  worktrees=dir  status_branch=off  update_check=off  agent_icons=off  agent_notify=off
 EOF
   if _lazyfleet_update_available; then
     tag=$REPLY; _lazyfleet_update_hint
@@ -1727,7 +1805,7 @@ _lazyfleet_main() {
   (( $# )) && shift
   case $cmd in
     ('') _lazyfleet_ui_checked ;;
-    (add|forget|new|open|rm|pull|ls|config|update|status) _lazyfleet_$cmd "$@" ;;
+    (add|forget|new|open|rm|pull|ls|config|update|status|hooks) _lazyfleet_$cmd "$@" ;;
     (windows) _lazyfleet_ui_checked -w ;;
     (repos) _lazyfleet_repos; print -rl -- $reply ;;
     (help|-h|--help) _lazyfleet_help ;;
