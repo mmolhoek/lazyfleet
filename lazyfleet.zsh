@@ -495,6 +495,8 @@ _lazyfleet_agents() {
           if [[ -n $detail ]]; then
             _lazyfleet_agent_state $kinds[$pid] $f[4] $f[3]; state=$REPLY
             vis=1; [[ $f[5] == 0 ]] && vis=0
+            # finished work that is on screen has been seen: no more "done"
+            [[ $state == done && $vis == 1 ]] && { state=idle; _lazyfleet_agent_set $kinds[$pid] $f[4] $f[3] idle }
             line+=$'\t'"$state"$'\t'"$f[3]"$'\t'"$vis"
             _lazyfleet_agent_key $f[4] $f[3]; live+=("$kinds[$pid].$REPLY")
           fi
@@ -532,6 +534,79 @@ _lazyfleet_agent_prune() {
       [[ $sk == ${v}_<-> ]] && { rm -f $REPLY/$rec 2>/dev/null; break }
     done
   done
+}
+
+# Record an agent's state the way bin/lazyfleet-hook does: kind, tmux socket,
+# pane id, state
+_lazyfleet_agent_set() {
+  emulate -L zsh
+  local dir file
+  _lazyfleet_agent_dir; dir=$REPLY
+  [[ -d $dir ]] || return 0
+  _lazyfleet_agent_key $2 $3; file=$dir/$1.$REPLY
+  print -r -- "$4 $EPOCHSECONDS" >$file.$$ 2>/dev/null && mv -f $file.$$ $file 2>/dev/null || rm -f $file.$$ 2>/dev/null
+  return 0
+}
+
+# Print a tmux status-bar segment naming the sessions with an agent that waits
+# for you ("! app") or has finished ("✓ api"); agents you can see right now do
+# not count, and nothing is printed when there are none. For status-right:
+#   #(lazyfleet status)
+# -p prints plain text, without tmux style codes.
+_lazyfleet_status() {
+  emulate -L zsh
+  local -a o_p f waiting finished
+  local line out= s
+  zparseopts -D -E p=o_p
+  _lazyfleet_agents -d
+  for line in $reply; do
+    f=("${(@ps:\t:)line}")
+    [[ $f[6] == 0 ]] || continue
+    s=$f[1]; (( $#o_p )) || s=${s//\#/##}
+    case $f[4] in
+      (waiting) waiting+=($s) ;;
+      (done) finished+=($s) ;;
+    esac
+  done
+  waiting=(${(u)waiting}) finished=(${(u)finished})
+  if (( $#waiting )); then
+    (( $#o_p )) && out+="! ${(j: :)waiting}" || out+="#[fg=yellow,bold]! ${(j: :)waiting}#[default]"
+  fi
+  if (( $#finished )); then
+    out+="${out:+ }"
+    (( $#o_p )) && out+="✓ ${(j: :)finished}" || out+="#[fg=green]✓ ${(j: :)finished}#[default]"
+  fi
+  [[ -n $out ]] && print -r -- "$out "
+  return 0
+}
+
+# Called in the background by bin/lazyfleet-hook (inside the agent's pane) when
+# an agent starts waiting for you or finishes: refresh the status bars, and
+# unless you are looking at that pane, show a short message on the clients that
+# are in other sessions. agent_notify=off (or LAZYFLEET_AGENT_NOTIFY=off) keeps
+# the messages away; the status segment stays.
+_lazyfleet_agent_notify() {
+  emulate -L zsh
+  local sep='@@lf@@' kind=$1 st=$2 info sess vis msg line c
+  local -a f
+  [[ -n $TMUX_PANE && $kind == (claude|copilot|omp) && $st == (waiting|done) ]] || return 0
+  info=$(_lazyfleet_tmux display-message -p -t $TMUX_PANE "#{session_name}${sep}#{session_attached}#{window_active}#{pane_active}" 2>/dev/null) || return 0
+  sess=${info%%${sep}*} vis=${info##*${sep}}
+  _lazyfleet_tmux refresh-client -S 2>/dev/null
+  _lazyfleet_setting agent_notify LAZYFLEET_AGENT_NOTIFY on
+  [[ ${REPLY:l} == (off|no|false|0) ]] && return 0
+  [[ $vis == <1->11 ]] && return 0
+  case $st in
+    (waiting) msg="$_LAZYFLEET_AGENT_ICON[$kind] $sess needs you" ;;
+    (done) msg="$_LAZYFLEET_AGENT_ICON[$kind] $sess is done" ;;
+  esac
+  msg=${msg//\#/##}
+  for line in ${(f)"$(_lazyfleet_tmux list-clients -F "#{client_name}${sep}#{client_session}" 2>/dev/null)"}; do
+    c=${line%%${sep}*}
+    [[ ${line#*${sep}} == $sess ]] && continue
+    _lazyfleet_tmux display-message -c $c -d 4000 -- $msg 2>/dev/null
+  done
+  return 0
 }
 
 # are the agent icons on? (agent_icons=off or LAZYFLEET_AGENT_ICONS=off turns them off)
@@ -1652,7 +1727,7 @@ _lazyfleet_main() {
   (( $# )) && shift
   case $cmd in
     ('') _lazyfleet_ui_checked ;;
-    (add|forget|new|open|rm|pull|ls|config|update) _lazyfleet_$cmd "$@" ;;
+    (add|forget|new|open|rm|pull|ls|config|update|status) _lazyfleet_$cmd "$@" ;;
     (windows) _lazyfleet_ui_checked -w ;;
     (repos) _lazyfleet_repos; print -rl -- $reply ;;
     (help|-h|--help) _lazyfleet_help ;;

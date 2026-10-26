@@ -168,8 +168,8 @@ print -r -- 'ESC TO INTERRUPT' >$SCREEN
 check 'the screen text is matched in any case' test "$(field alpha$'\t'0 4)" = working
 hook $SOCK %1 claude waiting; : >$SCREEN
 check 'a recorded waiting is kept' test "$(field alpha$'\t'0 4)" = waiting
-hook $SOCK %1 claude done
-check 'a recorded done is kept' test "$(field alpha$'\t'0 4)" = done
+hook $SOCK %3 claude done
+check 'a recorded done is kept' test "$(field beta$'\t'0 4)" = done
 printf 'old line esc to interrupt\n%.0s' 1 >$SCREEN; for i in {1..20}; do print x >>$SCREEN; done
 hook $SOCK %1 claude working
 check 'only the bottom of the screen counts' test "$(field alpha$'\t'0 4)" = idle
@@ -221,6 +221,107 @@ check 'the windows view shows a waiting Claude' eval 'print -r -- $rows | grep -
 check 'the windows view shows a finished Copilot' eval 'print -r -- $rows | grep -E "alpha +1:agent" | gq "✦✓"'
 rows=$(LAZYFLEET_AGENT_ICONS=off _lazyfleet_winrows | plain)
 check 'no marks at all when the icons are off' not eval 'print -r -- $rows | gq -E "✻|✦|π"'
+
+
+# ============================================================== seen and status
+# alpha:0 (%1) is on screen, alpha:1 (%2) is not, beta:0 (%3) is in a detached session
+rm -rf $AGENTS; : >$SCREEN
+hook $SOCK %1 claude done
+_lazyfleet_agents -d
+check 'finished work on screen has been seen' test "$(stateof claude $SOCK %1)" = idle
+check 'and is reported as idle' test "$(field alpha$'\t'0 4)" = idle
+hook $SOCK %1 claude waiting
+check 'waiting on screen stays waiting' test "$(field alpha$'\t'0 4)" = waiting
+hook $SOCK %2 copilot done
+check 'finished work off screen stays done' test "$(field alpha$'\t'1 4)" = done
+check 'and is not marked seen' test "$(stateof copilot $SOCK %2)" = done
+hook $SOCK %3 claude done
+check 'finished work in a detached session stays done' test "$(field beta$'\t'0 4)" = done
+
+rm -rf $AGENTS; : >$SCREEN
+check 'status is empty with nothing to report' test -z "$(_lazyfleet_status)"
+hook $SOCK %1 claude waiting; hook $SOCK %2 copilot done; hook $SOCK %3 claude waiting; hook $SOCK %4 omp working
+check 'status names waiting sessions that are off screen' test "$(_lazyfleet_status -p)" = '! beta ✓ alpha '
+hook $SOCK %2 copilot working
+check 'status ignores working agents and agents on screen' test "$(_lazyfleet_status -p)" = '! beta '
+hook $SOCK %3 claude idle
+check 'status is empty again when nothing needs you' test -z "$(_lazyfleet_status -p)"
+hook $SOCK %2 copilot done; hook $SOCK %3 claude done
+check 'status lists each session once' test "$(_lazyfleet_status -p)" = '✓ alpha beta '
+panes_out=${panes_out//alpha/al#pha}
+hook $SOCK %2 copilot done
+check 'a # in a session name is escaped for tmux' gq -F 'al##pha' <<<"$(_lazyfleet_status)"
+check 'and left alone in plain output' gq -F 'al#pha' <<<"$(_lazyfleet_status -p)"
+panes_out=${panes_out//al#pha/alpha}
+check 'status carries tmux colours by default' gq -F '#[fg=green]' <<<"$(_lazyfleet_status)"
+check 'status -p carries none' not gq -F '#[' <<<"$(_lazyfleet_status -p)"
+check 'the status command works through the dispatcher' test "$(_lazyfleet_main status -p)" = "$(_lazyfleet_status -p)"
+
+# ============================================================== notifications
+# canned tmux: pane %2 is in alpha, not on screen; two clients, one per session
+calls=$SANDBOX/tmux.calls; fakeinfo='alpha@@lf@@100'
+_lazyfleet_tmux() {
+  print -r -- "$*" >>$calls
+  case $1 in
+    (display-message) [[ $2 == -p ]] && print -r -- $fakeinfo ;;
+    (list-clients) print -r -- $'/dev/pts/1@@lf@@alpha\n/dev/pts/2@@lf@@beta' ;;
+  esac
+  return 0
+}
+note() { rm -f $calls; TMUX_PANE=${3:-%2} _lazyfleet_agent_notify $1 $2 }
+sent() { gq -F -- "$1" $calls }
+note claude waiting
+check 'a message goes to the client in another session' sent 'display-message -c /dev/pts/2 -d 4000 -- ✻ alpha needs you'
+check 'but not to a client already in that session' not sent '-c /dev/pts/1'
+check 'status bars are refreshed' sent 'refresh-client -S'
+note copilot done
+check 'done has its own message' sent '✦ alpha is done'
+note omp waiting
+check 'omp gets its own icon' sent 'π alpha needs you'
+fakeinfo='alpha@@lf@@111'; note claude waiting
+check 'nothing is shown when the pane is on screen' not sent 'display-message -c'
+check 'the status bars are refreshed anyway' sent 'refresh-client -S'
+fakeinfo='alpha@@lf@@011'; note claude done
+check 'a detached session counts as not looked at' sent 'display-message -c'
+fakeinfo='al#pha@@lf@@100'; note claude done
+check 'a # in the message is escaped' sent 'al##pha is done'
+fakeinfo='alpha@@lf@@100'
+note claude working;  check 'working sends nothing' test ! -e $calls
+note claude idle;     check 'idle sends nothing' test ! -e $calls
+note vim done;        check 'an unknown agent sends nothing' test ! -e $calls
+rm -f $calls; env -u TMUX_PANE sh -c 'true'; unset TMUX_PANE; _lazyfleet_agent_notify claude done
+check 'without a pane nothing happens' test ! -e $calls
+check 'agent_notify=off keeps the messages away' eval 'LAZYFLEET_AGENT_NOTIFY=off note claude done; ! sent display-message\ -c'
+check 'but still refreshes the status bars' eval 'LAZYFLEET_AGENT_NOTIFY=off note claude done; sent refresh-client'
+mkdir -p $XDG_CONFIG_HOME/lazyfleet; print 'agent_notify=off' >$XDG_CONFIG_HOME/lazyfleet/config
+note claude done
+check 'agent_notify=off in the config works too' not sent 'display-message -c'
+rm -rf $XDG_CONFIG_HOME/lazyfleet
+check 'it always succeeds' eval 'note claude done; test $? = 0'
+_lazyfleet_tmux() { return 1 }
+check 'and does so without a tmux server' eval '_lazyfleet_agent_notify claude done; test $? = 0'
+
+# ======================================================= end to end, real tmux
+unset -f _lazyfleet_tmux; source $ROOT/lazyfleet.zsh
+export LAZYFLEET_TMUX="tmux -L lazyfleet-state-$$" LAZYFLEET_AGENT_DIR=$AGENTS
+rm -f $SANDBOX/stub/ps; rehash; rm -rf $AGENTS; mkdir -p $AGENTS
+_lazyfleet_tmux new-session -d -s keepalive
+_lazyfleet_tmux new-session -d -s e2e "zsh -fc 'exec -a claude sleep 120'"
+pane=$(_lazyfleet_tmux list-panes -t '=e2e' -F '#{pane_id}')
+tsock=$(_lazyfleet_tmux display-message -p -t $pane '#{socket_path}')
+real_hook() { TMUX=$tsock,1,0 TMUX_PANE=$pane sh $ROOT/bin/lazyfleet-hook "$@" }
+check 'a running Claude is found with the real tmux' retry '_lazyfleet_agents -d; (( $#reply ))'
+real_hook claude done
+check 'the status segment shows a finished agent' retry '[[ "$(bin=$ROOT/bin/lazyfleet; $bin status -p)" == "✓ e2e " ]]'
+real_hook claude waiting
+check 'and a waiting one' retry '[[ "$($ROOT/bin/lazyfleet status -p)" == "! e2e " ]]'
+e2e_marks() { local -A agtally; _lazyfleet_agent_tally; _lazyfleet_agent_marks_at e2e -p; print -r -- $REPLY }
+check 'the session marks show the state too' test "$(e2e_marks)" = '✻!'
+real_hook claude clear
+check 'a cleared agent is no longer reported' retry '[[ -z "$($ROOT/bin/lazyfleet status -p)" ]]'
+_lazyfleet_tmux kill-session -t '=e2e'
+real_hook claude done
+check 'a stopped agent leaves no report, and its record goes' retry '[[ -z "$($ROOT/bin/lazyfleet status -p)" && -z "$(ls -A $AGENTS)" ]]'
 
 (( fails )) && { print -P "\n%F{red}$fails failed%f"; exit 1 }
 print -P "\n%F{green}all passed%f"
