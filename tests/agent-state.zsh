@@ -95,5 +95,100 @@ rm -f $NOTIFY_LOG; nhook $S1 %1 claude waiting; sleep 0.3
 check 'the same state again asks nothing more' test ! -e $NOTIFY_LOG
 check 'a hook without lazyfleet next to it still succeeds' eval 'mkdir -p $SANDBOX/lone; cp $HOOK $SANDBOX/lone/; TMUX=$S1,1,0 TMUX_PANE=%3 sh $SANDBOX/lone/lazyfleet-hook claude done; test $? = 0'
 
+
+# ======================================================= state of live agents
+source $ROOT/lazyfleet.zsh
+export LAZYFLEET_AGENT_DIR=$AGENTS
+SCREEN=$SANDBOX/screen; : >$SCREEN
+_lazyfleet_tmux() {
+  case $1 in
+    (list-panes) print -r -- $panes_out ;;
+    (capture-pane) cat $SCREEN ;;
+    (*) return 1 ;;
+  esac
+}
+cat >$SANDBOX/stub/ps <<'STUB'
+#!/bin/sh
+cat "$PS_TABLE"
+STUB
+chmod +x $SANDBOX/stub/ps; export PS_TABLE=$SANDBOX/ps.table
+path=($SANDBOX/stub $path); rehash
+S='@@lf@@'; SOCK=/tmp/tmux-1000/default
+# pane pid, session, window, pane id, socket, attached/window_active/pane_active
+panes_out="100${S}alpha${S}0${S}%1${S}${SOCK}${S}111
+200${S}alpha${S}1${S}%2${S}${SOCK}${S}100
+300${S}beta${S}0${S}%3${S}${SOCK}${S}011
+400${S}gamma${S}0${S}%4${S}${SOCK}${S}111"
+cat >$PS_TABLE <<'TABLE'
+  100     1 -zsh
+  101   100 claude
+  200     1 -zsh
+  201   200 copilot
+  300     1 -zsh
+  301   300 claude
+  400     1 -zsh
+  401   400 omp
+TABLE
+rm -rf $AGENTS
+detail() { _lazyfleet_agents -d; print -rl -- $reply }
+nf() { local -a f; f=("${(@ps:\t:)1}"); print $#f }
+field() { local line; local -a f; for line in ${(f)"$(detail)"}; do [[ $line == $1$'\t'* ]] && { f=("${(@ps:\t:)line}"); print -r -- $f[$2]; return } done }
+
+_lazyfleet_agents -d
+check 'with -d each entry has six fields' test "$(nf $reply[1])" = 6
+_lazyfleet_agents
+check 'without -d the entries keep their three fields' test "$(nf $reply[1])" = 3
+check 'the pane id comes along' test "$(field alpha$'\t'0 5)" = %1
+check 'a pane being looked at is visible' test "$(field alpha$'\t'0 6)" = 1
+check 'a pane in a window nobody shows is not' test "$(field alpha$'\t'1 6)" = 0
+check 'a pane in a detached session is not' test "$(field beta$'\t'0 6)" = 0
+
+check 'no record, no state (not Claude)' test "$(field alpha$'\t'1 4)" = ''
+hook $SOCK %2 copilot waiting
+check 'a record gives the state' test "$(field alpha$'\t'1 4)" = waiting
+hook $SOCK %2 copilot done
+check 'the latest record wins' test "$(field alpha$'\t'1 4)" = done
+hook $SOCK %2 claude working
+check 'another agent kind in the pane is not mixed up' test "$(field alpha$'\t'1 4)" = done
+hook $SOCK %4 omp working
+check 'omp state is read the same way' test "$(field gamma$'\t'0 4)" = working
+print -r -- 'bogus 1' >$AGENTS/omp.$(keyof $SOCK %4)
+check 'a damaged record is no state' test "$(field gamma$'\t'0 4)" = ''
+hook /tmp/tmux-1000/elsewhere %4 omp done; rm -f $AGENTS/omp.$(keyof $SOCK %4)
+check 'a record of another tmux server is not read' test "$(field gamma$'\t'0 4)" = ''
+
+# Claude Code: the screen decides about working
+rm -rf $AGENTS; : >$SCREEN
+check 'Claude, nothing recorded, idle screen: unknown' test "$(field alpha$'\t'0 4)" = ''
+print -r -- '✻ Thinking… (12s · esc to interrupt)' >$SCREEN
+check 'Claude, nothing recorded, busy screen: working' test "$(field alpha$'\t'0 4)" = working
+hook $SOCK %1 claude working; : >$SCREEN
+check 'Claude recorded as working, screen idle: it was interrupted' test "$(field alpha$'\t'0 4)" = idle
+print -r -- 'ESC TO INTERRUPT' >$SCREEN
+check 'the screen text is matched in any case' test "$(field alpha$'\t'0 4)" = working
+hook $SOCK %1 claude waiting; : >$SCREEN
+check 'a recorded waiting is kept' test "$(field alpha$'\t'0 4)" = waiting
+hook $SOCK %1 claude done
+check 'a recorded done is kept' test "$(field alpha$'\t'0 4)" = done
+printf 'old line esc to interrupt\n%.0s' 1 >$SCREEN; for i in {1..20}; do print x >>$SCREEN; done
+hook $SOCK %1 claude working
+check 'only the bottom of the screen counts' test "$(field alpha$'\t'0 4)" = idle
+
+# records of agents that have stopped
+rm -rf $AGENTS; hook $SOCK %1 claude done; hook $SOCK %2 copilot done; hook $SOCK %9 claude done
+hook /tmp/tmux-1000/elsewhere %1 claude done; hook ${SOCK}2 %1 claude done
+_lazyfleet_agents -d
+check 'a record of a running agent stays' test -e $AGENTS/claude.$(keyof $SOCK %1)
+check 'a record of a pane that is gone is removed' test ! -e $AGENTS/claude.$(keyof $SOCK %9)
+check 'records of another server stay' test -e $AGENTS/claude.$(keyof /tmp/tmux-1000/elsewhere %1)
+check 'a server whose socket starts the same is left alone' test -e $AGENTS/claude.$(keyof ${SOCK}2 %1)
+hook $SOCK %3 copilot done
+_lazyfleet_agents -d
+check 'a record for an agent that is not in the pane is removed' test ! -e $AGENTS/copilot.$(keyof $SOCK %3)
+rm -rf $AGENTS; hook $SOCK %9 claude done; _lazyfleet_agents
+check 'without -d nothing is removed' test -e $AGENTS/claude.$(keyof $SOCK %9)
+rm -rf $AGENTS; _lazyfleet_agents -d
+check 'a missing record dir is fine' true
+
 (( fails )) && { print -P "\n%F{red}$fails failed%f"; exit 1 }
 print -P "\n%F{green}all passed%f"

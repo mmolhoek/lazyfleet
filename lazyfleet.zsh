@@ -425,21 +425,56 @@ _lazyfleet_agent_kind() {
   [[ -n $REPLY ]]
 }
 
+# Where the hook script (bin/lazyfleet-hook) keeps what each agent is doing
+_lazyfleet_agent_dir() { REPLY=${LAZYFLEET_AGENT_DIR:-${XDG_CACHE_HOME:-$HOME/.cache}/lazyfleet/agents} }
+
+# The file name part that identifies a pane: its tmux server's socket plus its
+# id, with everything but letters and digits turned into "_" (as the hook does)
+_lazyfleet_agent_key() { local s=$1$2; REPLY=${s//[^A-Za-z0-9]/_} }
+
+# REPLY=what an agent is doing: working, waiting, done, idle, or empty when
+# unknown. $1 kind, $2 tmux socket, $3 pane id. This is the hook's record, and
+# for Claude Code the screen has the last word on "working": a turn that was
+# interrupted with Esc never runs the hook that ends it, and a session whose
+# hooks are not installed has no record at all.
+_lazyfleet_agent_state() {
+  emulate -L zsh
+  local kind=$1 st= ts file busy=
+  REPLY=
+  [[ -n $3 ]] || return 0
+  _lazyfleet_agent_dir; file=$REPLY
+  _lazyfleet_agent_key $2 $3; file=$file/$kind.$REPLY
+  [[ -r $file ]] && read -r st ts <$file
+  [[ $st == (working|waiting|done|idle) ]] || st=
+  if [[ $kind == claude && ( -z $st || $st == working ) ]]; then
+    _lazyfleet_tmux capture-pane -p -t $3 2>/dev/null | tail -n 15 | grep -qi 'esc to interrupt' && busy=1
+    if [[ -n $busy ]]; then st=working
+    elif [[ $st == working ]]; then st=idle
+    fi
+  fi
+  REPLY=$st
+}
+
 # reply=("session<TAB>window<TAB>claude|copilot|omp" ...): one entry per tmux pane
-# that has such a tool running below its shell (or as its shell)
+# that has such a tool running below its shell (or as its shell). With -d each
+# entry goes on with "<TAB>state<TAB>pane id<TAB>visible" (visible is 1 when
+# someone is looking at the pane right now), and the hook's records of agents
+# that have stopped are removed.
 _lazyfleet_agents() {
   emulate -L zsh
-  local sep='@@lf@@' line pid ppid args p n out
-  local -a f
+  local sep='@@lf@@' line pid ppid args p n out detail= sock state vis dir rec
+  local -a f live
   local -A parent kinds panes seen
+  [[ $1 == -d ]] && detail=1
   reply=()
   (( $+commands[ps] )) || return 0
   # tmux 3.4 turns tabs in -F output into "_", so split on a printable separator
-  out=$(_lazyfleet_tmux list-panes -a -F "#{pane_pid}${sep}#{session_name}${sep}#{window_index}" 2>/dev/null) || return 0
+  out=$(_lazyfleet_tmux list-panes -a -F "#{pane_pid}${sep}#{session_name}${sep}#{window_index}${sep}#{pane_id}${sep}#{socket_path}${sep}#{session_attached}#{window_active}#{pane_active}" 2>/dev/null) || return 0
   for line in ${(f)out}; do
     line=${line//$sep/$'\t'}
     f=("${(@ps:\t:)line}")
-    [[ $f[1] == <-> && -n $f[2] ]] && panes[$f[1]]="$f[2]"$'\t'"$f[3]"
+    # value: session, window, pane id, socket, and 1 if the pane is on screen
+    [[ $f[1] == <-> && -n $f[2] ]] && panes[$f[1]]="$f[2]"$'\t'"$f[3]"$'\t'"$f[4]"$'\t'"$f[5]"$'\t'"${${f[6]:#<1->11}:+0}"
   done
   (( $#panes )) || return 0
   for line in ${(f)"$(ps -axo pid=,ppid=,args= 2>/dev/null)"}; do
@@ -455,14 +490,48 @@ _lazyfleet_agents() {
       if [[ -n $panes[$p] ]]; then
         if [[ -z $seen[$p:$kinds[$pid]] ]]; then
           seen[$p:$kinds[$pid]]=1
-          reply+=("$panes[$p]"$'\t'"$kinds[$pid]")
+          f=("${(@ps:\t:)panes[$p]}")
+          line="$f[1]"$'\t'"$f[2]"$'\t'"$kinds[$pid]"
+          if [[ -n $detail ]]; then
+            _lazyfleet_agent_state $kinds[$pid] $f[4] $f[3]; state=$REPLY
+            vis=1; [[ $f[5] == 0 ]] && vis=0
+            line+=$'\t'"$state"$'\t'"$f[3]"$'\t'"$vis"
+            _lazyfleet_agent_key $f[4] $f[3]; live+=("$kinds[$pid].$REPLY")
+          fi
+          reply+=("$line")
         fi
         break
       fi
       p=$parent[$p]
     done
   done
+  [[ -n $detail ]] && _lazyfleet_agent_prune $live ${(u)${(v)panes}}
   reply=(${(o)reply})
+}
+
+# Remove the hook's records for panes of the tmux servers seen in this round
+# that no longer run that agent. Args: the live "kind.key" names, then the
+# panes' "session TAB window TAB pane TAB socket TAB visible" values.
+_lazyfleet_agent_prune() {
+  emulate -L zsh
+  local rec v sk
+  local -a live socks f
+  local -A servers
+  for v in "$@"; do
+    if [[ $v == *$'\t'* ]]; then
+      f=("${(@ps:\t:)v}"); _lazyfleet_agent_key $f[4] ''; servers[$REPLY]=1
+    else live+=($v)
+    fi
+  done
+  _lazyfleet_agent_dir
+  for rec in $REPLY/*(N.:t); do
+    [[ ${live[(Ie)$rec]} -gt 0 ]] && continue
+    sk=${rec#*.}
+    for v in ${(k)servers}; do
+      # a pane's part of the key is always "_" and its number
+      [[ $sk == ${v}_<-> ]] && { rm -f $REPLY/$rec 2>/dev/null; break }
+    done
+  done
 }
 
 # are the agent icons on? (agent_icons=off or LAZYFLEET_AGENT_ICONS=off turns them off)
