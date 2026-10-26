@@ -92,7 +92,7 @@ check 'refresh does nothing when disabled' test "$(calls)" = 0
 check 'refresh writes no cache when disabled' test ! -e $cache
 
 reset 0.1.0; LAZYFLEET_RELEASES_URL=https://example.test/rel _lazyfleet_update_refresh
-check 'LAZYFLEET_RELEASES_URL changes where it looks' retry 'gq "https://example.test/rel/latest" $STUB_LOG'
+check 'LAZYFLEET_RELEASES_URL changes where it looks' retry 'gq "https://example.test/rel/latest" $STUB_LOG && [[ -s $cache ]]'
 
 # --- reading the cache
 reset 0.1.0; seed $EPOCHSECONDS v0.2.0
@@ -150,6 +150,34 @@ reset 0.1.0
 for cmd in help repos ls; do
   check "'lazyfleet $cmd' never checks for updates" eval "_lazyfleet_main $cmd >/dev/null 2>&1; sleep 0.2; test \"\$(calls)\" = 0"
 done
+
+# --- lazyfleet update: a check right now
+out_of() { out=$("$@" 2>&1); rc=$? }
+reset 0.1.0; STUB_URL=https://github.com/mmolhoek/lazyfleet/releases/tag/v0.1.0; out_of _lazyfleet_main update
+check 'update says when up to date' eval 'test $rc = 0 && test "$out" = "lazyfleet v0.1.0 is up to date."'
+reset 0.1.0; print install.sh >$SANDBOX/inst/INSTALLER; out_of _lazyfleet_main update
+check 'update names the new version and how to get it' eval 'test $rc = 0 && gq "lazyfleet v0.2.0 is available (you have v0.1.0). Update: curl .*install.sh | sh" <<<$out'
+check 'update asks GitHub once' test "$(calls)" = 1
+check 'update refreshes the cache for the TUI' gq -E '^[0-9]+ v0\.2\.0$' $cache
+check 'the TUI then shows the update' eval '_lazyfleet_update_available && test "$REPLY" = v0.2.0'
+reset 0.1.0; seed $EPOCHSECONDS v0.1.0; out_of _lazyfleet_main update
+check 'update ignores a fresh cache' eval 'test "$(calls)" = 1 && gq "v0.2.0 is available" <<<$out'
+reset 0.1.0; LAZYFLEET_UPDATE_CHECK=off out_of _lazyfleet_main update
+check 'update works when the daily check is off' eval 'test $rc = 0 && gq "v0.2.0 is available" <<<$out'
+reset 0.3.0; out_of _lazyfleet_main update
+check 'a newer local copy counts as up to date' eval 'test $rc = 0 && gq "is up to date" <<<$out'
+reset 0.1.0; STUB_FAIL=1; export STUB_FAIL; out_of _lazyfleet_main update
+check 'update fails when GitHub cannot be reached' eval 'test $rc = 1 && gq "could not find the latest release" <<<$out'
+check 'a failed update check says nothing is available' eval '! gq "is available" <<<$out'
+reset 0.1.0; STUB_URL=https://github.com/mmolhoek/lazyfleet/releases; out_of _lazyfleet_main update
+check 'update fails when there is no release yet' eval 'test $rc = 1 && gq "none published yet" <<<$out'
+reset; out_of _lazyfleet_main update
+check 'update fails without a version' eval 'test $rc = 1 && gq "does not know its version" <<<$out'
+check 'update without a version does not call curl' test "$(calls)" = 0
+reset main; out_of _lazyfleet_main update
+check 'update fails on a branch install' eval 'test $rc = 1 && gq "does not know its version" <<<$out'
+check 'the help lists update' eval '_lazyfleet_help | gq "lazyfleet update"'
+check 'completion offers update' gq "'update:" $ROOT/_lazyfleet
 
 (( fails )) && { print -P "\n%F{red}$fails failed%f"; exit 1 }
 print -P "\n%F{green}all passed%f"

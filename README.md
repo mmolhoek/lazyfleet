@@ -40,6 +40,9 @@ request to github.com, which carries no data from lazyfleet). The TUI's title th
 `lazyfleet · v1.2.3 available`, and quitting prints how to update: run the install command above again.
 A checkout never checks. Turn it off with `update_check=off` (see Settings) or `LAZYFLEET_UPDATE_CHECK=off`.
 
+To look right now instead of waiting for the daily check, run `lazyfleet update`. It asks GitHub in the foreground,
+says whether you are up to date (or what to run to update), and works even when the daily check is off.
+
 You can also bind a switcher popup in `~/.tmux.conf`:
 
 ```sh
@@ -61,6 +64,7 @@ lazyfleet rm [worktree] [-f] [-D]   -f: even if dirty or locked (e.g. by Supacod
 lazyfleet pull [worktree]      fast-forward to its upstream (git pull --ff-only)
 lazyfleet windows              TUI on all tmux windows; enter switches to one
 lazyfleet config [repo]        edit the settings, or a repo's own config file, in $VISUAL / $EDITOR (vi)
+lazyfleet update               look for a newer release now
 ```
 
 You can name a worktree by its path, its branch (`feat/x`), its session name (`app/feat-x`) or its directory name.
