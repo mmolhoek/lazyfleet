@@ -892,10 +892,15 @@ _lazyfleet_pick() {
 # window an attached client is looking at
 _lazyfleet_winrows() {
   local line ws=0 wn=0 wc=0 i k
+  # tmux >= 3.4 turns control characters (tabs) in -F output into "_" unless
+  # it writes to a terminal, so use a printable ASCII separator (safe in any
+  # locale) and turn it into tabs
+  local sep='@@lf@@'
   local -a f S N C P M keyed
   local -A agtally
   # by session name, then window number
-  for line in ${(f)"$(_lazyfleet_tmux list-windows -a -F $'#{session_name}\t#{window_index}:#{window_name}\t#{pane_current_command}\t#{pane_current_path}\t#{?#{&&:#{window_active},#{session_attached}},●,}' 2>/dev/null)"}; do
+  for line in ${(f)"$(_lazyfleet_tmux list-windows -a -F "#{session_name}${sep}#{window_index}:#{window_name}${sep}#{pane_current_command}${sep}#{pane_current_path}${sep}#{?#{&&:#{window_active},#{session_attached}},●,}" 2>/dev/null)"}; do
+    line=${line//$sep/$'\t'}
     f=("${(@ps:\t:)line}")
     keyed+=("${f[1]:l}"$'\0'"${(l:6::0:)${f[2]%%:*}}"$'\0'"$line")
   done
