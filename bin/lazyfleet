@@ -1,4 +1,4 @@
-#!/bin/zsh -f
+#!/usr/bin/env -S zsh -f
 # Standalone entry point, used by the TUI's key bindings and tmux popups.
 source ${0:A:h:h}/lazyfleet.zsh
 _lazyfleet_main "$@"

@@ -1,7 +1,8 @@
-#!/bin/zsh -f
+#!/usr/bin/env -S zsh -f
 # End-to-end test in a sandbox HOME with an isolated tmux server.
 
 setopt pipe_fail
+zmodload zsh/stat
 ROOT=${0:A:h:h}
 SANDBOX=${$(mktemp -d):A}
 export HOME=$SANDBOX XDG_CONFIG_HOME=$SANDBOX/.config LAZYFLEET_WORKTREES=$SANDBOX/wt TMPDIR=$SANDBOX/tmp
@@ -14,7 +15,7 @@ print -r -- '[[ -e ~/.ask ]] && { rm ~/.ask; read -r ans; print -r -- $ans >~/an
 # every fixture repo commits, also on hosts without a git identity
 export GIT_AUTHOR_NAME=t GIT_AUTHOR_EMAIL=t@t GIT_COMMITTER_NAME=t GIT_COMMITTER_EMAIL=t@t
 export TMUX_TMPDIR=$SANDBOX
-export LAZYFLEET_TMUX="tmux -L lazyfleet-test-$$" SHELL=/bin/zsh
+export LAZYFLEET_TMUX="tmux -L lazyfleet-test-$$" SHELL=${commands[zsh]}
 unset TMUX
 source $ROOT/lazyfleet.zsh
 
@@ -22,6 +23,9 @@ fails=0
 ok()   { print -P "%F{green}ok%f   $1" }
 fail() { print -P "%F{red}FAIL%f $1"; (( fails++ )) }
 check() { local d=$1; shift; if "$@"; then ok $d; else fail $d; fi }
+skip() { print -P "%F{yellow}skip%f $1 ($2)" }
+# check, unless the reason in $2 rules it out here
+check_unless() { local why=$1; shift; if [[ -n $why ]]; then skip "$1" "$why"; else check "$@"; fi }
 waitfor() { local i; for i in {1..50}; do [[ -e $1 ]] && return 0; sleep 0.1; done; return 1 }
 # like grep -q, but reads all input: with pipe_fail, an early exit would
 # fail the producer with SIGPIPE
@@ -88,8 +92,10 @@ lazyfleet rm -f -D feat/sum 2>/dev/null
 # a file that can't be copied fails new before setup starts
 print -l '[app]' 'copy=.env .locked' 'setup=touch .setup-ran' >$cfg
 print x >$repo/.locked; chmod 000 $repo/.locked
-check 'new fails when a copy fails' eval '! lazyfleet new feat/cpfail --no-open >/dev/null 2>$SANDBOX/new.err && gq -F "could not copy .locked" $SANDBOX/new.err'
-check 'a failed copy starts no setup' eval '! _lazyfleet_tmux has-session -t "=app/feat-cpfail" 2>/dev/null && sleep 0.5 && test ! -e $LAZYFLEET_WORKTREES/app/feat-cpfail/.setup-ran'
+# root reads a mode 000 file
+noperm=; (( EUID == 0 )) && noperm='running as root'
+check_unless "$noperm" 'new fails when a copy fails' eval '! lazyfleet new feat/cpfail --no-open >/dev/null 2>$SANDBOX/new.err && gq -F "could not copy .locked" $SANDBOX/new.err'
+check_unless "$noperm" 'a failed copy starts no setup' eval '! _lazyfleet_tmux has-session -t "=app/feat-cpfail" 2>/dev/null && sleep 0.5 && test ! -e $LAZYFLEET_WORKTREES/app/feat-cpfail/.setup-ran'
 rm -f $cfg $repo/.locked
 lazyfleet rm -f -D feat/cpfail 2>/dev/null
 # a question while the shell starts gets the user's answer, not our setup keys
@@ -201,11 +207,16 @@ check 'C opens the settings' eval 'FZF_KEY=C FZF_LIST_LABEL=" Repos " _lazyfleet
 check 'r reloads' eval 'FZF_KEY=r FZF_LIST_LABEL=" Repos " _lazyfleet_key r $repo | gq "^reload(.*_reporows)"'
 check 'key esc quits when hidden' test "$(FZF_KEY=esc FZF_INPUT_STATE=hidden _lazyfleet_key w $p)" = abort
 
+# some fzf builds crash on become (seen: fzf 0.71 on Termux under proot)
+_lazyfleet_tmux new-session -d -s probe "env -u TMUX fzf --bind 'start:become(touch $SANDBOX/become-ok)' </dev/null; sleep 1"
+nobecome=; waitfor $SANDBOX/become-ok || nobecome='this fzf crashes on become'
+_lazyfleet_tmux kill-session -t '=probe' 2>/dev/null
+
 # attach from fzf's become (stdin is /dev/tty) must actually draw the session
 _lazyfleet_tmux new-session -d -s attach -x 100 -y 10 \
   "echo x | env -u TMUX fzf --bind 'start:become($ROOT/bin/lazyfleet open feat/x)'; sleep 5"
 sleep 1.5
-check 'attach via become renders' eval '_lazyfleet_tmux capture-pane -p -t "=attach:" | gq "app/feat-"'
+check_unless "$nobecome" 'attach via become renders' eval '_lazyfleet_tmux capture-pane -p -t "=attach:" | gq "app/feat-"'
 _lazyfleet_tmux kill-session -t '=attach' 2>/dev/null
 
 # outside tmux, the TUI comes back once the attached session ends
@@ -218,10 +229,10 @@ check 'tui fills in status after loading' retry '_lazyfleet_tmux capture-pane -p
 _lazyfleet_tmux send-keys -t '=tui:' j; sleep 0.3
 _lazyfleet_tmux send-keys -t '=tui:' Enter
 sleep 1
-check 'tui enter attaches' eval '_lazyfleet_tmux list-clients -F "#S" | gq -x app'
+check_unless "$nobecome" 'tui enter attaches' eval '_lazyfleet_tmux list-clients -F "#S" | gq -x app'
 _lazyfleet_tmux kill-session -t '=app'
-check 'tui returns after session ends' waitpane tui Worktrees
-check 'tui reselects the worktree it left' retry '_lazyfleet_tmux capture-pane -p -t "=tui:" | gq "▌ app  main"'
+check_unless "$nobecome" 'tui returns after session ends' waitpane tui Worktrees
+check_unless "$nobecome" 'tui reselects the worktree it left' retry '_lazyfleet_tmux capture-pane -p -t "=tui:" | gq "▌ app  main"'
 _lazyfleet_tmux kill-session -t '=tui' 2>/dev/null
 
 # windows view: filter to the extra window, enter attaches to it, detach returns
@@ -233,10 +244,10 @@ check 'find input takes a /' waitpane tui '> app/feat-x 1:extra'
 _lazyfleet_tmux send-keys -t '=app/feat-x:1' 'echo live-$((6*7))' Enter
 check 'window preview follows the pane' waitpane tui 'live-42'
 _lazyfleet_tmux send-keys -t '=tui:' Enter; sleep 1
-check 'windows enter attaches to that window' eval '_lazyfleet_tmux list-clients -F "#S #W" | gq -x "app/feat-x extra"'
+check_unless "$nobecome" 'windows enter attaches to that window' eval '_lazyfleet_tmux list-clients -F "#S #W" | gq -x "app/feat-x extra"'
 _lazyfleet_tmux detach-client -s '=app/feat-x'
-check 'windows view returns after detach' waitpane tui Windows
-check 'windows view reselects the window it left' retry '_lazyfleet_tmux capture-pane -p -t "=tui:" | gq "▌ app/feat-x *1:extra"'
+check_unless "$nobecome" 'windows view returns after detach' waitpane tui Windows
+check_unless "$nobecome" 'windows view reselects the window it left' retry '_lazyfleet_tmux capture-pane -p -t "=tui:" | gq "▌ app/feat-x *1:extra"'
 _lazyfleet_tmux kill-session -t '=tui' 2>/dev/null
 
 # docker: a fake docker reporting two containers from feat/x, one from elsewhere
@@ -312,7 +323,7 @@ _lazyfleet_tmux send-keys -t '=tui:' Tab; waitpane tui 'feat/x'; sleep 0.3
 _lazyfleet_tmux send-keys -t '=tui:' n; waitpane tui 'branch>'; sleep 0.3
 _lazyfleet_tmux send-keys -t '=tui:' -l feat/e2e; sleep 0.3
 _lazyfleet_tmux send-keys -t '=tui:' C-n
-check 'tui n opens the new session right away' retry '_lazyfleet_tmux list-clients -F "#S" | gq -x app/feat-e2e'
+check_unless "$nobecome" 'tui n opens the new session right away' retry '_lazyfleet_tmux list-clients -F "#S" | gq -x app/feat-e2e'
 _lazyfleet_tmux kill-session -t '=tui' 2>/dev/null
 lazyfleet rm -f -D feat/e2e 2>/dev/null
 
@@ -442,7 +453,7 @@ check 'rm -D fails when the branch cannot be deleted' eval '! lazyfleet rm -f -D
 rm -f $repo/.git/refs/heads/feat/lockref.lock; git -C $repo branch -q -D feat/lockref
 
 # a planted temp dir (not ours, or a symlink) is refused, not used
-check 'temp dir is private' eval '_lazyfleet_tmpdir && { m=$(stat -f %Lp $REPLY 2>/dev/null) || m=$(stat -c %a $REPLY); [[ $m == 700 ]] }'
+check 'temp dir is private' eval '_lazyfleet_tmpdir && { m=$(command stat -f %Lp $REPLY 2>/dev/null) || m=$(command stat -c %a $REPLY); [[ $m == 700 ]] }'
 mkdir -p $SANDBOX/evil
 check 'a symlinked temp dir is refused' eval '(export TMPDIR=$SANDBOX/tmp2; mkdir -p $TMPDIR; ln -s $SANDBOX/evil $TMPDIR/lazyfleet-$UID; ! _lazyfleet_tmpdir 2>/dev/null)'
 
