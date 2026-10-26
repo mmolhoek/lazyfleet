@@ -111,6 +111,7 @@ lazyfleet forget [repo]        unregister a repo (files are kept)
 lazyfleet repos                list registered repos
 lazyfleet ls                   list worktrees with status
 lazyfleet new <branch> [-r repo] [-b base] [--no-open]
+lazyfleet new --pr <number> | --issue <number> [-r repo] [-b base] [--no-open]
 lazyfleet open [worktree]      attach (outside tmux) or switch-client (inside tmux)
 lazyfleet rm [worktree] [-f] [-D]   -f: even if dirty or locked (e.g. by Supacode); -D: delete the local branch
 lazyfleet pull [worktree]      fast-forward to its upstream (git pull --ff-only)
@@ -121,6 +122,11 @@ lazyfleet update               look for a newer release now
 ```
 
 You can name a worktree by its path, its branch (`feat/x`), its session name (`app/feat-x`) or its directory name.
+
+`new --pr 123` makes a worktree of pull request 123's branch (fetching it first), and `new --issue 45` one on a new branch
+named after the issue (`issue-45-fix-the-login-page`, cut at 40 characters, starting from the default branch or `-b`). Both
+use `gh` (logged in) and a GitHub `origin`. A pull request from a fork has no branch in your repository, so it gets a local
+branch `pr-123` with the pull request's commits. Neither writes anything to GitHub.
 
 `new` reuses an existing local branch first, then tries `origin/<branch>`, and otherwise creates the branch from `-b base` (default `origin/HEAD`, then `HEAD`). New worktrees go to `<worktrees>/<repo>/<branch-slug>` (default `~/.lazyfleet/worktrees`; see [Settings](#settings)).
 
@@ -240,6 +246,7 @@ zsh lazyfleet/tests/install.zsh   # install.sh
 zsh lazyfleet/tests/agents.zsh    # the Claude / Copilot / omp marks
 zsh lazyfleet/tests/agent-state.zsh  # agent state: hook script, marks, status, notifications, hooks install
 zsh lazyfleet/tests/pr-status.zsh   # pull request and CI marks (uses a stub gh, no network)
+zsh lazyfleet/tests/new-from-pr.zsh # new --pr / --issue (stub gh, local "GitHub")
 ```
 
 The tests run in a throwaway HOME against an isolated tmux server.
