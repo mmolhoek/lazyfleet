@@ -12,7 +12,7 @@
 # Through a pipe, pass arguments like this:  ... | sh -s -- uninstall
 #
 # Environment:
-#   LAZYFLEET_VERSION      install this tag (v1.2.3) or branch (main) instead
+#   LAZYFLEET_VERSION      install this tag (v1.2.3) or branch (main, feat/x) instead
 #   LAZYFLEET_SHA256       fail unless the downloaded tarball has this sha256
 #   LAZYFLEET_INSTALL_DIR  where the files go   (default ~/.local/share/lazyfleet)
 #   LAZYFLEET_BIN_DIR      where the command goes (default ~/.local/bin)
@@ -68,14 +68,22 @@ latest_tag() {
   printf '%s\n' "$tag"
 }
 
+# Is $1 a branch name we accept? Letters, digits and . _ - in parts joined by
+# single slashes (feat/show-version); no part may start with . or -, and ..
+# may not appear, so the name can not escape the url it is put in.
+valid_branch() {
+  printf '%s' "$1" | grep -Eq '^[A-Za-z0-9_][A-Za-z0-9._-]*(/[A-Za-z0-9_][A-Za-z0-9._-]*)*$' || return 1
+  case $1 in *..*|*.lock|*.) return 1 ;; esac
+}
+
 # Print the tarball url for ref $1 (a vX.Y.Z tag, or a branch name)
 tarball_url() {
   if printf '%s' "$1" | grep -Eq '^v[0-9]+\.[0-9]+\.[0-9]+$'; then
     printf '%s/%s/archive/refs/tags/%s.tar.gz\n' "$BASE_URL" "$REPO" "$1"
-  elif printf '%s' "$1" | grep -Eq '^[A-Za-z0-9._-]+$'; then
+  elif valid_branch "$1"; then
     printf '%s/%s/archive/refs/heads/%s.tar.gz\n' "$BASE_URL" "$REPO" "$1"
   else
-    die "invalid version '$1' (use a tag like v1.2.3 or a branch name)"
+    die "invalid version '$1' (use a tag like v1.2.3 or a branch name like main or feat/x)"
   fi
 }
 
@@ -120,6 +128,9 @@ install() {
     ref=$(latest_tag) || die "could not find a release. Try LAZYFLEET_VERSION=main to install the development version."
   fi
   url=$(tarball_url "$ref")
+  # the version recorded: a tag without its v, a branch as it is named
+  version=$ref
+  if printf '%s' "$ref" | grep -Eq '^v[0-9]+\.[0-9]+\.[0-9]+$'; then version=${ref#v}; fi
   work=$(mktemp -d)
   trap 'rm -rf "$work"' EXIT INT TERM
 
@@ -146,7 +157,7 @@ install() {
   rm -rf "$stage"; mkdir "$stage"
   cp -R "$work/src/lazyfleet.zsh" "$work/src/bin" "$work/src/_lazyfleet" "$stage/"
   [ -f "$work/src/LICENSE" ] && cp "$work/src/LICENSE" "$stage/"
-  printf '%s\n' "${ref#v}" >"$stage/VERSION"
+  printf '%s\n' "$version" >"$stage/VERSION"
   printf 'install.sh\n' >"$stage/INSTALLER"
   old=
   if [ -e "$INSTALL_DIR" ]; then
@@ -157,8 +168,8 @@ install() {
   rm -rf "$INSTALL_DIR.old.$$"
   link_command
 
-  if [ -n "$old" ] && [ "$old" != "${ref#v}" ]; then say "Updated lazyfleet $old -> ${ref#v}."
-  else say "Installed lazyfleet ${ref#v}."; fi
+  if [ -n "$old" ] && [ "$old" != "$version" ]; then say "Updated lazyfleet $old -> $version."
+  else say "Installed lazyfleet $version."; fi
   say "  files:   $INSTALL_DIR"
   say "  command: $BIN_DIR/lazyfleet"
   check_deps
