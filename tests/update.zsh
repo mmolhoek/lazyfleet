@@ -179,5 +179,84 @@ check 'update fails on a branch install' eval 'test $rc = 1 && gq "does not know
 check 'the help lists update' eval '_lazyfleet_help | gq "lazyfleet update"'
 check 'completion offers update' gq "'update:" $ROOT/_lazyfleet
 
+# --- showing the version: footers, help, `lazyfleet version`
+reset 0.1.0
+check 'the version line is the version' eval '_lazyfleet_version_line && test "$REPLY" = "lazyfleet v0.1.0"'
+reset 0.1.0; seed $EPOCHSECONDS v0.2.0
+check 'the version line names an update' eval '_lazyfleet_version_line && test "$REPLY" = "lazyfleet v0.1.0 · update available: v0.2.0"'
+reset 0.1.0; seed $EPOCHSECONDS v0.2.0; LAZYFLEET_UPDATE_CHECK=off
+check 'the version line stays quiet about updates when they are off' eval '_lazyfleet_version_line && test "$REPLY" = "lazyfleet v0.1.0"'
+unset LAZYFLEET_UPDATE_CHECK
+reset; check 'there is no version line without a version' not _lazyfleet_version_line
+
+# an install of a branch: its name stands in for the version, and it never checks for updates
+reset 0.1.0;   check 'a release is labelled v1.2.3' eval '_lazyfleet_version_label && test "$REPLY" = v0.1.0'
+reset feat/x;  check 'a branch install is labelled with the branch' eval '_lazyfleet_version_label && test "$REPLY" = "feat/x (branch)"'
+reset;         check 'a checkout has no label' not _lazyfleet_version_label
+reset $'x\e[31m'; check 'a VERSION with control characters has no label' not _lazyfleet_version_label
+reset 'a b';   check 'a VERSION with spaces inside has no label' not _lazyfleet_version_label
+reset feat/x;  check 'the version line names the branch' eval '_lazyfleet_version_line && test "$REPLY" = "lazyfleet feat/x (branch)"'
+reset feat/x; seed $EPOCHSECONDS v9.9.9
+check 'a branch install is never told of an update' eval '_lazyfleet_version_line && test "$REPLY" = "lazyfleet feat/x (branch)"'
+reset feat/x; check 'help names the branch' eval '_lazyfleet_help | head -1 | gq -x "lazyfleet feat/x (branch) — git worktrees, each in its own tmux session"'
+reset feat/x; check 'lazyfleet version names the branch' test "$(_lazyfleet_main version)" = 'lazyfleet feat/x (branch)'
+reset feat/x; _lazyfleet_update_refresh; sleep 0.3
+check 'a branch install never calls curl' test "$(calls)" = 0
+
+# the footers are globals: each case runs in a subshell
+footer_cases() {
+  local wt0=$_LAZYFLEET_FOOTER_WT repo0=$_LAZYFLEET_FOOTER_REPO win0=$_LAZYFLEET_FOOTER_WIN
+  reset 0.1.0
+  local tail=$'\n'"lazyfleet v0.1.0"
+  ( _lazyfleet_footers
+    [[ $_LAZYFLEET_FOOTER_WT == $wt0$tail && $_LAZYFLEET_FOOTER_REPO == $repo0$tail && $_LAZYFLEET_FOOTER_WIN == $win0$tail ]] ) && print ok-all || print no-all
+  ( _lazyfleet_footers; _lazyfleet_footers; _lazyfleet_footers
+    [[ $_LAZYFLEET_FOOTER_WT == $wt0$'\n'"lazyfleet v0.1.0" ]] ) && print ok-once || print no-once
+  reset
+  ( _lazyfleet_footers
+    [[ $_LAZYFLEET_FOOTER_WT == $wt0 && $_LAZYFLEET_FOOTER_REPO == $repo0 && $_LAZYFLEET_FOOTER_WIN == $win0 ]] ) && print ok-none || print no-none
+}
+res=$(footer_cases)
+check 'every footer gets the version line' gq -x ok-all <<<$res
+check 'doing it again adds nothing' gq -x ok-once <<<$res
+check 'without a version the footers are untouched' gq -x ok-none <<<$res
+
+reset 0.1.0; seed $EPOCHSECONDS v0.2.0
+keys=$( FZF_KEY=tab FZF_LIST_LABEL=" Worktrees " _lazyfleet_key w $SANDBOX/none 2>&1 )
+check 'the key handler uses the footers with the version' eval 'tr "\n" " " <<<$keys | gq "change-footer(.*lazyfleet v0.1.0 · update available: v0.2.0)"'
+
+# the TUI start: a stub fzf records its arguments
+cat >$SANDBOX/stub/fzf <<'STUB'
+#!/bin/sh
+printf '%s\n' "$@" >"$FZF_ARGS"
+exit 1
+STUB
+chmod +x $SANDBOX/stub/fzf
+rehash
+export FZF_ARGS=$SANDBOX/fzf.args
+reset 0.1.0; seed $EPOCHSECONDS v0.2.0; rm -f $FZF_ARGS
+( export LAZYFLEET_TMUX="tmux -L lf-update-test" TMUX_TMPDIR=$SANDBOX; unset TMUX; _lazyfleet_ui </dev/null >/dev/null 2>&1 )
+check 'the TUI footer carries the version and the update' eval 'gq "lazyfleet v0.1.0 · update available: v0.2.0" $FZF_ARGS'
+check 'the TUI title points out the update' eval 'gq -x " lazyfleet · v0.2.0 available " $FZF_ARGS'
+reset; rm -f $FZF_ARGS
+( export LAZYFLEET_TMUX="tmux -L lf-update-test" TMUX_TMPDIR=$SANDBOX; unset TMUX; _lazyfleet_ui </dev/null >/dev/null 2>&1 )
+check 'a checkout shows no version in the footer' eval '! gq "lazyfleet v" $FZF_ARGS'
+
+reset 0.1.0
+check 'help names the version' eval '_lazyfleet_help | head -1 | gq -x "lazyfleet v0.1.0 — git worktrees, each in its own tmux session"'
+check 'help mentions no update when current' eval '! _lazyfleet_help | gq "Update available"'
+reset 0.1.0; seed $EPOCHSECONDS v0.2.0; print install.sh >$SANDBOX/inst/INSTALLER
+check 'help tells of an update and how to get it' eval '_lazyfleet_help | tail -1 | gq "Update available: v0.2.0. Update: curl .*install.sh | sh"'
+reset
+check 'help of a checkout is unchanged' eval '_lazyfleet_help | head -1 | gq -x "lazyfleet — git worktrees, each in its own tmux session"'
+reset 0.1.0
+for flag in version --version -V; do
+  check "'lazyfleet $flag' prints the version" test "$(_lazyfleet_main $flag)" = 'lazyfleet v0.1.0'
+done
+reset; check 'a checkout says its version is unknown' eval '_lazyfleet_main version | gq "unknown version"'
+reset 0.1.0; _lazyfleet_main version >/dev/null; sleep 0.2
+check 'showing the version never uses the network' test "$(calls)" = 0
+check 'completion offers version' gq "'version:" $ROOT/_lazyfleet
+
 (( fails )) && { print -P "\n%F{red}$fails failed%f"; exit 1 }
 print -P "\n%F{green}all passed%f"

@@ -12,6 +12,7 @@ local -a cmds=(
   'windows:switch between tmux windows'
   'config:edit settings, or a repo'"'"'s config file'
   'update:look for a newer release now'
+  'version:show the installed version'
   'help:show help'
 )
 if (( CURRENT == 2 )); then
