@@ -881,6 +881,7 @@ _lazyfleet_ui() {
   local -a binds lines start
   # coming back from a session, the first load puts the cursor on the row we
   # left (sel: its path or window target); this file hands that over once
+  _lazyfleet_ui_label; local label=$REPLY
   _lazyfleet_tmpdir || return 1
   local -x LAZYFLEET_POSFILE=$REPLY/pos.$$
   # background jobs (pull) send fzf actions here; unix socket paths are
@@ -913,7 +914,7 @@ _lazyfleet_ui() {
     out=$(print -r -- $rows |
       fzf --ansi --style full --layout reverse --no-input --no-sort \
       --delimiter '\t' --with-nth 3 --query "$q" \
-      --border-label ' lazyfleet ' --preview-label ' Details ' \
+      --border-label "$label" --preview-label ' Details ' \
       --with-shell "${commands[zsh]:-/bin/zsh} -c" \
       --preview "$bin _preview -f {1} {2}" --pointer '▌' --gutter ' ' --info inline-right \
       --bind 'j:down,k:up' $start $binds)
@@ -1097,6 +1098,7 @@ _lazyfleet_config() {
 # search_depth=4
 # worktrees=~/.lazyfleet/worktrees
 # status_branch=off   (no branch in the tmux status bar of new sessions)
+# update_check=off     (don't look for a newer release once a day; LAZYFLEET_UPDATE_CHECK)
 EOF
     fi
   fi
@@ -1224,8 +1226,113 @@ lazyfleet — git worktrees, each in its own tmux session
 .lazyfleet (repo root, key=value; indent lines to continue a value):
   setup=…  copy=file1 file2
 ~/.config/lazyfleet/projects/<repo>.conf: the same keys, for one repo (wins)
-~/.config/lazyfleet/config: search=dirs  search_depth=n  worktrees=dir  status_branch=off
+~/.config/lazyfleet/config: search=dirs  search_depth=n  worktrees=dir  status_branch=off  update_check=off
 EOF
+}
+
+# --- update check ------------------------------------------------------------
+# At most once a day, in the background, ask GitHub for the latest release and
+# cache the answer; the TUI shows what is cached, so starting it never waits
+# for the network. Only a copy that knows its version (a VERSION file, written
+# by install.sh) checks: a git checkout does not.
+# Turn it off with update_check=off in the config file or LAZYFLEET_UPDATE_CHECK=off.
+
+zmodload -F zsh/datetime p:EPOCHSECONDS
+autoload -Uz is-at-least
+
+# REPLY=the version of this copy (X.Y.Z), if it knows one
+_lazyfleet_version() {
+  local v
+  [[ -r $LAZYFLEET_DIR/VERSION ]] || return 1
+  v=${${$(<$LAZYFLEET_DIR/VERSION)#v}//[[:space:]]/}
+  [[ $v == <->.<->.<-> ]] || return 1
+  REPLY=$v
+}
+
+# is version $1 newer than version $2? (plain X.Y.Z both)
+_lazyfleet_newer() { ! is-at-least $1 $2 }
+
+_lazyfleet_update_enabled() {
+  _lazyfleet_version || return 1
+  (( $+commands[curl] )) || return 1
+  _lazyfleet_setting update_check LAZYFLEET_UPDATE_CHECK on
+  [[ ${REPLY:l} != (off|no|false|0) ]]
+}
+
+# REPLY=the cache file: "<epoch> <tag>", the tag empty when the lookup failed
+_lazyfleet_update_cache() { REPLY=${XDG_CACHE_HOME:-$HOME/.cache}/lazyfleet/latest-release }
+
+# Look up the latest release (GitHub redirects /releases/latest to its tag,
+# which spares the API rate limit) and write it to cache file $1
+_lazyfleet_update_fetch() {
+  local f=$1 url tag= tmp
+  url=$(command curl -fsSL --max-time 10 -o /dev/null -w '%{url_effective}' \
+    ${LAZYFLEET_RELEASES_URL:-https://github.com/mmolhoek/lazyfleet/releases}/latest 2>/dev/null) && tag=${url:t}
+  [[ $tag == v<->.<->.<-> ]] || tag=
+  mkdir -p ${f:h} && tmp=$f.$$ && print -r -- "$EPOCHSECONDS $tag" >$tmp && mv -f $tmp $f
+}
+
+# Refresh the cache in the background, unless it is under a day old
+_lazyfleet_update_refresh() {
+  emulate -L zsh
+  local f stamp= tag=
+  _lazyfleet_update_enabled || return 0
+  _lazyfleet_update_cache; f=$REPLY
+  [[ -r $f ]] && read -r stamp tag <$f
+  [[ $stamp == <-> ]] && (( EPOCHSECONDS - stamp < 86400 )) && return 0
+  ( _lazyfleet_update_fetch $f ) &>/dev/null &!
+  return 0
+}
+
+# REPLY=the cached latest version (vX.Y.Z), if newer than this copy
+_lazyfleet_update_available() {
+  emulate -L zsh
+  local f stamp= tag= cur
+  _lazyfleet_update_enabled || return 1
+  _lazyfleet_version; cur=$REPLY
+  _lazyfleet_update_cache; f=$REPLY
+  [[ -r $f ]] && read -r stamp tag <$f
+  if [[ $tag == v<->.<->.<-> ]] && _lazyfleet_newer ${tag#v} $cur; then
+    REPLY=$tag; return 0
+  fi
+  REPLY=; return 1
+}
+
+# REPLY=how to update this copy, by how it was installed
+_lazyfleet_update_hint() {
+  if [[ -e $LAZYFLEET_DIR/INSTALLER ]]; then
+    REPLY='curl -fsSL https://raw.githubusercontent.com/mmolhoek/lazyfleet/main/install.sh | sh'
+  else
+    REPLY="see ${LAZYFLEET_RELEASES_URL:-https://github.com/mmolhoek/lazyfleet/releases}"
+  fi
+}
+
+# Tell (on stderr) that an update is available, and how to get it
+_lazyfleet_update_notice() {
+  emulate -L zsh
+  local tag cur
+  _lazyfleet_update_available || return 0
+  tag=$REPLY; _lazyfleet_version; cur=$REPLY
+  _lazyfleet_update_hint
+  print -ru2 -- "lazyfleet $tag is available (you have v$cur). Update: $REPLY"
+}
+
+# REPLY=the TUI's border label, which points out an available update
+_lazyfleet_ui_label() {
+  if _lazyfleet_update_available; then REPLY=" lazyfleet · $REPLY available "
+  else REPLY=' lazyfleet '; fi
+}
+
+_lazyfleet_interactive() { [[ -t 1 && -t 2 ]] }
+
+# The TUI, plus the update check when run by a person: refresh the cache before
+# it starts, and print the notice after it ends, when it would not be wiped
+_lazyfleet_ui_checked() {
+  local rc
+  _lazyfleet_interactive && _lazyfleet_update_refresh
+  _lazyfleet_ui "$@"; rc=$?
+  _lazyfleet_interactive && _lazyfleet_update_notice
+  return $rc
 }
 
 # The command itself always runs bin/lazyfleet, which loads this file from
@@ -1237,9 +1344,9 @@ _lazyfleet_main() {
   local cmd=$1
   (( $# )) && shift
   case $cmd in
-    ('') _lazyfleet_ui ;;
+    ('') _lazyfleet_ui_checked ;;
     (add|forget|new|open|rm|pull|ls|config) _lazyfleet_$cmd "$@" ;;
-    (windows) _lazyfleet_ui -w ;;
+    (windows) _lazyfleet_ui_checked -w ;;
     (repos) _lazyfleet_repos; print -rl -- $reply ;;
     (help|-h|--help) _lazyfleet_help ;;
     (_*) _lazyfleet$cmd "$@" ;;
