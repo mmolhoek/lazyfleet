@@ -1222,6 +1222,7 @@ lazyfleet — git worktrees, each in its own tmux session
   lazyfleet pull [worktree]      fast-forward a worktree to its upstream
   lazyfleet windows              open the TUI on all tmux windows (enter switches)
   lazyfleet config [repo]        edit the settings, or a repo's copy=/setup= file, in $EDITOR
+  lazyfleet update               look for a newer release now (otherwise once a day)
 
 .lazyfleet (repo root, key=value; indent lines to continue a value):
   setup=…  copy=file1 file2
@@ -1317,6 +1318,32 @@ _lazyfleet_update_notice() {
   print -ru2 -- "lazyfleet $tag is available (you have v$cur). Update: $REPLY"
 }
 
+# lazyfleet update — look for a newer release right now, in the foreground,
+# whatever the daily cache or update_check say; the answer refreshes the cache
+_lazyfleet_update() {
+  emulate -L zsh
+  local cur tag= stamp= f
+  _lazyfleet_version || {
+    _lazyfleet_err "this copy does not know its version (no VERSION file); a git checkout updates with git pull"
+    return 1
+  }
+  cur=$REPLY
+  (( $+commands[curl] )) || { _lazyfleet_err "curl is required to look for updates"; return 1 }
+  _lazyfleet_update_cache; f=$REPLY
+  _lazyfleet_update_fetch $f
+  [[ -r $f ]] && read -r stamp tag <$f
+  if [[ -z $tag ]]; then
+    _lazyfleet_err "could not find the latest release (offline, or none published yet)"
+    return 1
+  fi
+  if _lazyfleet_newer ${tag#v} $cur; then
+    _lazyfleet_update_hint
+    print -r -- "lazyfleet $tag is available (you have v$cur). Update: $REPLY"
+  else
+    print -r -- "lazyfleet v$cur is up to date."
+  fi
+}
+
 # REPLY=the TUI's border label, which points out an available update
 _lazyfleet_ui_label() {
   if _lazyfleet_update_available; then REPLY=" lazyfleet · $REPLY available "
@@ -1345,7 +1372,7 @@ _lazyfleet_main() {
   (( $# )) && shift
   case $cmd in
     ('') _lazyfleet_ui_checked ;;
-    (add|forget|new|open|rm|pull|ls|config) _lazyfleet_$cmd "$@" ;;
+    (add|forget|new|open|rm|pull|ls|config|update) _lazyfleet_$cmd "$@" ;;
     (windows) _lazyfleet_ui_checked -w ;;
     (repos) _lazyfleet_repos; print -rl -- $reply ;;
     (help|-h|--help) _lazyfleet_help ;;
