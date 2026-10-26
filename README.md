@@ -100,13 +100,17 @@ lazyfleet repos                list registered repos
 lazyfleet ls                   list worktrees with status
 lazyfleet new <branch> [-r repo] [-b base] [--no-open]
 lazyfleet open [worktree]      attach (outside tmux) or switch-client (inside tmux)
-lazyfleet rm [worktree] [-f] [-D]   -f: even if dirty or locked (e.g. by Supacode); -D: delete the local branch
+lazyfleet rm [worktree] [-f] [-D]   -f: even if dirty, locked (e.g. by Supacode) or with agents running; -D: delete the local branch
 lazyfleet pull [worktree]      fast-forward to its upstream (git pull --ff-only)
 lazyfleet windows              TUI on all tmux windows; enter switches to one
 lazyfleet config [repo]        edit the settings, or a repo's own config file, in $VISUAL / $EDITOR (vi)
 lazyfleet version              show the installed version
 lazyfleet update               look for a newer release now
 ```
+
+`rm` asks first when the worktree has uncommitted changes, or when agents (Claude Code, Copilot, omp) are running in its tmux
+session, since removing the worktree closes the session and ends them. Without a terminal it refuses instead; `-f` skips
+the question. The TUI's delete key also offers to stop the worktree's Docker containers.
 
 You can name a worktree by its path, its branch (`feat/x`), its session name (`app/feat-x`) or its directory name.
 
@@ -224,6 +228,7 @@ zsh lazyfleet/tests/update.zsh    # the update check
 zsh lazyfleet/tests/install.zsh   # install.sh
 zsh lazyfleet/tests/agents.zsh    # the Claude / Copilot / omp marks
 zsh lazyfleet/tests/agent-state.zsh  # agent state: hook script, marks, status, notifications, hooks install
+zsh lazyfleet/tests/busy-rm.zsh      # the warning before removing a worktree with agents running
 ```
 
 The tests run in a throwaway HOME against an isolated tmux server.
