@@ -194,12 +194,8 @@ check 'a worktree with only omp shows no other mark' not eval '_lazyfleet_rows -
 _lazyfleet_tmux new-window -d -t '=app:' "zsh -fc 'exec -a claude sleep 120'"
 check 'all kinds together show in order' retry '_lazyfleet_rows -p | gq "✻ π"'
 _lazyfleet_tmux kill-session -t '=app'
-if [[ $(_lazyfleet_tmux list-windows -a -F $'a\tb' 2>/dev/null | head -1) == $'a\tb' ]]; then
-  _lazyfleet_tmux new-session -d -s app2 "zsh -fc 'exec -a claude sleep 120'"
-  check 'a real window with Claude shows the mark' retry '_lazyfleet_winrows | plain | grep -E "app2" | gq "✻"'
-else
-  skip 'a real window with Claude shows the mark' 'this tmux turns tabs in -F output into _, which the windows view still trips over'
-fi
+_lazyfleet_tmux new-session -d -s app2 "zsh -fc 'exec -a claude sleep 120'"
+check 'a real window with Claude shows the mark' retry '_lazyfleet_winrows | plain | grep -E "app2" | gq "✻"'
 
 (( fails )) && { print -P "\n%F{red}$fails failed%f"; exit 1 }
 print -P "\n%F{green}all passed%f"

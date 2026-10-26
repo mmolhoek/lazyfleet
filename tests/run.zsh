@@ -180,6 +180,8 @@ check 'key enter on repo filters' eval 'FZF_KEY=enter FZF_LIST_LABEL=" Repos " _
 check 'the filtered label names the repo' test "$(_lazyfleet_wtlabel loading $repo)" = ' Worktrees: app · loading… '
 check 'key a leaves filtered view' eval 'FZF_KEY=a FZF_LIST_LABEL=" Worktrees: app " _lazyfleet_key w $p | tr "\n" " " | gq "change-list-label( Worktrees · loading… ).*reload(.* _rows) $"'
 check 'winrows list session windows' retry '_lazyfleet_winrows | gq "^t	=app/feat-x:1	.*1:extra"'
+# tmux >= 3.4 turns tabs in -F output into "_" off a terminal: targets must come out intact
+check 'winrows targets are intact' eval '_lazyfleet_winrows | cut -f2 | gq -x "=app/feat-x:0"'
 _lazyfleet_tmux send-keys -t '=app/feat-x:0' 'echo preview-marker' Enter; sleep 0.3
 check 'window preview shows pane content' eval '_lazyfleet_preview t "=app/feat-x:0" | gq preview-marker'
 check 'key enter on window switches' eval 'FZF_KEY=enter FZF_LIST_LABEL=" Windows " _lazyfleet_key t "=app/feat-x:1" | gq "^become(printf .* window {2})$"'
