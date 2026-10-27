@@ -197,7 +197,19 @@ check 'the same on the full rows' eval '_lazyfleet_rows | plain | grep "^w"$'"'"
 _lazyfleet_tmux new-window -d -t '=app:' "zsh -fc 'exec -a copilot sleep 120'"
 check 'a running Copilot is added' retry '_lazyfleet_rows -p | gq "✻ ✦"'
 check 'icons off hides them' not eval 'LAZYFLEET_AGENT_ICONS=off _lazyfleet_rows -p | gq -E "✻|✦|π"'
+# the * for uncommitted changes comes last, after the agent marks
+wtrow() { _lazyfleet_rows -s -p | grep "^w"$'\t'"$repo" }
+check 'a clean worktree shows no *' eval '! wtrow | gq "\*"'
+print dirty >>$repo/f
+check 'a dirty worktree ends with the *' retry 'wtrow | gq " \*$"'
+check 'the * comes after the agent marks' retry 'wtrow | gq "✻ ✦ \*$"'
+check 'the * is not before the marks any more' eval '! wtrow | gq "\* .*✻"'
+check 'the coloured row also ends with the *' eval '_lazyfleet_rows -s | plain | grep "^w"$'"'"'\t'"'"'"$repo" | gq "✻ ✦ \*$"'
+git -C $repo checkout -q f
 _lazyfleet_tmux kill-session -t '=app'
+print dirty >>$repo/f
+check 'a dirty worktree without agents ends with the * too' retry 'wtrow | gq " \*$"'
+git -C $repo checkout -q f
 check 'a stopped agent shows no more' retry '! _lazyfleet_rows -p | gq -E "✻|✦"'
 _lazyfleet_tmux new-session -d -s app "zsh -fc 'exec -a copilot sleep 120'"
 check 'a worktree with only Copilot shows the Copilot mark' retry '_lazyfleet_rows -p | gq "✦"'

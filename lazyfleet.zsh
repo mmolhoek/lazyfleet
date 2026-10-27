@@ -1022,7 +1022,7 @@ _lazyfleet_rows() {
   (( $#o_p )) && c_repo= c_live= c_st= c_dk= c_off=
   local -A live dk agtally prs
   local -a repos paths names branches lives stats docks sess pslugs rbr kicks fl
-  local pr_on= pslug pv prm
+  local pr_on= pslug pv prm star
   for s in ${(f)"$(_lazyfleet_tmux list-sessions -F '#S' 2>/dev/null)"}; do live[$s]=1; done
   _lazyfleet_pr_enabled && pr_on=1
   _lazyfleet_repos; repos=($reply)
@@ -1064,6 +1064,9 @@ _lazyfleet_rows() {
   fi
   _lazyfleet_pulldir
   for (( i = 1; i <= $#paths; i++ )); do
+    # the * (uncommitted changes) goes last on the row, after the marks
+    star=
+    if [[ $stats[i] == '*'* ]]; then star=1; stats[i]=${${stats[i]#\*}# }; fi
     [[ -e $REPLY/${paths[i]//\//%} ]] && stats[i]="⟳ pulling${stats[i]:+ $stats[i]}"
     prm=
     if [[ -n $pslugs[i] ]]; then
@@ -1074,10 +1077,11 @@ _lazyfleet_rows() {
       fi
     fi
     _lazyfleet_agent_marks_at $sess[i] ${o_p:+-p}
-    printf 'w\t%s\t%s%-*s%s  %-*s  %s%1s%s %s%s%s%s%s%s%s%s\n' $paths[i] \
+    printf 'w\t%s\t%s%-*s%s  %-*s  %s%1s%s %s%s%s%s%s%s%s%s%s%s%s\n' $paths[i] \
       "$c_repo" $wn $names[i] "$c_off" $wb $branches[i] \
       "$c_live" "$lives[i]" "$c_off" "$c_st" "$stats[i]" "$c_off" \
-      "$c_dk" "${docks[i]:+${stats[i]:+ }$docks[i]}" "$c_off" "${prm:+ $prm}" "${REPLY:+ $REPLY}"
+      "$c_dk" "${docks[i]:+${stats[i]:+ }$docks[i]}" "$c_off" "${prm:+ $prm}" "${REPLY:+ $REPLY}" \
+      "${star:+ $c_st}" "${star:+*}" "${star:+$c_off}"
   done
 }
 
