@@ -1526,10 +1526,38 @@ _lazyfleet_locked() {
 }
 
 # lazyfleet rm [worktree] [-f] [-D] — -f also overrides a lock
+# reply=("kind<TAB>window<TAB>state" ...): the agents running in tmux session
+# $1 (the state is empty when it is not known)
+_lazyfleet_session_agents() {
+  emulate -L zsh
+  local line
+  local -a f found
+  _lazyfleet_agents -d
+  for line in $reply; do
+    f=("${(@ps:\t:)line}")
+    [[ $f[1] == $1 ]] && found+=("$f[3]"$'\t'"$f[2]"$'\t'"$f[4]")
+  done
+  reply=($found)
+}
+
+# Tell (on stdout) which agents $@ ("kind<TAB>window<TAB>state" entries) would
+# be ended by closing session $s
+_lazyfleet_agents_warning() {
+  emulate -L zsh
+  local s=$1 e kind win state
+  shift
+  print -r -- $'\e[33mWarning:\e[0m '"$# agent(s) running in this worktree's tmux session ($s):"
+  for e in "$@"; do
+    kind=${e%%$'\t'*}; e=${e#*$'\t'}; win=${e%%$'\t'*}; state=${e#*$'\t'}
+    print -r -- "   $kind (window $win${state:+, $state})"
+  done
+}
+
 _lazyfleet_rm() {
   local -a o_f o_D rmf
   zparseopts -D -E -F f=o_f D=o_D || return 1
   local p repo br s force locked rc=0
+  local -a busy
   if [[ -n $1 ]]; then
     _lazyfleet_resolve $1 || { _lazyfleet_err "no unique worktree for '$1' ($REPLY matches)"; return 1 }
     p=$REPLY
@@ -1560,6 +1588,19 @@ _lazyfleet_rm() {
   fi
   br=$(git -C $p branch --show-current)
   _lazyfleet_session $repo $p 0; s=$REPLY
+  # removing the worktree closes its session, and with it the agents in there;
+  # like the changes above, only an explicit -f skips the question
+  if (( ! $#o_f )); then
+    _lazyfleet_session_agents $s
+    if (( $#reply )); then
+      busy=("${reply[@]}")
+      [[ -t 0 ]] || { _lazyfleet_err "$p has $#busy agent(s) running in session $s (use -f)"; return 1 }
+      _lazyfleet_agents_warning $s "${busy[@]}"
+      print -rn -- "Removing the worktree ends them. Remove anyway? [y/N] "
+      read -q </dev/tty || { print; return 1 }
+      print
+    fi
+  fi
   # git wants --force twice for a locked worktree
   [[ -n $force ]] && rmf=(--force ${locked:+--force})
   _lazyfleet_step "Removing ${p/#$HOME/~} (this can take a while with node_modules)"
@@ -2079,7 +2120,7 @@ _lazyfleet_help() {
                                  create a worktree (+ .lazyfleet copy/setup) and open it
   lazyfleet open [worktree]      attach/switch to a worktree's session
   lazyfleet rm [worktree] [-f] [-D]
-                                 remove a worktree (-f: even if dirty or locked,
+                                 remove a worktree (-f: even if dirty, locked or with agents running,
                                  -D: delete its local branch too)
   lazyfleet pull [worktree]      fast-forward a worktree to its upstream
   lazyfleet prune [-n] [-y] [--keep-branches] [--no-fetch] [-r repo | --all]

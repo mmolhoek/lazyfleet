@@ -117,7 +117,7 @@ lazyfleet ls                   list worktrees with status
 lazyfleet new <branch> [-r repo] [-b base] [--no-open]
 lazyfleet new --pr <number> | --issue <number> [-r repo] [-b base] [--no-open]
 lazyfleet open [worktree]      attach (outside tmux) or switch-client (inside tmux)
-lazyfleet rm [worktree] [-f] [-D]   -f: even if dirty or locked (e.g. by Supacode); -D: delete the local branch
+lazyfleet rm [worktree] [-f] [-D]   -f: even if dirty, locked (e.g. by Supacode) or with agents running; -D: delete the local branch
 lazyfleet pull [worktree]      fast-forward to its upstream (git pull --ff-only)
 lazyfleet prune [-n] [-y] [--keep-branches] [--no-fetch] [-r repo | --all]   remove worktrees whose branch is merged
 lazyfleet windows              TUI on all tmux windows; enter switches to one
@@ -155,6 +155,10 @@ with the reason and left alone. It never touches the main worktree or a worktree
 It runs `git fetch --prune` first (`--no-fetch` skips that), and asks GitHub when `gh` is set up (`pr_status=off` stops
 that), then lists what it would remove and asks. `-n` only lists, `-y` does not ask (required without a terminal).
 It works on the repository you are in, or on `-r <repo>` or `--all`.
+
+`rm` asks first when the worktree has uncommitted changes, or when agents (Claude Code, Copilot, omp) are running in its tmux
+session, since removing the worktree closes the session and ends them. Without a terminal it refuses instead; `-f` skips
+the question. The TUI's delete key also offers to stop the worktree's Docker containers.
 
 You can name a worktree by its path, its branch (`feat/x`), its session name (`app/feat-x`) or its directory name.
 
@@ -294,6 +298,7 @@ zsh lazyfleet/tests/doctor.zsh      # lazyfleet doctor (stub tools, no network)
 zsh lazyfleet/tests/new-from-pr.zsh # new --pr / --issue (stub gh, local "GitHub")
 zsh lazyfleet/tests/prune.zsh       # lazyfleet prune (local "GitHub", stub gh)
 zsh lazyfleet/tests/handoff.zsh    # the e, g and o keys (stub tools, real tmux)
+zsh lazyfleet/tests/busy-rm.zsh      # the warning before removing a worktree with agents running
 ```
 
 The tests run in a throwaway HOME against an isolated tmux server.
