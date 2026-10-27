@@ -89,6 +89,13 @@ check 'setup runs as the window command, not typed in' eval '_lazyfleet_tmux dis
 check 'multi-line setup still runs' waitfor $LAZYFLEET_WORKTREES/app/feat-sum/.ml-b
 rm $cfg
 lazyfleet rm -f -D feat/sum 2>/dev/null
+# an empty setup= is no setup (it once ran the summary's first line as a command)
+print -l '[app]' 'setup=' >$cfg
+lazyfleet new feat/emptysetup --no-open >/dev/null 2>$SANDBOX/new.err
+check 'an empty setup= is reported as no setup' gq -F 'nothing (no setup= configured)' $SANDBOX/new.err
+check 'an empty setup= starts no setup window command' eval '! _lazyfleet_tmux display -p -t "=app/feat-emptysetup:0" "#{pane_start_command}" | gq -- "-ic"'
+rm $cfg
+lazyfleet rm -f -D feat/emptysetup 2>/dev/null
 # a file that can't be copied fails new before setup starts
 print -l '[app]' 'copy=.env .locked' 'setup=touch .setup-ran' >$cfg
 print x >$repo/.locked; chmod 000 $repo/.locked

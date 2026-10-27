@@ -1462,7 +1462,9 @@ _lazyfleet_new() {
   fi
   _lazyfleet_session $repo $p 0
   local s=$REPLY
-  if _lazyfleet_conf setup $p $repo; then
+  # (an empty setup= is no setup: unquoted, an empty $cmd would vanish from the
+  # arguments below and the summary's first line would run as the command)
+  if _lazyfleet_conf setup $p $repo && [[ -n $REPLY ]]; then
     local cmd=$REPLY
     if [[ $cmd == *$'\n'* ]]; then
       _lazyfleet_say "  setup   ${#${(f)cmd}}-line script" "($_lazyfleet_from) → running in session $s:"
@@ -1470,7 +1472,7 @@ _lazyfleet_new() {
     else
       _lazyfleet_say "  setup   $cmd " "($_lazyfleet_from) → running in session $s"
     fi
-    _lazyfleet_setup_run $s $p $cmd $_lazyfleet_sum || return 1
+    _lazyfleet_setup_run $s $p "$cmd" $_lazyfleet_sum || return 1
   else
     _lazyfleet_say "  setup  " "nothing (no setup= configured)"
     _lazyfleet_ensure $p || return 1
