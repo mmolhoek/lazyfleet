@@ -182,11 +182,13 @@ install() {
   say "For zsh completion, add this to ~/.zshrc instead of the PATH line:"
   say "  source $INSTALL_DIR/lazyfleet.zsh"
   say "lazyfleet looks for a newer release once a day; turn that off with update_check=off in"
+  # shellcheck disable=SC2088  # the ~ is for the reader, not for expanding
   say "~/.config/lazyfleet/config (or LAZYFLEET_UPDATE_CHECK=off)."
 }
 
 uninstall() {
   # only remove a directory this script made
+  # shellcheck disable=SC2015  # die runs when either test fails, as meant
   [ -f "$INSTALL_DIR/INSTALLER" ] && [ -f "$INSTALL_DIR/lazyfleet.zsh" ] ||
     die "$INSTALL_DIR was not installed by install.sh; nothing removed"
   link=$BIN_DIR/lazyfleet

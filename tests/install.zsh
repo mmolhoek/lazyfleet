@@ -3,6 +3,8 @@
 # "latest release" lookup goes through a curl stub.
 
 ROOT=${0:A:h:h}
+source ${0:A:h}/lib.zsh
+need_tools git
 INSTALLER=$ROOT/install.sh
 SANDBOX=${$(mktemp -d):A}
 trap 'rm -rf $SANDBOX' EXIT
@@ -14,12 +16,6 @@ INST=$HOME/.local/share/lazyfleet
 BIN=$HOME/.local/bin
 REALCURL=$(command -v curl)
 
-fails=0
-ok()   { print -P "%F{green}ok%f   $1" }
-fail() { print -P "%F{red}FAIL%f $1"; (( fails++ )) }
-check() { local d=$1; shift; if "$@"; then ok $d; else fail $d; fi }
-gq() { grep "$@" >/dev/null 2>&1 }
-not() { ! "$@" }
 
 # Publish a tarball for ref $1 (v1.2.3 or a branch), laid out like GitHub's:
 # one top-level directory, named after the ref without its v. $2 names a file
@@ -215,5 +211,4 @@ if (( $+commands[bash] )); then
   check 'it also runs under bash' eval 'test $rc = 0 && test -f $INST/VERSION'
 fi
 
-(( fails )) && { print -P "\n%F{red}$fails failed%f"; exit 1 }
-print -P "\n%F{green}all passed%f"
+finish

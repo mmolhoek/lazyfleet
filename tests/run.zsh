@@ -4,6 +4,8 @@
 setopt pipe_fail
 zmodload zsh/stat
 ROOT=${0:A:h:h}
+source ${0:A:h}/lib.zsh
+need_tools git tmux fzf
 SANDBOX=${$(mktemp -d):A}
 export HOME=$SANDBOX XDG_CONFIG_HOME=$SANDBOX/.config LAZYFLEET_WORKTREES=$SANDBOX/wt TMPDIR=$SANDBOX/tmp
 mkdir -p $TMPDIR
@@ -19,19 +21,6 @@ export LAZYFLEET_TMUX="tmux -L lazyfleet-test-$$" SHELL=${commands[zsh]}
 unset TMUX
 source $ROOT/lazyfleet.zsh
 
-fails=0
-ok()   { print -P "%F{green}ok%f   $1" }
-fail() { print -P "%F{red}FAIL%f $1"; (( fails++ )) }
-check() { local d=$1; shift; if "$@"; then ok $d; else fail $d; fi }
-skip() { print -P "%F{yellow}skip%f $1 ($2)" }
-# check, unless the reason in $2 rules it out here
-check_unless() { local why=$1; shift; if [[ -n $why ]]; then skip "$1" "$why"; else check "$@"; fi }
-waitfor() { local i; for i in {1..50}; do [[ -e $1 ]] && return 0; sleep 0.1; done; return 1 }
-# like grep -q, but reads all input: with pipe_fail, an early exit would
-# fail the producer with SIGPIPE
-gq() { grep "$@" >/dev/null }
-retry() { local i; for i in {1..20}; do eval "$1" && return 0; sleep 0.1; done; return 1 }
-waitpane() { local i; for i in {1..50}; do _lazyfleet_tmux capture-pane -p -t "=$1:" | gq -- $2 && return 0; sleep 0.1; done; return 1 }
 cleanup() { _lazyfleet_tmux kill-server 2>/dev/null; rm -rf $SANDBOX }
 trap cleanup EXIT
 
@@ -108,7 +97,9 @@ lazyfleet rm -f -D feat/cpfail 2>/dev/null
 # a question while the shell starts gets the user's answer, not our setup keys
 touch $HOME/.ask
 lazyfleet new feat/ask --no-open >/dev/null 2>/dev/null
-sleep 0.5
+# the rc removes ~/.ask right before it reads the answer, so wait for that
+# (a fixed pause was too short on a loaded machine)
+waitfor_gone $HOME/.ask
 _lazyfleet_tmux send-keys -t '=app/feat-ask:' staging Enter
 check 'startup question gets the user'"'"'s answer' eval 'waitfor $HOME/answer && [[ $(<$HOME/answer) == staging ]]'
 check 'setup runs after the question' waitfor $LAZYFLEET_WORKTREES/app/feat-ask/.setup-ran
@@ -500,4 +491,5 @@ lazyfleet forget app
 check 'forget unregisters' test -z "$(lazyfleet repos)"
 
 print
-(( fails == 0 )) && print -P '%F{green}all passed%f' || { print -P "%F{red}$fails failed%f"; exit 1 }
+
+finish

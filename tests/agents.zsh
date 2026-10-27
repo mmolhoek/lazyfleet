@@ -2,6 +2,8 @@
 # Tests for the Claude Code / Copilot CLI icons.
 
 ROOT=${0:A:h:h}
+source ${0:A:h}/lib.zsh
+need_tools git tmux
 SANDBOX=${$(mktemp -d):A}
 export HOME=$SANDBOX/home XDG_CONFIG_HOME=$SANDBOX/cfg LAZYFLEET_WORKTREES=$SANDBOX/wt TMPDIR=$SANDBOX/tmp
 export TMUX_TMPDIR=$SANDBOX GIT_AUTHOR_NAME=t GIT_AUTHOR_EMAIL=t@t GIT_COMMITTER_NAME=t GIT_COMMITTER_EMAIL=t@t
@@ -12,14 +14,6 @@ source $ROOT/lazyfleet.zsh
 cleanup() { _lazyfleet_tmux kill-server 2>/dev/null; rm -rf $SANDBOX }
 trap cleanup EXIT
 
-fails=0
-ok()   { print -P "%F{green}ok%f   $1" }
-fail() { print -P "%F{red}FAIL%f $1"; (( fails++ )) }
-check() { local d=$1; shift; if "$@"; then ok $d; else fail $d; fi }
-skip() { print -P "%F{yellow}skip%f $1 ($2)" }
-gq() { grep "$@" >/dev/null 2>&1 }
-not() { ! "$@" }
-retry() { local i; for i in {1..50}; do eval "$1" && return 0; sleep 0.1; done; return 1 }
 plain() { sed 's/\x1b\[[0-9;]*m//g' }
 
 # --- which command lines are agents
@@ -233,5 +227,4 @@ _lazyfleet_tmux kill-session -t '=app'
 _lazyfleet_tmux new-session -d -s app2 "zsh -fc 'exec -a claude sleep 120'"
 check 'a real window with Claude shows the mark' retry '_lazyfleet_winrows | plain | grep -E "app2" | gq "✻"'
 
-(( fails )) && { print -P "\n%F{red}$fails failed%f"; exit 1 }
-print -P "\n%F{green}all passed%f"
+finish

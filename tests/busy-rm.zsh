@@ -4,6 +4,8 @@
 # process in a real (isolated) tmux server.
 
 ROOT=${0:A:h:h}
+source ${0:A:h}/lib.zsh
+need_tools git tmux
 SANDBOX=${$(mktemp -d):A}
 export HOME=$SANDBOX/home XDG_CONFIG_HOME=$SANDBOX/cfg LAZYFLEET_WORKTREES=$SANDBOX/wt TMPDIR=$SANDBOX/tmp
 export TMUX_TMPDIR=$SANDBOX GIT_AUTHOR_NAME=t GIT_AUTHOR_EMAIL=t@t GIT_COMMITTER_NAME=t GIT_COMMITTER_EMAIL=t@t
@@ -15,14 +17,6 @@ source $ROOT/lazyfleet.zsh
 cleanup() { _lazyfleet_tmux kill-server 2>/dev/null; rm -rf $SANDBOX }
 trap cleanup EXIT
 
-fails=0
-ok()   { print -P "%F{green}ok%f   $1" }
-fail() { print -P "%F{red}FAIL%f $1"; (( fails++ )) }
-check() { local d=$1; shift; if "$@"; then ok $d; else fail $d; fi }
-gq() { grep "$@" >/dev/null 2>&1 }
-not() { ! "$@" }
-retry() { local i; for i in {1..60}; do eval "$1" && return 0; sleep 0.1; done; return 1 }
-waitpane() { retry "_lazyfleet_tmux capture-pane -p -t '=$1:' 2>/dev/null | grep -qF -- '$2'" }
 
 # a repo "app" with worktrees; the session of worktree feat-x is "app/feat-x"
 repo=$SANDBOX/app
@@ -118,5 +112,4 @@ check 'rm refuses to end it' eval 'test $rc = 1 && exists $w && gq "agent(s) run
 out=$(_lazyfleet_rm -f $w </dev/null 2>&1); rc=$?
 check 'rm -f removes the worktree and closes the session' eval 'test $rc = 0 && ! exists $w && nosession app/feat-real'
 
-if (( fails )); then print -P "%F{red}$fails failed%f"; exit 1; fi
-print -P "%F{green}all passed%f"
+finish

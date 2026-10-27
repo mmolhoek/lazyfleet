@@ -4,6 +4,8 @@
 # repository that git is told to call acme/widgets.
 
 ROOT=${0:A:h:h}
+source ${0:A:h}/lib.zsh
+need_tools git tmux
 SANDBOX=${$(mktemp -d):A}
 export HOME=$SANDBOX/home XDG_CONFIG_HOME=$SANDBOX/cfg LAZYFLEET_WORKTREES=$SANDBOX/wt TMPDIR=$SANDBOX/tmp
 export TMUX_TMPDIR=$SANDBOX GIT_AUTHOR_NAME=t GIT_AUTHOR_EMAIL=t@t GIT_COMMITTER_NAME=t GIT_COMMITTER_EMAIL=t@t
@@ -15,12 +17,6 @@ source $ROOT/lazyfleet.zsh
 cleanup() { _lazyfleet_tmux kill-server 2>/dev/null; rm -rf $SANDBOX }
 trap cleanup EXIT
 
-fails=0
-ok()   { print -P "%F{green}ok%f   $1" }
-fail() { print -P "%F{red}FAIL%f $1"; (( fails++ )) }
-check() { local d=$1; shift; if "$@"; then ok $d; else fail $d; fi }
-gq() { grep "$@" >/dev/null 2>&1 }
-not() { ! "$@" }
 
 # the repository the worktrees come from, cloned from a local "GitHub"
 origin=$SANDBOX/origin.git repo=$SANDBOX/app
@@ -213,5 +209,4 @@ check 'a failing gh is reported' eval 'test $rc = 1 && gq "could not read pull r
 check 'the help lists --pr and --issue' eval '_lazyfleet_help | gq -- "--pr <number>"'
 check 'completion offers them' eval 'gq -- "--pr" $ROOT/_lazyfleet && gq -- "--issue" $ROOT/_lazyfleet'
 
-if (( fails )); then print -P "%F{red}$fails failed%f"; exit 1; fi
-print -P "%F{green}all passed%f"
+finish

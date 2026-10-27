@@ -3,6 +3,8 @@
 # the worktree's own one comes from a branch that may not be yours.
 
 ROOT=${0:A:h:h}
+source ${0:A:h}/lib.zsh
+need_tools git tmux
 SANDBOX=${$(mktemp -d):A}
 export HOME=$SANDBOX/home XDG_CONFIG_HOME=$SANDBOX/cfg LAZYFLEET_WORKTREES=$SANDBOX/wt TMPDIR=$SANDBOX/tmp
 export TMUX_TMPDIR=$SANDBOX GIT_AUTHOR_NAME=t GIT_AUTHOR_EMAIL=t@t GIT_COMMITTER_NAME=t GIT_COMMITTER_EMAIL=t@t
@@ -14,11 +16,6 @@ source $ROOT/lazyfleet.zsh
 cleanup() { _lazyfleet_tmux kill-server 2>/dev/null; rm -rf $SANDBOX }
 trap cleanup EXIT
 
-fails=0
-ok()   { print -P "%F{green}ok%f   $1" }
-fail() { print -P "%F{red}FAIL%f $1"; (( fails++ )) }
-check() { local d=$1; shift; if "$@"; then ok $d; else fail $d; fi }
-gq() { grep "$@" >/dev/null 2>&1 }
 
 # a repo "app" whose main worktree says setup=trusted and copy=a.env; a branch
 # "evil" whose own .lazyfleet says something else
@@ -81,5 +78,4 @@ check 'a copy from outside the repo is refused and said so' eval 'gq -F "skipped
 check 'nothing was written outside the worktree' eval '[[ ! -e $LAZYFLEET_WORKTREES/app/outside.txt && ! -e $fp/hostname && ! -e $fp/outside.txt ]]'
 _lazyfleet_tmux kill-server 2>/dev/null
 
-if (( fails )); then print -P "%F{red}$fails failed%f"; exit 1; fi
-print -P "%F{green}all passed%f"
+finish

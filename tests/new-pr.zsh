@@ -3,6 +3,8 @@
 # browser is a stub that records what it was asked to open; nothing is created.
 
 ROOT=${0:A:h:h}
+source ${0:A:h}/lib.zsh
+need_tools git
 SANDBOX=${$(mktemp -d):A}
 export HOME=$SANDBOX/home XDG_CONFIG_HOME=$SANDBOX/cfg LAZYFLEET_WORKTREES=$SANDBOX/wt TMPDIR=$SANDBOX/tmp
 export GIT_AUTHOR_NAME=t GIT_AUTHOR_EMAIL=t@t GIT_COMMITTER_NAME=t GIT_COMMITTER_EMAIL=t@t
@@ -11,11 +13,6 @@ unset TMUX LAZYFLEET_PR_STATUS BROWSER
 source $ROOT/lazyfleet.zsh
 trap 'rm -rf $SANDBOX' EXIT
 
-fails=0
-ok()   { print -P "%F{green}ok%f   $1" }
-fail() { print -P "%F{red}FAIL%f $1"; (( fails++ )) }
-check() { local d=$1; shift; if "$@"; then ok $d; else fail $d; fi }
-gq() { grep "$@" >/dev/null 2>&1 }
 
 STUB=$SANDBOX/stub
 cat >$STUB/mybrowser <<'STUB'
@@ -95,5 +92,4 @@ check 'the footer names it' eval '[[ $_LAZYFLEET_FOOTER_WT == *"(O) new PR"* ]]'
 check 'the keys are bound' eval '[[ "${functions[_lazyfleet_ui]}" == *"for k in / n d p e g o O r a c C R q"* ]]'
 check 'the dispatcher reaches _ui_newpr' eval '[[ "${functions[_lazyfleet_main]}" == *"_*) _lazyfleet\$cmd"* ]] && (( $+functions[_lazyfleet_ui_newpr] ))'
 
-if (( fails )); then print -P "%F{red}$fails failed%f"; exit 1; fi
-print -P "%F{green}all passed%f"
+finish
