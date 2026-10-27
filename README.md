@@ -115,6 +115,7 @@ lazyfleet new --pr <number> | --issue <number> [-r repo] [-b base] [--no-open]
 lazyfleet open [worktree]      attach (outside tmux) or switch-client (inside tmux)
 lazyfleet rm [worktree] [-f] [-D]   -f: even if dirty or locked (e.g. by Supacode); -D: delete the local branch
 lazyfleet pull [worktree]      fast-forward to its upstream (git pull --ff-only)
+lazyfleet prune [-n] [-y] [--keep-branches] [--no-fetch] [-r repo | --all]   remove worktrees whose branch is merged
 lazyfleet windows              TUI on all tmux windows; enter switches to one
 lazyfleet config [repo]        edit the settings, or a repo's own config file, in $VISUAL / $EDITOR (vi)
 lazyfleet doctor               check that the tools lazyfleet needs are there and recent enough
@@ -134,6 +135,22 @@ reduced, or may not work) or `FAIL` (lazyfleet cannot work), with a suggested co
 - the version of this install, and registered repositories whose directory is gone.
 
 It exits with status 1 when anything failed, so it can be used in scripts.
+
+### Pruning merged worktrees
+
+`lazyfleet prune` removes the worktrees (and, unless you pass `--keep-branches`, their local branches) whose work is
+already merged. It counts exactly two things as merged:
+
+- GitHub says the branch's pull request was merged **and** the worktree is at the commit the pull request ended with
+  (so squash merges work, and anything you did afterwards keeps the worktree);
+- the branch's remote branch is gone (deleted after the merge) and all of its commits are in the default branch.
+
+A merged worktree that has uncommitted changes, is locked, or has agents running in its session is listed as `keep`
+with the reason and left alone. It never touches the main worktree or a worktree that is not on a branch.
+
+It runs `git fetch --prune` first (`--no-fetch` skips that), and asks GitHub when `gh` is set up (`pr_status=off` stops
+that), then lists what it would remove and asks. `-n` only lists, `-y` does not ask (required without a terminal).
+It works on the repository you are in, or on `-r <repo>` or `--all`.
 
 You can name a worktree by its path, its branch (`feat/x`), its session name (`app/feat-x`) or its directory name.
 
@@ -262,6 +279,7 @@ zsh lazyfleet/tests/agent-state.zsh  # agent state: hook script, marks, status, 
 zsh lazyfleet/tests/pr-status.zsh   # pull request and CI marks (uses a stub gh, no network)
 zsh lazyfleet/tests/doctor.zsh      # lazyfleet doctor (stub tools, no network)
 zsh lazyfleet/tests/new-from-pr.zsh # new --pr / --issue (stub gh, local "GitHub")
+zsh lazyfleet/tests/prune.zsh       # lazyfleet prune (local "GitHub", stub gh)
 ```
 
 The tests run in a throwaway HOME against an isolated tmux server.

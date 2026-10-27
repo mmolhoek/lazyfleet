@@ -9,6 +9,7 @@ local -a cmds=(
   'open:open a worktree session'
   'rm:remove a worktree'
   'pull:fast-forward a worktree to its upstream'
+  'prune:remove worktrees whose branch is merged'
   'windows:switch between tmux windows'
   'config:edit settings, or a repo'"'"'s config file'
   'update:look for a newer release now'
@@ -28,5 +29,6 @@ case $words[2] in
   (add) _directories ;;
   (hooks) compadd install uninstall status ;;
   (status) compadd -- -p ;;
+  (prune) _arguments '-n[only list what would be removed]' '-y[do not ask]' '--keep-branches[keep the local branches]' '--no-fetch[do not run git fetch --prune first]' '--all[all registered repos]' '-r[repo]:repo:(${${(f)"$(lazyfleet repos)"}:t})' ;;
   (new) _arguments '-r[repo]:repo:(${${(f)"$(lazyfleet repos)"}:t})' '-b[base ref]:ref:' '--no-open[do not open the session]' '--pr[use the branch of pull request N]:number:' '--issue[branch named after issue N]:number:' '1:branch:' ;;
 esac
