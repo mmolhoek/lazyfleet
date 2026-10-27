@@ -12,6 +12,9 @@ mkdir -p $TMPDIR
 # setup runs through an interactive zsh: give it an rc file (or zsh's new-user
 # wizard blocks), which asks a question first when ~/.ask exists, like a mise
 # enter hook
+# and no system rc files: a distro's /etc/zsh/zshrc runs compinit, which asks a
+# question of its own when the machine's directories are group-writable (CI)
+print -r -- 'setopt no_global_rcs' >$SANDBOX/.zshenv
 print -r -- '[[ -e ~/.ask ]] && { rm ~/.ask; read -r ans; print -r -- $ans >~/answer }' >$SANDBOX/.zshrc
 # keep the test tmux server's socket in the sandbox, so it goes away with it
 # every fixture repo commits, also on hosts without a git identity
