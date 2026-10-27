@@ -263,16 +263,16 @@ check 'a branch install never calls curl' test "$(calls)" = 0
 
 # the footers are globals: each case runs in a subshell
 footer_cases() {
-  local wt0=$_LAZYFLEET_FOOTER_WT repo0=$_LAZYFLEET_FOOTER_REPO win0=$_LAZYFLEET_FOOTER_WIN
+  local wt0=$_LAZYFLEET_FOOTER_WT win0=$_LAZYFLEET_FOOTER_WIN
   reset 0.1.0
   local tail=$'\n'"lazyfleet v0.1.0"
   ( _lazyfleet_footers
-    [[ $_LAZYFLEET_FOOTER_WT == $wt0$tail && $_LAZYFLEET_FOOTER_REPO == $repo0$tail && $_LAZYFLEET_FOOTER_WIN == $win0$tail ]] ) && print ok-all || print no-all
+    [[ $_LAZYFLEET_FOOTER_WT == $wt0$tail && $_LAZYFLEET_FOOTER_WIN == $win0$tail ]] ) && print ok-all || print no-all
   ( _lazyfleet_footers; _lazyfleet_footers; _lazyfleet_footers
     [[ $_LAZYFLEET_FOOTER_WT == $wt0$'\n'"lazyfleet v0.1.0" ]] ) && print ok-once || print no-once
   reset
   ( _lazyfleet_footers
-    [[ $_LAZYFLEET_FOOTER_WT == $wt0 && $_LAZYFLEET_FOOTER_REPO == $repo0 && $_LAZYFLEET_FOOTER_WIN == $win0 ]] ) && print ok-none || print no-none
+    [[ $_LAZYFLEET_FOOTER_WT == $wt0 && $_LAZYFLEET_FOOTER_WIN == $win0 ]] ) && print ok-none || print no-none
 }
 res=$(footer_cases)
 check 'every footer gets the version line' gq -x ok-all <<<$res

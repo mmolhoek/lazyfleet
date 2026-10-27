@@ -7,15 +7,11 @@ typeset -g _LAZYFLEET_LETTERS='j,k,n,d,p,e,g,o,O,r,a,w,c,C,R,q,/'
 typeset -g _LAZYFLEET_FOOTER_WT=$'↵ open  (n)ew worktree  (a)dd project
 (d)elete  (p)ull  (e)ditor  (g) lazygit
 (o)pen PR  (O) new PR
-(w)indows  ⇥ repos  / find
-(c) project config  (C) global settings
-(r)eload  (q)uit'
-typeset -g _LAZYFLEET_FOOTER_REPO=$'↵ worktrees  (n)ew worktree  (a)dd project
-(d) forget  ⇥ windows  / find
+(w)indows  ⇥ windows  / find
 (c) project config  (C) global settings
 (r)eload  (q)uit'
 typeset -g _LAZYFLEET_FOOTER_WIN=$'↵ switch  (d) kill
-⇥ views  / find
+⇥ worktrees  / find
 (r)eload  (q)uit
 (C) global settings'
 # list/Details split: the Windows view is mostly preview
@@ -1005,20 +1001,18 @@ _lazyfleet_prdone() {
   local bin=${(q)LAZYFLEET_DIR}/bin/lazyfleet lbl=${${FZF_LIST_LABEL# }% }
   case $lbl in
     (Worktrees*' · loading…'|Worktrees*' · checking status…') ;;
-    (Worktrees*) print -r -- "reload-sync($bin _rows -s -L)" ;;
+    (Worktrees*) print -r -- "reload-sync($bin _rows -s)" ;;
   esac
 }
 
 # --- rows for the TUI: "kind<TAB>path<TAB>display" ---------------------------
 
-# _lazyfleet_rows [-s (with git status)] [-p (plain)] [-L | repo name filter]
-# -L: the filter of the Worktrees view's list label ($FZF_LIST_LABEL)
+# _lazyfleet_rows [-s (with git status)] [-p (plain)] [repo name filter]
 _lazyfleet_rows() {
   setopt local_options no_monitor no_notify
-  local -a o_s o_p o_l
-  zparseopts -D -E s=o_s p=o_p L=o_l
+  local -a o_s o_p
+  zparseopts -D -E s=o_s p=o_p
   local only=$1 repo e p s i tmp wn=0 wb=0 line d
-  (( $#o_l )) && { _lazyfleet_labelrepo; only=$REPLY }
   local c_repo=$'\e[34m' c_live=$'\e[32m' c_st=$'\e[33m' c_dk=$'\e[36m' c_off=$'\e[0m'
   (( $#o_p )) && c_repo= c_live= c_st= c_dk= c_off=
   local -A live dk agtally prs
@@ -1083,26 +1077,6 @@ _lazyfleet_rows() {
       "$c_live" "$lives[i]" "$c_off" "$c_st" "$stats[i]" "$c_off" \
       "$c_dk" "${docks[i]:+${stats[i]:+ }$docks[i]}" "$c_off" "${prm:+ $prm}" "${REPLY:+ $REPLY}" \
       "${star:+ $c_st}" "${star:+*}" "${star:+$c_off}"
-  done
-}
-
-_lazyfleet_reporows() {
-  local repo s n l c e line wn=0
-  local -a repos sessions containers
-  local -A wts
-  sessions=(${(f)"$(_lazyfleet_tmux list-sessions -F '#S' 2>/dev/null)"})
-  _lazyfleet_containers -c; containers=($reply)
-  _lazyfleet_repos; repos=($reply)
-  for repo in $repos; do (( $#repo:t > wn )) && wn=$#repo:t; done
-  for repo in $repos; do
-    _lazyfleet_worktrees $repo; n=$#reply
-    wts=(); for e in $reply; do wts[${${e%%$'\t'*}:A}]=1; done
-    l=0 c=0
-    _lazyfleet_session $repo $repo 1
-    for s in $sessions; do [[ $s == $REPLY || $s == $REPLY/* ]] && (( l++ )); done
-    for line in $containers; do (( ${+wts[${${line%%$'\t'*}:A}]} )) && (( c++ )); done
-    printf 'r\t%s\t\e[34m%-*s\e[0m  %d worktree%s  \e[32m%s\e[0m\e[36m%s\e[0m\n' $repo $wn ${repo:t} \
-      $n ${${n:#1}:+s} "${${l:#0}:+● $l live}" "${${c:#0}:+  🐳 $c running}"
   done
 }
 
@@ -1287,15 +1261,6 @@ _lazyfleet_preview() {
       last=$REPLY
       print -rn -- $'\e[2J'; print -r -- $REPLY
     done
-    return
-  fi
-  if [[ $kind == r ]]; then
-    print -r -- $'\e[1m'${p:t}$'\e[0m  '${p/#$HOME/\~}
-    print
-    for e in ${(f)"$(git -C $p worktree list)"}; do print -r -- ${e/#$HOME/\~}; done
-    _lazyfleet_projconf $p
-    [[ -r $REPLY ]] && { print; print -r -- $'\e[1m'${REPLY/#$HOME/\~}$'\e[0m'; print -r -- "$(<$REPLY)" }
-    [[ -r $p/.lazyfleet ]] && { print; print -r -- $'\e[1m.lazyfleet\e[0m'; print -r -- "$(<$p/.lazyfleet)" }
     return
   fi
   local s
@@ -1755,32 +1720,18 @@ _lazyfleet_ui() {
 # status ("· checking status…"). Repo names and paths never go into the
 # action text itself (a ")" in one would end the action and could add
 # others): fzf hands them over through {2} and $FZF_LIST_LABEL.
-# Worktrees view of all repos; -r: filtered to the current row's repo;
-# -l: keeping the label's filter
 _lazyfleet_wtload() {
-  case $1 in
-    (-r) REPLY="transform-list-label($bin _wtlabel loading {2})+reload($bin _rows -L)" ;;
-    (-l) REPLY="transform-list-label($bin _wtlabel loading)+reload($bin _rows -L)" ;;
-    (*) REPLY="change-list-label( Worktrees · loading… )+reload($bin _rows)" ;;
-  esac
+  REPLY="change-list-label( Worktrees · loading… )+reload($bin _rows)"
 }
 
-# REPLY=repo name filter of the Worktrees view's list label ("" for all)
-_lazyfleet_labelrepo() {
-  local base=${${${FZF_LIST_LABEL# }% }% · *}
-  [[ $base == 'Worktrees: '* ]] && REPLY=${base#Worktrees: } || REPLY=
-}
-
-# Print the Worktrees list label for stage $1 (loading, checking, done),
-# filtered to repo path $2's name, else to the current label's filter
+# Print the Worktrees list label for stage $1 (loading, checking, done)
 _lazyfleet_wtlabel() {
-  local name stage
-  if [[ -n $2 ]]; then name=${2:t}; else _lazyfleet_labelrepo; name=$REPLY; fi
+  local stage
   case $1 in
     (loading) stage=' · loading…' ;;
     (checking) stage=' · checking status…' ;;
   esac
-  print -r -- " Worktrees${name:+: $name}$stage "
+  print -r -- " Worktrees$stage "
 }
 
 # fzf load event: move to the row handed over in $LAZYFLEET_POSFILE (once),
@@ -1793,7 +1744,7 @@ _lazyfleet_loaded() {
     rm -f $LAZYFLEET_POSFILE
   fi
   case $lbl in
-    (Worktrees*' · loading…') acts+=("transform-list-label($bin _wtlabel checking)+reload-sync($bin _rows -s -L)") ;;
+    (Worktrees*' · loading…') acts+=("transform-list-label($bin _wtlabel checking)+reload-sync($bin _rows -s)") ;;
     (Worktrees*' · checking status…') acts+=("transform-list-label($bin _wtlabel done)") ;;
   esac
   (( $#acts )) && print -r -- ${(j:+:)acts}
@@ -1809,9 +1760,7 @@ _lazyfleet_key() {
   local pw="change-preview-window($_LAZYFLEET_PW)"
   _lazyfleet_wtload; wt=$REPLY
   case $lbl in
-    (Repos) rl="reload($bin _reporows)"; foot=$_LAZYFLEET_FOOTER_REPO ;;
     (Windows) rl="reload($bin _winrows)"; foot=$_LAZYFLEET_FOOTER_WIN ;;
-    ('Worktrees: '*) _lazyfleet_wtload -l; rl=$REPLY ;;
     (*) rl=$wt ;;
   esac
   case $FZF_KEY in
@@ -1821,36 +1770,28 @@ _lazyfleet_key() {
     (q) print abort ;;
     (c)
       # the row's project; the Windows view has none, so the settings
-      if [[ $kind == [wr] && -n $p ]]; then print -r -- "execute($bin config {2})+$rl"
+      if [[ $kind == w && -n $p ]]; then print -r -- "execute($bin config {2})+$rl"
       else print -r -- "execute($bin config)+$rl"; fi ;;
     (C) print -r -- "execute($bin config)+$rl" ;;
     (r|R) print -r -- "$rl+change-footer($foot)" ;;
     (tab)
       case $lbl in
-        (Repos) print -r -- $win ;;
         (Windows) print -r -- "change-footer($_LAZYFLEET_FOOTER_WT)+$pw+$wt+first" ;;
-        (*) print -r -- "change-list-label( Repos )+change-footer($_LAZYFLEET_FOOTER_REPO)+reload($bin _reporows)+first" ;;
+        (*) print -r -- $win ;;
       esac ;;
     (w) print -r -- $win ;;
     (enter)
       [[ -n $p ]] || return 0
-      if [[ $kind == r ]]; then
-        _lazyfleet_wtload -r
-        print -r -- "change-footer($_LAZYFLEET_FOOTER_WT)+$REPLY+first"
-      elif [[ $kind == t ]]; then
+      if [[ $kind == t ]]; then
         print -r -- "become(printf '%s\\n' window {2})"
       else
         print -r -- "become(printf '%s\\n' open {2})"
       fi ;;
     (n) [[ $kind == t ]] || print -r -- "become(printf '%s\\n' new {2})" ;;
-    (a)
-      # a filtered list would hide the new repo
-      if [[ $lbl == Repos ]]; then print -r -- "execute($bin _ui_add)+$rl"
-      else print -r -- "execute($bin _ui_add)+change-footer($_LAZYFLEET_FOOTER_WT)+$pw+$wt"; fi ;;
+    (a) print -r -- "execute($bin _ui_add)+change-footer($_LAZYFLEET_FOOTER_WT)+$pw+$wt" ;;
     (d)
       [[ -n $p ]] || return 0
       case $kind in
-        (r) print -r -- "execute($bin _ui_forget {2})+$rl" ;;
         (t) print -r -- "execute($bin _ui_killwin {2})+$rl" ;;
         (*) print -r -- "execute($bin _ui_rm {2})+$rl" ;;
       esac ;;
@@ -2064,12 +2005,6 @@ EOF
 _lazyfleet_ui_killwin() {
   print -rn -- "Kill window ${1#=}? [y/N] "
   read -q </dev/tty && _lazyfleet_tmux kill-window -t "$1"
-  print
-}
-
-_lazyfleet_ui_forget() {
-  print -n "Forget ${1:t}? (files are kept) [y/N] "
-  read -q </dev/tty && _lazyfleet_forget $1
   print
 }
 
@@ -2404,7 +2339,6 @@ _lazyfleet_footers() {
   _LAZYFLEET_FOOTERS_DONE=1
   _lazyfleet_version_line || return 0
   _LAZYFLEET_FOOTER_WT+=$'\n'$REPLY
-  _LAZYFLEET_FOOTER_REPO+=$'\n'$REPLY
   _LAZYFLEET_FOOTER_WIN+=$'\n'$REPLY
 }
 

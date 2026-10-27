@@ -392,11 +392,9 @@ idle
 
 # the TUI's reload
 done_for() { FZF_LIST_LABEL="$1" _lazyfleet_prdone }
-check 'a worktree list is reloaded, with status' eval 'done_for " Worktrees " | gq "^reload-sync(.*_rows -s -L)$"'
-check 'a filtered worktree list too' eval 'done_for " Worktrees: widgets " | gq "^reload-sync(.*_rows -s -L)$"'
+check 'a worktree list is reloaded, with status' eval 'done_for " Worktrees " | gq "^reload-sync(.*_rows -s)$"'
 check 'not while it is loading' test -z "$(done_for ' Worktrees · loading… ')"
 check 'not while it checks the status' test -z "$(done_for ' Worktrees · checking status… ')"
-check 'not on the repos' test -z "$(done_for ' Repos ')"
 check 'not on the windows' test -z "$(done_for ' Windows ')"
 
 # the Details pane

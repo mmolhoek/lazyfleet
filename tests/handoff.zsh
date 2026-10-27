@@ -232,7 +232,6 @@ check 'e on a worktree hands over to the editor' eval 'k e | gq "^become(printf 
 check 'g on a worktree hands over to lazygit' eval 'k g | gq "^become(printf .* lazygit {2})$"'
 check 'o on a worktree opens its pull request' eval 'k o | gq "^execute(.* _ui_openpr {2})$"'
 for key in e g o; do
-  check "$key does nothing on a repo" test -z "$(FZF_LIST_LABEL=' Repos ' FZF_KEY=$key _lazyfleet_key r /x)"
   check "$key does nothing in the windows view" test -z "$(FZF_LIST_LABEL=' Windows ' FZF_KEY=$key _lazyfleet_key t '=a/b:1')"
   check "$key does nothing without a row" test -z "$(k $key w '')"
 done
