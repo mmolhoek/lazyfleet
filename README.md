@@ -132,11 +132,20 @@ You can name a worktree by its path, its branch (`feat/x`), its session name (`a
 | `n`         | new worktree in this row's repo: pick a branch, or type a new name | new worktree               |                    |
 | `d`         | remove worktree (asks; optionally deletes the branch)              | forget repo                | kill window (asks) |
 | `p`         | pull in the background (⟳ on its row); git's error if it fails     |                            |                    |
+| `e`         | open the worktree in `$VISUAL` / `$EDITOR` (a window named `edit`)  |                            |                    |
+| `g`         | open lazygit in the worktree (a window named `lazygit`)            |                            |                    |
+| `o`         | open the worktree's pull request in the browser                    |                            |                    |
 | `a`         | add repo: pick one found under your project dirs, or type a path   | add repo                   | add repo           |
 | `tab` · `w` | next view · Windows view                                           |                            |                    |
 | `c` · `C`   | edit the project config · the global settings                     | same                       | global settings     |
 | `/` · `esc` | fuzzy filter · leave filter                                        |                            |                    |
 | `r` · `q`   | reload · quit                                                      |                            |                    |
+
+`e` and `g` start the tool in a window of the worktree's own session (the session is created when it is not there) and
+switch to it; pressing the key again shows the same window instead of starting a second one. `o` opens the link the
+pull request marks know, so it needs the same setup (`gh`, a GitHub `origin`, `pr_status` on) and works from the
+cached data, a moment after the marks appear. It uses `$BROWSER`, else `open` (macOS) or `xdg-open`, and only ever opens
+`https://github.com/<owner>/<repo>/pull/<number>` links.
 
 `lazyfleet` opens on the Windows view when tmux has any windows open, and on Worktrees otherwise. All lists are
 sorted alphabetically.
@@ -240,6 +249,7 @@ zsh lazyfleet/tests/install.zsh   # install.sh
 zsh lazyfleet/tests/agents.zsh    # the Claude / Copilot / omp marks
 zsh lazyfleet/tests/agent-state.zsh  # agent state: hook script, marks, status, notifications, hooks install
 zsh lazyfleet/tests/pr-status.zsh   # pull request and CI marks (uses a stub gh, no network)
+zsh lazyfleet/tests/handoff.zsh    # the e, g and o keys (stub tools, real tmux)
 ```
 
 The tests run in a throwaway HOME against an isolated tmux server.
