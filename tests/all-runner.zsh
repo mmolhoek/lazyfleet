@@ -35,6 +35,15 @@ zsh -f $ROOT/tests/all.zsh nosuchsuite >/dev/null 2>&1; assert_eq 'an unknown su
 out=$(run -v $SANDBOX/good.zsh)
 assert_contains '-v shows the suite'"'"'s own output' 'ok   one' $out
 
+# on GitHub Actions a failing suite is also an annotation, with newlines escaped
+out=$(GITHUB_ACTIONS=true run $SANDBOX/bad.zsh)
+assert_contains 'on GitHub Actions a failure is annotated' '::error title=test suite bad (exit 1)::FAIL two%0A       expected: a' $out
+out=$(run $SANDBOX/bad.zsh)
+[[ $out != *'::error'* ]]; assert_eq 'elsewhere there are no annotations' 0 $?
+mk crash 'print "starting"; print "boom" >&2; exit 7'
+out=$(GITHUB_ACTIONS=true run $SANDBOX/crash.zsh)
+assert_contains 'a suite that crashed is annotated with its last output' '::error title=test suite crash (exit 7)::starting%0Aboom' $out
+
 # a named suite is found in tests/ without its path or extension
 out=$(run lib 2>&1)
 assert_contains 'lib is not a suite' 'no suite called lib' "$out"

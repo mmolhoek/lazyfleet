@@ -54,6 +54,14 @@ for s in $suites; do
   elif (( rc )); then
     problems+=("${s:t:r}:"${(f)"$(grep -E '^(FAIL|tests:|       )' <<<$plain | head -20)"})
   fi
+  # on GitHub Actions, also as an annotation: it shows on the pull request,
+  # and through the API, where the log itself may not be reachable
+  if (( rc )) && [[ -n $GITHUB_ACTIONS ]]; then
+    msg=$(grep -E '^(FAIL|tests:|       )' <<<$plain | head -20)
+    [[ -n $msg ]] || msg=$(tail -n 15 <<<$plain)
+    msg=${msg//'%'/%25}; msg=${msg//$'\r'/%0D}; msg=${msg//$'\n'/%0A}
+    print -r -- "::error title=test suite ${s:t:r} (exit $rc)::$msg"
+  fi
   (( rc )) && failed+=1
 done
 
