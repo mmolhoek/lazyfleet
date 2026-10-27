@@ -3,10 +3,10 @@
 
 typeset -g LAZYFLEET_DIR=${${(%):-%x}:A:h}
 # keys that type into the find input instead while it's shown
-typeset -g _LAZYFLEET_LETTERS='j,k,n,d,p,e,g,o,O,D,r,a,w,c,C,R,q,/'
+typeset -g _LAZYFLEET_LETTERS='j,k,n,d,p,e,g,o,O,r,a,w,c,C,R,q,/'
 typeset -g _LAZYFLEET_FOOTER_WT=$'↵ open  (n)ew worktree  (a)dd project
 (d)elete  (p)ull  (e)ditor  (g) lazygit
-(o)pen PR  (O) new PR  (D) new draft PR
+(o)pen PR  (O) new PR
 (w)indows  ⇥ repos  / find
 (c) project config  (C) global settings
 (r)eload  (q)uit'
@@ -1169,12 +1169,14 @@ _lazyfleet_pick() {
 # One row per tmux window: "t<TAB>=session:index<TAB>display"; ● marks the
 # window an attached client is looking at
 _lazyfleet_winrows() {
-  local line ws=0 wn=0 wc=0 i k
+  emulate -L zsh
+  setopt extended_glob
+  local line ws=0 wn=0 wc=0 i k pad w green=$'\e[32m' off=$'\e[0m'
   # tmux >= 3.4 turns control characters (tabs) in -F output into "_" unless
   # it writes to a terminal, so use a printable ASCII separator (safe in any
   # locale) and turn it into tabs
   local sep='@@lf@@'
-  local -a f S N C P M keyed
+  local -a f S N C P M I W keyed
   local -A agtally
   # by session name, then window number
   for line in ${(f)"$(_lazyfleet_tmux list-windows -a -F "#{session_name}${sep}#{window_index}:#{window_name}${sep}#{pane_current_command}${sep}#{pane_current_path}${sep}#{?#{&&:#{window_active},#{session_attached}},●,}" 2>/dev/null)"}; do
@@ -1185,16 +1187,24 @@ _lazyfleet_winrows() {
   for line in ${${(o)keyed}#*$'\0'*$'\0'}; do
     f=("${(@ps:\t:)line}")
     S+=($f[1]); N+=($f[2]); C+=($f[3]); P+=(${f[4]/#$HOME/\~}); M+=("$f[5]")
-    (( $#f[1] > ws )) && ws=$#f[1]
     (( $#f[2] > wn )) && wn=$#f[2]
     (( $#f[3] > wc )) && wc=$#f[3]
   done
   _lazyfleet_agent_icons_on && _lazyfleet_agent_tally w
+  # the status icons follow the session name directly; the other columns line
+  # up after the widest name-and-icons
   for (( i = 1; i <= $#S; i++ )); do
     k=$S[i]:${N[i]%%:*}
     _lazyfleet_agent_marks_at $k
-    printf 't\t=%s:%s\t\e[34m%-*s\e[0m  %-*s  \e[33m%-*s\e[0m  %s \e[32m%s\e[0m%s\n' \
-      $S[i] ${N[i]%%:*} $ws $S[i] $wn $N[i] $wc $C[i] $P[i] "$M[i]" "${REPLY:+ $REPLY}"
+    I[i]="${M[i]:+$green$M[i]$off}${REPLY:+${M[i]:+ }$REPLY}"
+    W[i]=${#${I[i]//$'\e'\[[0-9;]##m/}}
+    w=$(( ${#S[i]} + (W[i] ? 1 : 0) + W[i] ))
+    (( w > ws )) && ws=$w
+  done
+  for (( i = 1; i <= $#S; i++ )); do
+    pad=$(( ws - ${#S[i]} - (W[i] ? 1 : 0) - W[i] ))
+    printf 't\t=%s:%s\t\e[34m%s\e[0m%s%s  %-*s  \e[33m%-*s\e[0m  %s\n' \
+      $S[i] ${N[i]%%:*} $S[i] "${I[i]:+ $I[i]}" "${(l:pad:)}" $wn $N[i] $wc $C[i] $P[i]
   done
 }
 
@@ -1698,7 +1708,7 @@ _lazyfleet_ui() {
   # Query changes emitted by a transform are ignored by fzf, so the
   # view-switching keys reset the input with directly chained actions.
   local reset="+clear-query+hide-input+rebind($_LAZYFLEET_LETTERS)"
-  for k in / n d p e g o O D r a c C R q; do binds+=(--bind "${k}:transform:$bin _key {1} {2}"); done
+  for k in / n d p e g o O r a c C R q; do binds+=(--bind "${k}:transform:$bin _key {1} {2}"); done
   for k in enter tab esc w; do binds+=(--bind "${k}:transform($bin _key {1} {2})$reset"); done
   binds+=(--bind "load:transform:$bin _loaded")
   while :; do
@@ -1851,11 +1861,10 @@ _lazyfleet_key() {
     (o)
       [[ $kind == w && -n $p ]] || return 0
       print -r -- "execute($bin _ui_openpr {2})" ;;
-    (O|D)
-      # GitHub's page for a new (draft) pull request of the worktree's branch
+    (O)
+      # GitHub's page for a new pull request of the worktree's branch
       [[ $kind == w && -n $p ]] || return 0
-      if [[ $FZF_KEY == D ]]; then print -r -- "execute($bin _ui_newpr {2} draft)"
-      else print -r -- "execute($bin _ui_newpr {2})"; fi ;;
+      print -r -- "execute($bin _ui_newpr {2})" ;;
     (p)
       [[ $kind == w && -n $p ]] || return 0
       # in the background when fzf listens: the row shows ⟳ until it's done
@@ -1968,8 +1977,8 @@ _lazyfleet_urlencode() {
 }
 
 # Open GitHub's "create pull request" page for the branch of worktree $1 in the
-# browser; with a second argument ("draft") the page asks for a draft. Nothing
-# is created here: the title and the description are written on the page.
+# browser. Nothing is created here: the title and the description are written
+# on the page.
 _lazyfleet_newpr() {
   emulate -L zsh
   local p=$1 repo slug br def url
@@ -1984,7 +1993,7 @@ _lazyfleet_newpr() {
   git -C $repo show-ref --verify -q "refs/remotes/origin/$br" ||
     { _lazyfleet_err "$br is not on origin yet: run 'git push -u origin $br' first"; return 1 }
   _lazyfleet_urlencode $br
-  url="https://github.com/$slug/compare/$REPLY?expand=1${2:+&draft=1}"
+  url="https://github.com/$slug/compare/$REPLY?expand=1"
   _lazyfleet_browser $url
 }
 

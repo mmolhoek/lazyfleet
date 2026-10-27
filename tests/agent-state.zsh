@@ -217,8 +217,8 @@ check 'a session without agents shows nothing' test -z "$(marks_for nothere)"
 # the windows view
 windows_out=$'alpha\t0:shell\tzsh\t/tmp\t\nalpha\t1:agent\tnode\t/tmp\t'
 rows=$(_lazyfleet_winrows | plain)
-check 'the windows view shows a waiting Claude' eval 'print -r -- $rows | grep -E "alpha +0:shell" | gq "✻!"'
-check 'the windows view shows a finished Copilot' eval 'print -r -- $rows | grep -E "alpha +1:agent" | gq "✦✓"'
+check 'the windows view shows a waiting Claude' eval 'print -r -- $rows | grep -E "alpha.* 0:shell" | gq "✻!"'
+check 'the windows view shows a finished Copilot' eval 'print -r -- $rows | grep -E "alpha.* 1:agent" | gq "✦✓"'
 rows=$(LAZYFLEET_AGENT_ICONS=off _lazyfleet_winrows | plain)
 check 'no marks at all when the icons are off' not eval 'print -r -- $rows | gq -E "✻|✦|π"'
 

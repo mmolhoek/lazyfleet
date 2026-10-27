@@ -1,5 +1,5 @@
 #!/usr/bin/env -S zsh -f
-# Tests for O and D: GitHub's "create pull request" page in the browser. The
+# Tests for O: GitHub's "create pull request" page in the browser. The
 # browser is a stub that records what it was asked to open; nothing is created.
 
 ROOT=${0:A:h:h}
@@ -47,9 +47,6 @@ run() { rm -f $BROWSER_LOG; out=$(_lazyfleet_newpr "$@" 2>&1); rc=$? }
 w=$(mkwt feat/a pushed)
 run $w
 check 'opens the compare page of the branch' eval 'test $rc = 0 && test "$(seen)" = "https://github.com/acme/widgets/compare/feat/a?expand=1"'
-run $w draft
-check 'draft asks for a draft' eval 'test $rc = 0 && test "$(seen)" = "https://github.com/acme/widgets/compare/feat/a?expand=1&draft=1"'
-check 'the plain page does not ask for a draft' eval 'run $w; ! seen | gq draft'
 
 # --- awkward branch names are encoded, not passed on
 w2=$(mkwt 'feat/a&b#c' pushed)
@@ -84,20 +81,19 @@ out=$( ( : $commands[xdg-open]; unset "commands[xdg-open]"; _lazyfleet_newpr $w 
 check 'with no browser at all it says so' eval 'test $rc = 1 && gq "no browser found" <<<$out'
 export BROWSER=mybrowser
 
-# --- the keys
+# --- the key
 k() { FZF_KEY=$1 FZF_LIST_LABEL=" Worktrees " _lazyfleet_key ${2:-w} ${3-/some/path} }
 check 'O opens the new pull request page' eval 'k O | gq "^execute(.* _ui_newpr {2})$"'
-check 'D opens the new draft pull request page' eval 'k D | gq "^execute(.* _ui_newpr {2} draft)$"'
-for key in O D; do
+for key in O; do
   check "$key does nothing on a repo" test -z "$(FZF_LIST_LABEL=' Repos ' FZF_KEY=$key _lazyfleet_key r /x)"
   check "$key does nothing in the windows view" test -z "$(FZF_LIST_LABEL=' Windows ' FZF_KEY=$key _lazyfleet_key t '=a/b:1')"
   check "$key does nothing without a row" test -z "$(k $key w '')"
   check "$key keeps the path out of the action text" eval '! FZF_KEY=$key FZF_LIST_LABEL=" Worktrees " _lazyfleet_key w /x/PWNED | gq PWNED'
 done
 check 'd still deletes' eval 'k d | gq "_ui_rm {2}"'
-check 'O and D are typed into the filter, not run, while it is shown' eval '[[ $_LAZYFLEET_LETTERS == *,O,* && $_LAZYFLEET_LETTERS == *,D,* ]]'
-check 'the footer names them' eval '[[ $_LAZYFLEET_FOOTER_WT == *"(O) new PR"* && $_LAZYFLEET_FOOTER_WT == *"(D) new draft PR"* ]]'
-check 'the keys are bound' eval '[[ "${functions[_lazyfleet_ui]}" == *"for k in / n d p e g o O D r a c C R q"* ]]'
+check 'O is typed into the filter, not run, while it is shown' eval '[[ $_LAZYFLEET_LETTERS == *,O,* ]]'
+check 'the footer names it' eval '[[ $_LAZYFLEET_FOOTER_WT == *"(O) new PR"* ]]'
+check 'the keys are bound' eval '[[ "${functions[_lazyfleet_ui]}" == *"for k in / n d p e g o O r a c C R q"* ]]'
 check 'the dispatcher reaches _ui_newpr' eval '[[ "${functions[_lazyfleet_main]}" == *"_*) _lazyfleet\$cmd"* ]] && (( $+functions[_lazyfleet_ui_newpr] ))'
 
 if (( fails )); then print -P "%F{red}$fails failed%f"; exit 1; fi

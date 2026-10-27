@@ -244,7 +244,7 @@ check 'the windows footer is unchanged' eval '[[ $_LAZYFLEET_FOOTER_WIN != *lazy
 # --- the TUI loop starts the tools
 fn=${functions[_lazyfleet_ui]}
 check 'the TUI loop knows the edit action' eval '[[ $fn == *"(edit|lazygit)"*"_lazyfleet_handoff"* ]]'
-check 'and binds the keys' eval '[[ $fn == *"for k in / n d p e g o O D r a c C R q"* ]]'
+check 'and binds the keys' eval '[[ $fn == *"for k in / n d p e g o O r a c C R q"* ]]'
 
 if (( fails )); then print -P "%F{red}$fails failed%f"; exit 1; fi
 print -P "%F{green}all passed%f"
