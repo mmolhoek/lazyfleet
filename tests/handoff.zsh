@@ -238,13 +238,13 @@ for key in e g o; do
 done
 check 'paths stay out of the action text' eval 'for key in e g o; do FZF_KEY=$key FZF_LIST_LABEL=" Worktrees " _lazyfleet_key w "/x/PWNED"; done | { ! gq PWNED }'
 check 'e, g and o are typed into the filter, not run, while it is shown' eval '[[ $_LAZYFLEET_LETTERS == *,e,* && $_LAZYFLEET_LETTERS == *,g,* && $_LAZYFLEET_LETTERS == *,o,* ]]'
-check 'the footer names the keys' eval '[[ $_LAZYFLEET_FOOTER_WT == *"(e)ditor"* && $_LAZYFLEET_FOOTER_WT == *"(g) lazygit"* && $_LAZYFLEET_FOOTER_WT == *"(o) PR"* ]]'
+check 'the footer names the keys' eval '[[ $_LAZYFLEET_FOOTER_WT == *"(e)ditor"* && $_LAZYFLEET_FOOTER_WT == *"(g) lazygit"* && $_LAZYFLEET_FOOTER_WT == *"(o)pen PR"* ]]'
 check 'the windows footer is unchanged' eval '[[ $_LAZYFLEET_FOOTER_WIN != *lazygit* ]]'
 
 # --- the TUI loop starts the tools
 fn=${functions[_lazyfleet_ui]}
 check 'the TUI loop knows the edit action' eval '[[ $fn == *"(edit|lazygit)"*"_lazyfleet_handoff"* ]]'
-check 'and binds the keys' eval '[[ $fn == *"for k in / n d p e g o r a c C R q"* ]]'
+check 'and binds the keys' eval '[[ $fn == *"for k in / n d p e g o O D r a c C R q"* ]]'
 
 if (( fails )); then print -P "%F{red}$fails failed%f"; exit 1; fi
 print -P "%F{green}all passed%f"

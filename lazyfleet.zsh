@@ -3,9 +3,10 @@
 
 typeset -g LAZYFLEET_DIR=${${(%):-%x}:A:h}
 # keys that type into the find input instead while it's shown
-typeset -g _LAZYFLEET_LETTERS='j,k,n,d,p,e,g,o,r,a,w,c,C,R,q,/'
+typeset -g _LAZYFLEET_LETTERS='j,k,n,d,p,e,g,o,O,D,r,a,w,c,C,R,q,/'
 typeset -g _LAZYFLEET_FOOTER_WT=$'↵ open  (n)ew worktree  (a)dd project
-(d)elete  (p)ull  (e)ditor  (g) lazygit  (o) PR
+(d)elete  (p)ull  (e)ditor  (g) lazygit
+(o)pen PR  (O) new PR  (D) new draft PR
 (w)indows  ⇥ repos  / find
 (c) project config  (C) global settings
 (r)eload  (q)uit'
@@ -1697,7 +1698,7 @@ _lazyfleet_ui() {
   # Query changes emitted by a transform are ignored by fzf, so the
   # view-switching keys reset the input with directly chained actions.
   local reset="+clear-query+hide-input+rebind($_LAZYFLEET_LETTERS)"
-  for k in / n d p e g o r a c C R q; do binds+=(--bind "${k}:transform:$bin _key {1} {2}"); done
+  for k in / n d p e g o O D r a c C R q; do binds+=(--bind "${k}:transform:$bin _key {1} {2}"); done
   for k in enter tab esc w; do binds+=(--bind "${k}:transform($bin _key {1} {2})$reset"); done
   binds+=(--bind "load:transform:$bin _loaded")
   while :; do
@@ -1850,6 +1851,11 @@ _lazyfleet_key() {
     (o)
       [[ $kind == w && -n $p ]] || return 0
       print -r -- "execute($bin _ui_openpr {2})" ;;
+    (O|D)
+      # GitHub's page for a new (draft) pull request of the worktree's branch
+      [[ $kind == w && -n $p ]] || return 0
+      if [[ $FZF_KEY == D ]]; then print -r -- "execute($bin _ui_newpr {2} draft)"
+      else print -r -- "execute($bin _ui_newpr {2})"; fi ;;
     (p)
       [[ $kind == w && -n $p ]] || return 0
       # in the background when fzf listens: the row shows ⟳ until it's done
@@ -1945,6 +1951,44 @@ _lazyfleet_openpr() {
 }
 
 _lazyfleet_ui_openpr() { _lazyfleet_openpr $1 || _lazyfleet_pause }
+
+# REPLY=$1 percent-encoded for a URL path (byte by byte, so it does not depend on the locale)
+_lazyfleet_urlencode() {
+  emulate -L zsh
+  local c bytes out=
+  for c in "${(@s::)1}"; do
+    if [[ $c == [A-Za-z0-9._~/-] ]]; then
+      out+=$c
+    else
+      bytes=$(print -rn -- $c | od -An -v -tx1)
+      out+=${(U)${(j::)${(@)${=bytes}/#/%}}}
+    fi
+  done
+  REPLY=$out
+}
+
+# Open GitHub's "create pull request" page for the branch of worktree $1 in the
+# browser; with a second argument ("draft") the page asks for a draft. Nothing
+# is created here: the title and the description are written on the page.
+_lazyfleet_newpr() {
+  emulate -L zsh
+  local p=$1 repo slug br def url
+  _lazyfleet_toplevel $p && repo=$REPLY || { _lazyfleet_err "not a git worktree: $p"; return 1 }
+  br=$(git -C $p branch --show-current 2>/dev/null)
+  [[ -n $br ]] || { _lazyfleet_err "${p/#$HOME/~} is not on a branch"; return 1 }
+  _lazyfleet_ghslug $repo && slug=$REPLY ||
+    { _lazyfleet_err "a pull request needs a GitHub origin"; return 1 }
+  def=$(git -C $repo symbolic-ref -q --short refs/remotes/origin/HEAD 2>/dev/null)
+  [[ $br != ${def#origin/} ]] ||
+    { _lazyfleet_err "$br is the default branch: there is nothing to open a pull request from"; return 1 }
+  git -C $repo show-ref --verify -q "refs/remotes/origin/$br" ||
+    { _lazyfleet_err "$br is not on origin yet: run 'git push -u origin $br' first"; return 1 }
+  _lazyfleet_urlencode $br
+  url="https://github.com/$slug/compare/$REPLY?expand=1${2:+&draft=1}"
+  _lazyfleet_browser $url
+}
+
+_lazyfleet_ui_newpr() { _lazyfleet_newpr "$@" || _lazyfleet_pause }
 
 # Prompt for a branch and create its worktree; REPLY=its path
 _lazyfleet_ui_new() {
