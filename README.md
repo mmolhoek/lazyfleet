@@ -172,21 +172,21 @@ branch `pr-123` with the pull request's commits. Neither writes anything to GitH
 
 ### TUI keys
 
-| key         | Worktrees view                                                     | Repos view                 | Windows view       |
-| ----------- | ------------------------------------------------------------------ | -------------------------- | ------------------ |
-| `enter`     | open session                                                       | show this repo's worktrees | switch to window   |
-| `n`         | new worktree in this row's repo: pick a branch, or type a new name | new worktree               |                    |
-| `d`         | remove worktree (asks; optionally deletes the branch)              | forget repo                | kill window (asks) |
-| `p`         | pull in the background (⟳ on its row); git's error if it fails     |                            |                    |
-| `e`         | open the worktree in `$VISUAL` / `$EDITOR` (a window named `edit`)  |                            |                    |
-| `g`         | open lazygit in the worktree (a window named `lazygit`)            |                            |                    |
-| `o`         | open the worktree's pull request in the browser                    |                            |                    |
-| `O`         | open GitHub's page for a new pull request                          |                            |                    |
-| `a`         | add repo: pick one found under your project dirs, or type a path   | add repo                   | add repo           |
-| `tab` · `w` | next view · Windows view                                           |                            |                    |
-| `c` · `C`   | edit the project config · the global settings                     | same                       | global settings     |
-| `/` · `esc` | fuzzy filter · leave filter                                        |                            |                    |
-| `r` · `q`   | reload · quit                                                      |                            |                    |
+| key         | Worktrees view                                                     | Windows view       |
+| ----------- | ------------------------------------------------------------------ | ------------------ |
+| `enter`     | open session                                                       | switch to window   |
+| `n`         | new worktree in this row's repo: pick a branch, or type a new name |                    |
+| `d`         | remove worktree (asks; optionally deletes the branch); on a repo's main worktree it offers to forget the repo | kill window (asks) |
+| `p`         | pull in the background (⟳ on its row); git's error if it fails     |                    |
+| `e`         | open the worktree in `$VISUAL` / `$EDITOR` (a window named `edit`)  |                    |
+| `g`         | open lazygit in the worktree (a window named `lazygit`)            |                    |
+| `o`         | open the worktree's pull request in the browser                    |                    |
+| `O`         | open GitHub's page for a new pull request                          |                    |
+| `a`         | add repo: pick one found under your project dirs, or type a path   | add repo           |
+| `tab` · `w` | switch between Worktrees and Windows · Windows view                | back to Worktrees  |
+| `c` · `C`   | edit the project config · the global settings                      | global settings    |
+| `/` · `esc` | fuzzy filter (type a repo name to narrow the list) · leave filter  |                    |
+| `r` · `q`   | reload · quit                                                      |                    |
 
 `e` and `g` start the tool in a window of the worktree's own session (the session is created when it is not there) and
 switch to it; pressing the key again shows the same window instead of starting a second one. `o` opens the link the

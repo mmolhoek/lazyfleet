@@ -140,7 +140,6 @@ check 'project file starts with the repo'"'"'s .lazyfleet for reference' eval 'g
 print -l '[app]' 'setup=from-section' >$cfg
 print 'setup=from-project' >$pcfg
 check 'project file wins over a [section]' eval '_lazyfleet_conf setup $p $repo && [[ $REPLY == from-project && $_lazyfleet_from == "~/.config/lazyfleet/projects/app.conf" ]]'
-check 'repo preview shows the project file' eval '_lazyfleet_preview r $repo | gq "^setup=from-project"'
 rm -f $cfg $pcfg
 cfg=$XDG_CONFIG_HOME/lazyfleet/config
 print -l '[other]' 'setup=wrong' '[app]' 'setup=from-config' >$cfg
@@ -174,39 +173,37 @@ sessions=$(_lazyfleet_winrows | cut -f2 | sed 's/^=//; s/:[0-9]*$//' | uniq)
 check 'windows sorted by session' test "$sessions" = "$(print -r -- $sessions | sort -f)"
 check 'windows sorted by number' test "$(_lazyfleet_winrows | cut -f2 | grep '^=alpha:' | tr '\n' ' ')" = '=alpha:0 =alpha:9 =alpha:10 '
 _lazyfleet_tmux kill-session -t '=Zeta'; _lazyfleet_tmux kill-session -t '=alpha'
-check 'reporows include repo' eval '_lazyfleet_reporows | gq "^r	$repo	"'
 check 'key enter opens' eval 'FZF_KEY=enter FZF_LIST_LABEL=" Worktrees " _lazyfleet_key w $p | gq "^become(printf .* open {2})$"'
-check 'key enter on repo filters' eval 'FZF_KEY=enter FZF_LIST_LABEL=" Repos " _lazyfleet_key r $repo | gq "transform-list-label(.* _wtlabel loading {2})+reload(.* _rows -L)+first"'
-check 'the filtered label names the repo' test "$(_lazyfleet_wtlabel loading $repo)" = ' Worktrees: app · loading… '
-check 'key a leaves filtered view' eval 'FZF_KEY=a FZF_LIST_LABEL=" Worktrees: app " _lazyfleet_key w $p | tr "\n" " " | gq "change-list-label( Worktrees · loading… ).*reload(.* _rows) $"'
+check 'key a adds a project and shows the worktrees' eval 'FZF_KEY=a FZF_LIST_LABEL=" Windows " _lazyfleet_key t x | tr "\n" " " | gq "change-list-label( Worktrees · loading… ).*reload(.* _rows) $"'
 check 'winrows list session windows' retry '_lazyfleet_winrows | gq "^t	=app/feat-x:1	.*1:extra"'
 # tmux >= 3.4 turns tabs in -F output into "_" off a terminal: targets must come out intact
 check 'winrows targets are intact' eval '_lazyfleet_winrows | cut -f2 | gq -x "=app/feat-x:0"'
 _lazyfleet_tmux send-keys -t '=app/feat-x:0' 'echo preview-marker' Enter; sleep 0.3
 check 'window preview shows pane content' eval '_lazyfleet_preview t "=app/feat-x:0" | gq preview-marker'
 check 'key enter on window switches' eval 'FZF_KEY=enter FZF_LIST_LABEL=" Windows " _lazyfleet_key t "=app/feat-x:1" | gq "^become(printf .* window {2})$"'
-check 'key tab cycles repos -> windows' eval 'FZF_KEY=tab FZF_LIST_LABEL=" Repos " _lazyfleet_key r $repo | tr "\n" " " | gq "Windows .*_winrows"'
+check 'key tab cycles worktrees -> windows' eval 'FZF_KEY=tab FZF_LIST_LABEL=" Worktrees " _lazyfleet_key w $p | tr "\n" " " | gq "Windows .*_winrows"'
+check 'there is no repos view any more' eval '! (( $+functions[_lazyfleet_reporows] )) && [[ $_LAZYFLEET_FOOTER_WT$_LAZYFLEET_FOOTER_WIN != *repos* ]]'
+check 'tab never leads to a repos list' eval 'for l in " Worktrees " " Windows "; do FZF_KEY=tab FZF_LIST_LABEL=$l _lazyfleet_key w $p; done | { ! gq "Repos" }'
+check 'enter on a worktree opens it, never a repo filter' eval 'FZF_KEY=enter FZF_LIST_LABEL=" Worktrees " _lazyfleet_key r $repo | { ! gq "_rows -L" }'
 check 'key tab cycles windows -> worktrees' eval 'FZF_KEY=tab FZF_LIST_LABEL=" Windows " _lazyfleet_key t x | tr "\n" " " | gq "Worktrees · loading… .*_rows)"'
 check 'windows view widens the preview' eval 'FZF_KEY=w FZF_LIST_LABEL=" Worktrees " _lazyfleet_key w x | tr "\n" " " | gq "change-preview-window(right,70%)"'
 check 'leaving windows view restores the split' eval 'FZF_KEY=tab FZF_LIST_LABEL=" Windows " _lazyfleet_key t x | tr "\n" " " | gq "change-preview-window(right,50%)"'
 check 'key d on window kills it' eval 'FZF_KEY=d FZF_LIST_LABEL=" Windows " _lazyfleet_key t "=app/feat-x:1" | gq "_ui_killwin"'
 check 'key n ignored on window' test -z "$(FZF_KEY=n FZF_LIST_LABEL=' Windows ' _lazyfleet_key t x)"
-check 'load: plain rows, then status rows' eval 'FZF_LIST_LABEL=" Worktrees · loading… " _lazyfleet_loaded | gq "^transform-list-label(.* _wtlabel checking)+reload-sync(.* _rows -s -L)$"'
+check 'load: plain rows, then status rows' eval 'FZF_LIST_LABEL=" Worktrees · loading… " _lazyfleet_loaded | gq "^transform-list-label(.* _wtlabel checking)+reload-sync(.* _rows -s)$"'
 check 'load: checking label' test "$(FZF_LIST_LABEL=' Worktrees · loading… ' _lazyfleet_wtlabel checking)" = ' Worktrees · checking status… '
-check 'load: filtered view keeps its filter' test "$(FZF_LIST_LABEL=' Worktrees: app · loading… ' _lazyfleet_wtlabel checking)" = ' Worktrees: app · checking status… '
-check 'rows -L filter by the label' eval '[[ -n $(_lazyfleet_rows -p app) && $(FZF_LIST_LABEL=" Worktrees: app · loading… " _lazyfleet_rows -p -L) == $(_lazyfleet_rows -p app) && -z $(FZF_LIST_LABEL=" Worktrees: nope " _lazyfleet_rows -p -L) ]]'
 check 'load: status done clears the marker' eval '[[ $(FZF_LIST_LABEL=" Worktrees · checking status… " _lazyfleet_loaded) == *"_wtlabel done)" && $(FZF_LIST_LABEL=" Worktrees · checking status… " _lazyfleet_wtlabel done) == " Worktrees " ]]'
 pf=$SANDBOX/posfile
 print 3 >$pf
 check 'load: moves to the handed-over row once' eval '[[ $(LAZYFLEET_POSFILE=$pf FZF_LIST_LABEL=" Windows " _lazyfleet_loaded) == "pos(3)" && ! -e $pf ]]'
 print 2 >$pf
 check 'load: handed-over row before status reload' eval 'LAZYFLEET_POSFILE=$pf FZF_LIST_LABEL=" Worktrees · loading… " _lazyfleet_loaded | gq "^pos(2)+transform-list-label(.* _wtlabel checking)+reload-sync("'
-check 'load: other views do nothing' test -z "$(FZF_LIST_LABEL=' Repos ' _lazyfleet_loaded)"
-check 'keys see through the loading marker' eval 'FZF_KEY=R FZF_LIST_LABEL=" Worktrees: app · checking status… " _lazyfleet_key w $p | gq "transform-list-label(.* _wtlabel loading)+reload(.* _rows -L)" && [[ $(FZF_LIST_LABEL=" Worktrees: app · checking status… " _lazyfleet_wtlabel loading) == " Worktrees: app · loading… " ]]'
+check 'load: other views do nothing' test -z "$(FZF_LIST_LABEL=' Windows ' _lazyfleet_loaded)"
+check 'keys see through the loading marker' eval 'FZF_KEY=R FZF_LIST_LABEL=" Worktrees · checking status… " _lazyfleet_key w $p | gq "change-list-label( Worktrees · loading… )+reload(.* _rows)"'
 check 'c on a worktree opens its project config' eval 'FZF_KEY=c FZF_LIST_LABEL=" Worktrees " _lazyfleet_key w $p | gq "^execute(.* config {2})+.*reload("'
 check 'c in the windows view opens the settings' eval 'FZF_KEY=c FZF_LIST_LABEL=" Windows " _lazyfleet_key t x | gq "^execute(.* config)+reload(.*_winrows)$"'
-check 'C opens the settings' eval 'FZF_KEY=C FZF_LIST_LABEL=" Repos " _lazyfleet_key r $repo | gq "^execute(.* config)+reload(.*_reporows)$"'
-check 'r reloads' eval 'FZF_KEY=r FZF_LIST_LABEL=" Repos " _lazyfleet_key r $repo | gq "^reload(.*_reporows)"'
+check 'C opens the settings' eval 'FZF_KEY=C FZF_LIST_LABEL=" Windows " _lazyfleet_key t x | gq "^execute(.* config)+reload(.*_winrows)$"'
+check 'r reloads' eval 'FZF_KEY=r FZF_LIST_LABEL=" Windows " _lazyfleet_key t x | gq "^reload(.*_winrows)"'
 check 'key esc quits when hidden' test "$(FZF_KEY=esc FZF_INPUT_STATE=hidden _lazyfleet_key w $p)" = abort
 
 # some fzf builds crash on become (seen: fzf 0.71 on Termux under proot)
@@ -265,7 +262,6 @@ chmod +x $SANDBOX/bin/docker
 path=($SANDBOX/bin $path)
 check 'rows count docker containers' retry '_lazyfleet_rows -s -p | gq "^w	$p	.*🐳2"'
 check 'rows without containers have no marker' eval '! _lazyfleet_rows -s -p | grep "^w	$repo	" | gq "🐳"'
-check 'reporows count containers from the cache' eval '_lazyfleet_reporows | gq "🐳 2 running"'
 check 'preview lists the containers' eval '_lazyfleet_preview w $p | gq "web-1"'
 check 'containers_in matches by dir' eval '_lazyfleet_containers_in $p && (( $#reply == 2 ))'
 _lazyfleet_tmux new-session -d -s uirm -x 160 -y 12 "zsh -fc 'path=($SANDBOX/bin \$path); source $ROOT/lazyfleet.zsh; _lazyfleet_ui_rm $p; sleep 3'"
@@ -404,7 +400,7 @@ unfunction git
 check 'failed background pull keeps git'"'"'s error' retry '[[ ! -e $pd/${pl//\//%} && -s $pd/${pl//\//%}.err ]]'
 check 'and has fzf show it' eval '_lazyfleet_pulled | gq "^execute(.* _ui_pullfail)+.*reload("'
 check 'which clears it' eval '_lazyfleet_ui_pullfail </dev/null >/dev/null 2>&1; [[ -z $(_lazyfleet_pulled | grep pullfail) ]]'
-check 'key p ignored on repos' test -z "$(FZF_KEY=p FZF_LIST_LABEL=' Repos ' _lazyfleet_key r $repo)"
+check 'key p ignored in the windows view' test -z "$(FZF_KEY=p FZF_LIST_LABEL=' Windows ' _lazyfleet_key t x)"
 lazyfleet rm -f -D feat/pull 2>/dev/null
 
 # a second repo with an already registered name is refused (sessions and
@@ -421,7 +417,7 @@ for d in $dot $dash; do mkdir -p $d && git -C $d init -q -b main && git -C $d co
 lazyfleet add $dot >/dev/null
 check 'add refuses a name that is the same as a session name' eval '! lazyfleet add $dash >/dev/null 2>&1 && ! lazyfleet repos | gq -x $dash'
 _lazyfleet_tmux new-session -d -s web-app
-check 'a dotted repo name counts its live sessions' eval '_lazyfleet_reporows | grep -F $dot | gq "1 live"'
+check 'a dotted repo name shows its live session' eval '_lazyfleet_rows -p | grep -F "$dot" | gq "●"'
 _lazyfleet_tmux kill-session -t '=web-app'
 lazyfleet forget web.app >/dev/null
 
@@ -468,19 +464,15 @@ sleep 0.5
 check 'd on main worktree forgets repo' eval '! lazyfleet repos | gq -x $other && test -d $other/.git'
 _lazyfleet_tmux kill-session -t '=uirm' 2>/dev/null
 
-# a ")" in a repo name can't add fzf actions: enter on its Repos row only filters
+# a ")" in a repo name can't add fzf actions
 evil=$SANDBOX/z/'demo)+execute-silent(touch PWNED)+change-list-label(x'
 mkdir -p $evil && git -C $evil init -q -b main && git -C $evil commit -q --allow-empty -m init
 lazyfleet add $evil >/dev/null
 _lazyfleet_tmux new-session -d -s tui -x 160 -y 20 -c $SANDBOX "env -u TMUX $ROOT/bin/lazyfleet; sleep 5"
 waitpane tui ' Windows '
-_lazyfleet_tmux send-keys -t '=tui:' Tab; sleep 0.5
-_lazyfleet_tmux send-keys -t '=tui:' Tab; waitpane tui ' Repos '
-_lazyfleet_tmux send-keys -t '=tui:' / ; sleep 0.3
-_lazyfleet_tmux send-keys -t '=tui:' -l 'demo'; sleep 0.5
-_lazyfleet_tmux send-keys -t '=tui:' Enter
-check 'a repo name with ")" filters the view' waitpane tui 'Worktrees: demo)+execute-silent(touch PWNED)+change-list-label(x'
-check 'repo names and paths stay out of the action text' eval 'for k in enter c d n; do FZF_KEY=$k FZF_LIST_LABEL=" Repos " _lazyfleet_key r $evil; FZF_KEY=$k FZF_LIST_LABEL=" Worktrees " _lazyfleet_key w $evil; done | { ! gq PWNED }'
+_lazyfleet_tmux send-keys -t '=tui:' Tab; waitpane tui ' Worktrees'
+check 'a repo name with ")" is listed as it is' waitpane tui 'demo)+execute-silent(touch PWNED)+change-list-label(x'
+check 'repo names and paths stay out of the action text' eval 'for k in enter c d n; do FZF_KEY=$k FZF_LIST_LABEL=" Worktrees " _lazyfleet_key w $evil; done | { ! gq PWNED }'
 check 'a repo name with ")" runs nothing' eval 'sleep 0.5; [[ -z $(find $SANDBOX -name PWNED) ]]'
 _lazyfleet_tmux kill-session -t '=tui' 2>/dev/null
 lazyfleet forget $evil >/dev/null 2>&1
