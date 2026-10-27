@@ -21,8 +21,8 @@ _lazyfleet_merged() {
   emulate -L zsh
   local repo=$1 p=$2 slug=$3 br head def pr track note=
   local -a f
-  br=$(git -C $p branch --show-current 2>/dev/null)
-  [[ -n $br ]] || return 1
+  _lazyfleet_branch_of $p || return 1
+  br=$REPLY
   head=$(git -C $p rev-parse HEAD 2>/dev/null) || return 1
   if [[ -n $slug ]]; then
     pr=${prs[${slug:l}:$br]-}
@@ -87,16 +87,17 @@ _lazyfleet_prune() {
       slug=$REPLY
       brs=()
       _lazyfleet_worktrees $repo
-      for e in $reply; do brs+=(${${e#*$'\t'}%$'\t'*}); done
+      for e in $reply; do _lazyfleet_wt_branch $e; brs+=($REPLY); done
       _lazyfleet_pr_cachefile $slug && _lazyfleet_pr_fetch $slug $REPLY $brs >/dev/null 2>&1
       _lazyfleet_pr_read $slug >/dev/null 2>&1
     fi
     _lazyfleet_worktrees $repo
     for e in $reply; do
-      p=${e%%$'\t'*}; [[ ${e##*$'\t'} == 1 ]] && continue      # the main worktree stays
+      _lazyfleet_wt_ismain $e; [[ $REPLY == 1 ]] && continue      # the main worktree stays
+      _lazyfleet_wt_path $e; p=$REPLY
       rc=0; _lazyfleet_merged $repo $p $slug; rc=$?
       why=$REPLY
-      br=$(git -C $p branch --show-current 2>/dev/null)
+      _lazyfleet_branch_of $p; br=$REPLY
       if (( rc == 1 )); then (( n_other++ )); continue; fi
       if (( rc == 0 )); then
         if _lazyfleet_locked $p; then rc=2 why="$why, but it is $REPLY"
@@ -130,12 +131,9 @@ _lazyfleet_prune() {
     return 0
   fi
   if (( ! $#o_y )); then
-    [[ -t 0 ]] || { _lazyfleet_err "not on a terminal: use -y to go ahead"; return 1 }
     ans="Remove $#todo worktree(s)"
     (( $#o_k )) && ans+=" (keeping their branches)"
-    print -rn -- "$ans? [y/N] "
-    read -q </dev/tty || { print; return 1 }
-    print
+    _lazyfleet_confirm "$ans?" "not on a terminal: use -y to go ahead" || return 1
   fi
   flags=(); (( $#o_k )) || flags=(-D)
   local done_n=0 failed_n=0

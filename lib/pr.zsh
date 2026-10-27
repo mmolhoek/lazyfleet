@@ -46,8 +46,7 @@ _lazyfleet_ghslug() {
 
 _lazyfleet_pr_enabled() {
   (( $+commands[gh] )) || return 1
-  _lazyfleet_setting pr_status LAZYFLEET_PR_STATUS on
-  [[ ${REPLY:l} != (off|no|false|0) ]]
+  _lazyfleet_flag pr_status LAZYFLEET_PR_STATUS on
 }
 
 # REPLY=the cache file of GitHub repo $1 (owner/name); creates the directory

@@ -204,8 +204,7 @@ _lazyfleet_agent_notify() {
   info=$(_lazyfleet_tmux display-message -p -t $TMUX_PANE "#{session_name}${sep}#{session_attached}#{window_active}#{pane_active}" 2>/dev/null) || return 0
   sess=${info%%${sep}*} vis=${info##*${sep}}
   _lazyfleet_tmux refresh-client -S 2>/dev/null
-  _lazyfleet_setting agent_notify LAZYFLEET_AGENT_NOTIFY on
-  [[ ${REPLY:l} == (off|no|false|0) ]] && return 0
+  _lazyfleet_flag agent_notify LAZYFLEET_AGENT_NOTIFY on || return 0
   [[ $vis == <1->11 ]] && return 0
   case $st in
     (waiting) msg="$_LAZYFLEET_AGENT_ICON[$kind] $sess needs you" ;;
@@ -296,8 +295,7 @@ _lazyfleet_hooks() {
 
 # are the agent icons on? (agent_icons=off or LAZYFLEET_AGENT_ICONS=off turns them off)
 _lazyfleet_agent_icons_on() {
-  _lazyfleet_setting agent_icons LAZYFLEET_AGENT_ICONS on
-  [[ ${REPLY:l} != (off|no|false|0) ]]
+  _lazyfleet_flag agent_icons LAZYFLEET_AGENT_ICONS on
 }
 
 # What each state looks like after an agent's icon, most urgent first

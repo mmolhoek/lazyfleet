@@ -250,8 +250,8 @@ _lazyfleet_openpr() {
   local -A prs
   local -a f
   _lazyfleet_toplevel $p && repo=$REPLY || { _lazyfleet_err "not a git worktree: $p"; return 1 }
-  br=$(git -C $p branch --show-current 2>/dev/null)
-  [[ -n $br ]] || { _lazyfleet_err "${p/#$HOME/~} is not on a branch"; return 1 }
+  _lazyfleet_need_branch $p || return 1
+  br=$REPLY
   if _lazyfleet_pr_enabled && _lazyfleet_ghslug $repo; then
     slug=$REPLY
   else
@@ -292,8 +292,8 @@ _lazyfleet_newpr() {
   emulate -L zsh
   local p=$1 repo slug br def url
   _lazyfleet_toplevel $p && repo=$REPLY || { _lazyfleet_err "not a git worktree: $p"; return 1 }
-  br=$(git -C $p branch --show-current 2>/dev/null)
-  [[ -n $br ]] || { _lazyfleet_err "${p/#$HOME/~} is not on a branch"; return 1 }
+  _lazyfleet_need_branch $p || return 1
+  br=$REPLY
   _lazyfleet_ghslug $repo && slug=$REPLY ||
     { _lazyfleet_err "a pull request needs a GitHub origin"; return 1 }
   def=$(git -C $repo symbolic-ref -q --short refs/remotes/origin/HEAD 2>/dev/null)
@@ -326,9 +326,7 @@ _lazyfleet_ui_add() {
 }
 
 _lazyfleet_ui_killwin() {
-  print -rn -- "Kill window ${1#=}? [y/N] "
-  read -q </dev/tty && _lazyfleet_tmux kill-window -t "$1"
-  print
+  _lazyfleet_ask "Kill window ${1#=}?" && _lazyfleet_tmux kill-window -t "$1"
 }
 
 # REPLY=warning when branch $2 (seen from worktree $1) has commits that no
@@ -383,37 +381,28 @@ _lazyfleet_ui_rm() {
   local br repo
   if _lazyfleet_toplevel $1 && [[ ${1:A} == ${REPLY:A} ]]; then
     repo=$REPLY
-    print -rn -- "${1/#$HOME/~} is the repo itself, not a removable worktree. Forget ${repo:t} instead? (files are kept) [y/N] "
-    read -q </dev/tty && _lazyfleet_forget $repo
-    print
+    _lazyfleet_ask "${1/#$HOME/~} is the repo itself, not a removable worktree. Forget ${repo:t} instead? (files are kept)" &&
+      _lazyfleet_forget $repo
     return
   fi
-  br=$(git -C $1 branch --show-current 2>/dev/null)
-  print -rn -- "Remove worktree ${1/#$HOME/~}? [y/N] "
-  read -q </dev/tty || { print; return }
-  print
+  _lazyfleet_branch_of $1; br=$REPLY
+  _lazyfleet_ask "Remove worktree ${1/#$HOME/~}?" || return
   local -a flags ids
   local e
   _lazyfleet_containers_in $1
   if (( $#reply )); then
     print -r -- $'\e[33mWarning:\e[0m '"$#reply Docker container(s) from this worktree are running; their files can't be deleted until they stop:"
     for e in $reply; do e=${e#*$'\t'}; print -r -- "   ${e%%$'\t'*}"; ids+=(${e##*$'\t'}); done
-    print -n "Stop them? [y/N] "
-    if read -q </dev/tty; then
-      print
+    if _lazyfleet_ask "Stop them?"; then
       _lazyfleet_step "Stopping $#ids container(s)"
       docker stop $ids >/dev/null
       _lazyfleet_done || _lazyfleet_pause
-    else
-      print
     fi
   fi
   if [[ -n $br ]]; then
     _lazyfleet_unpushed $1 $br
     [[ -n $REPLY ]] && print -r -- $'\e[33mWarning:\e[0m '$REPLY
-    print -rn -- "Also delete local branch $br? (the remote is untouched) [y/N] "
-    read -q </dev/tty && flags+=(-D)
-    print
+    _lazyfleet_ask "Also delete local branch $br? (the remote is untouched)" && flags+=(-D)
   fi
   _lazyfleet_rm $flags $1 || _lazyfleet_pause
 }

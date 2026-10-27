@@ -24,8 +24,7 @@ _lazyfleet_newer() { ! is-at-least $1 $2 }
 _lazyfleet_update_enabled() {
   _lazyfleet_version || return 1
   (( $+commands[curl] )) || return 1
-  _lazyfleet_setting update_check LAZYFLEET_UPDATE_CHECK on
-  [[ ${REPLY:l} != (off|no|false|0) ]]
+  _lazyfleet_flag update_check LAZYFLEET_UPDATE_CHECK on
 }
 
 # REPLY=the cache file: "<epoch> <tag>", the tag empty when the lookup failed

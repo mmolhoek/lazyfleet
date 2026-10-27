@@ -55,8 +55,7 @@ _lazyfleet_setup_run() {
 _lazyfleet_statusbranch() {
   local REPLY git='git -C #{q:pane_current_path}'
   local -a g
-  _lazyfleet_setting status_branch LAZYFLEET_STATUS_BRANCH on
-  [[ $REPLY == (off|no|false|0) ]] && return 0
+  _lazyfleet_flag status_branch LAZYFLEET_STATUS_BRANCH on || return 0
   g=("${(@f)$(_lazyfleet_tmux show -gv status-right \; show -gv status-right-length)}")
   _lazyfleet_tmux \
     set -t "=$1:" status-right "#[bold]#($git symbolic-ref -q --short HEAD 2>/dev/null || $git rev-parse -q --short HEAD 2>/dev/null)#[nobold] $g[1]" \; \
@@ -72,8 +71,10 @@ _lazyfleet_resolve() {
   for repo in $repos; do
     _lazyfleet_worktrees $repo
     for e in $reply; do
-      p=${e%%$'\t'*}; br=${${e#*$'\t'}%$'\t'*}
-      _lazyfleet_session $repo $p ${e##*$'\t'}
+      _lazyfleet_wt_path $e; p=$REPLY
+      _lazyfleet_wt_branch $e; br=$REPLY
+      _lazyfleet_wt_ismain $e
+      _lazyfleet_session $repo $p $REPLY
       [[ $1 == $REPLY || $1 == $br || $1 == ${repo:t}/$br || $1 == ${p:t} ]] && hits+=($p)
     done
   done
@@ -81,6 +82,17 @@ _lazyfleet_resolve() {
   (( $#hits == 1 )) && { REPLY=$hits[1]; return 0 }
   REPLY=$#hits
   return 1
+}
+
+# REPLY=the worktree that argument $1 names (see _lazyfleet_resolve), or, with
+# no argument, the one containing $PWD; $2 is the usage message for when that
+# is not in one. Says what is wrong (on stderr) when it fails.
+_lazyfleet_worktree_arg() {
+  if [[ -n $1 ]]; then
+    _lazyfleet_resolve $1 || { _lazyfleet_err "no unique worktree for '$1' ($REPLY matches)"; return 1 }
+  else
+    REPLY=$(git rev-parse --show-toplevel 2>/dev/null) || { _lazyfleet_err $2; return 1 }
+  fi
 }
 
 # Create the worktree's session (detached) if needed; REPLY=session name

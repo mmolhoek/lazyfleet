@@ -272,12 +272,8 @@ _lazyfleet_rm() {
   zparseopts -D -E -F f=o_f D=o_D || return 1
   local p repo br s force locked rc=0
   local -a busy
-  if [[ -n $1 ]]; then
-    _lazyfleet_resolve $1 || { _lazyfleet_err "no unique worktree for '$1' ($REPLY matches)"; return 1 }
-    p=$REPLY
-  else
-    p=$(git rev-parse --show-toplevel 2>/dev/null) || { _lazyfleet_err 'usage: lazyfleet rm <worktree>'; return 1 }
-  fi
+  _lazyfleet_worktree_arg $1 'usage: lazyfleet rm <worktree>' || return 1
+  p=$REPLY
   _lazyfleet_toplevel $p || { _lazyfleet_err "not a git worktree: $p"; return 1 }
   repo=$REPLY
   [[ ${p:A} == ${repo:A} ]] && { _lazyfleet_err "refusing to remove the main worktree: $p"; return 1 }
@@ -285,22 +281,16 @@ _lazyfleet_rm() {
   if _lazyfleet_locked $p; then
     locked=1
     if [[ -z $force ]]; then
-      [[ -t 0 ]] || { _lazyfleet_err "$p is $REPLY (use -f)"; return 1 }
-      print -rn -- "${p/#$HOME/~} is $REPLY. Remove anyway? [y/N] "
-      read -q </dev/tty || { print; return 1 }
-      print
+      _lazyfleet_confirm "${p/#$HOME/~} is $REPLY. Remove anyway?" "$p is $REPLY (use -f)" || return 1
       force=1
     fi
   fi
   # only an explicit -f skips this: accepting the lock prompt above doesn't
   if (( ! $#o_f )) && [[ -n $(git -C $p status --porcelain 2>/dev/null) ]]; then
-    [[ -t 0 ]] || { _lazyfleet_err "$p has changes (use -f)"; return 1 }
-    print -rn -- "${p/#$HOME/~} has uncommitted changes. Remove anyway? [y/N] "
-    read -q </dev/tty || { print; return 1 }
-    print
+    _lazyfleet_confirm "${p/#$HOME/~} has uncommitted changes. Remove anyway?" "$p has changes (use -f)" || return 1
     force=1
   fi
-  br=$(git -C $p branch --show-current)
+  _lazyfleet_branch_of $p; br=$REPLY
   _lazyfleet_session $repo $p 0; s=$REPLY
   # removing the worktree closes its session, and with it the agents in there;
   # like the changes above, only an explicit -f skips the question
@@ -310,9 +300,7 @@ _lazyfleet_rm() {
       busy=("${reply[@]}")
       [[ -t 0 ]] || { _lazyfleet_err "$p has $#busy agent(s) running in session $s (use -f)"; return 1 }
       _lazyfleet_agents_warning $s "${busy[@]}"
-      print -rn -- "Removing the worktree ends them. Remove anyway? [y/N] "
-      read -q </dev/tty || { print; return 1 }
-      print
+      _lazyfleet_ask "Removing the worktree ends them. Remove anyway?" || return 1
     fi
   fi
   # git wants --force twice for a locked worktree
@@ -337,14 +325,10 @@ _lazyfleet_rm() {
 # lazyfleet pull [worktree] — fast-forward it to its upstream (never merges)
 _lazyfleet_pull() {
   local p br out
-  if [[ -n $1 ]]; then
-    _lazyfleet_resolve $1 || { _lazyfleet_err "no unique worktree for '$1' ($REPLY matches)"; return 1 }
-    p=$REPLY
-  else
-    p=$(git rev-parse --show-toplevel 2>/dev/null) || { _lazyfleet_err 'usage: lazyfleet pull <worktree>'; return 1 }
-  fi
-  br=$(git -C $p branch --show-current 2>/dev/null)
-  [[ -n $br ]] || { _lazyfleet_err "${p/#$HOME/~} is not on a branch"; return 1 }
+  _lazyfleet_worktree_arg $1 'usage: lazyfleet pull <worktree>' || return 1
+  p=$REPLY
+  _lazyfleet_need_branch $p || return 1
+  br=$REPLY
   _lazyfleet_step "Pulling $br in ${p/#$HOME/~}"
   # git's own output only when it fails: it would land after the "… "
   out=$(git -C $p pull -q --ff-only 2>&1)

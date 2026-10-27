@@ -94,3 +94,10 @@ _lazyfleet_setting() {
   [[ -r $f ]] && _lazyfleet_conf_read $f $1 - && [[ -n $REPLY ]] && return
   REPLY=$3
 }
+
+# Is the on/off setting $1 (env var $2, default $3) on? Everything but off, no,
+# false and 0, in any case, counts as on. Leaves the setting's value in REPLY.
+_lazyfleet_flag() {
+  _lazyfleet_setting $1 $2 $3
+  [[ ${REPLY:l} != (off|no|false|0) ]]
+}

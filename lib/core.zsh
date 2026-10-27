@@ -28,6 +28,27 @@ _lazyfleet_tmpdir() {
 }
 
 # (into a local: a bare read would overwrite the caller's REPLY)
+# Wait for one key on the terminal itself (not stdin, which is not the keyboard
+# under fzf's execute) and succeed for y. A function of its own so that a test
+# can stand in for the keyboard.
+_lazyfleet_readkey() { read -q </dev/tty }
+
+# Ask "$1 [y/N] " and succeed for y
+_lazyfleet_ask() {
+  local rc
+  print -rn -- "$1 [y/N] "
+  _lazyfleet_readkey; rc=$?
+  print
+  return rc
+}
+
+# _lazyfleet_ask for a command: with $2, a command that does not run on a
+# terminal (a script) fails with that message instead of asking
+_lazyfleet_confirm() {
+  [[ -z $2 || -t 0 ]] || { _lazyfleet_err $2; return 1 }
+  _lazyfleet_ask $1
+}
+
 _lazyfleet_pause() { local k; print -n "${1:-press any key} "; read -sk1 k </dev/tty; print }
 
 _lazyfleet_regfile() { REPLY=${XDG_CONFIG_HOME:-$HOME/.config}/lazyfleet/repos }
@@ -41,7 +62,12 @@ _lazyfleet_sortby() {
   reply=(${${(o)keyed}#*$'\0'})
 }
 _lazyfleet_key_name() { REPLY=${1:t} }
-_lazyfleet_key_branch() { REPLY=${${1#*$'\t'}%$'\t'*} }
+
+# A worktree entry (from _lazyfleet_worktrees) is "path<TAB>branch<TAB>ismain".
+# REPLY=its path, its branch (or "(detached)"), or 1 for the repo's main worktree
+_lazyfleet_wt_path() { REPLY=${1%%$'\t'*} }
+_lazyfleet_wt_branch() { REPLY=${${1#*$'\t'}%$'\t'*} }
+_lazyfleet_wt_ismain() { REPLY=${1##*$'\t'} }
 
 # reply=(registered repo paths, by name)
 _lazyfleet_repos() {
@@ -96,7 +122,7 @@ _lazyfleet_head() {
 # reply=("path<TAB>branch<TAB>ismain" ...) for repo $1, by branch
 _lazyfleet_worktrees() {
   _lazyfleet_worktrees_raw $1
-  _lazyfleet_sortby _lazyfleet_key_branch
+  _lazyfleet_sortby _lazyfleet_wt_branch
 }
 
 _lazyfleet_worktrees_raw() {
@@ -123,6 +149,18 @@ _lazyfleet_worktrees_raw() {
       (bare|prunable*) skip=1 ;;
     esac
   done
+}
+
+# REPLY=the branch checked out in worktree $1; fails when there is none (a
+# detached HEAD, or not a repo)
+_lazyfleet_branch_of() {
+  REPLY=$(git -C $1 branch --show-current 2>/dev/null)
+  [[ -n $REPLY ]]
+}
+
+# The same, saying so (on stderr) when there is no branch
+_lazyfleet_need_branch() {
+  _lazyfleet_branch_of $1 || { _lazyfleet_err "${1/#$HOME/~} is not on a branch"; return 1 }
 }
 
 # REPLY=tmux session name for worktree $2 of repo $1 ($3=1 if main worktree)

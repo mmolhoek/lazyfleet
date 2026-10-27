@@ -11,7 +11,7 @@ _lazyfleet_rows() {
   (( $#o_p )) && c_repo= c_live= c_st= c_dk= c_off=
   local -A live dk agtally prs
   local -a repos paths names branches lives stats docks sess pslugs rbr kicks fl
-  local pr_on= pslug pv prm star
+  local pr_on= pslug pv prm star br
   for s in ${(f)"$(_lazyfleet_tmux list-sessions -F '#S' 2>/dev/null)"}; do live[$s]=1; done
   _lazyfleet_pr_enabled && pr_on=1
   _lazyfleet_repos; repos=($reply)
@@ -24,9 +24,11 @@ _lazyfleet_rows() {
       _lazyfleet_pr_read $pslug
     fi
     for e in $reply; do
-      p=${e%%$'\t'*}
-      _lazyfleet_session $repo $p ${e##*$'\t'}
-      paths+=($p); names+=(${repo:t}); branches+=(${${e#*$'\t'}%$'\t'*})
+      _lazyfleet_wt_path $e; p=$REPLY
+      _lazyfleet_wt_branch $e; br=$REPLY
+      _lazyfleet_wt_ismain $e
+      _lazyfleet_session $repo $p $REPLY
+      paths+=($p); names+=(${repo:t}); branches+=($br)
       lives+=("${live[$REPLY]:+●}"); stats+=(''); docks+=(''); sess+=($REPLY)
       pslugs+=($pslug); rbr+=($branches[-1])
       (( $#names[-1] > wn )) && wn=$#names[-1]
@@ -80,7 +82,7 @@ _lazyfleet_branches() {
   local ref e
   local -A skip
   _lazyfleet_worktrees $1
-  for e in $reply; do skip[${${e#*$'\t'}%$'\t'*}]=1; done
+  for e in $reply; do _lazyfleet_wt_branch $e; skip[$REPLY]=1; done
   for ref in ${(f)"$(git -C $1 for-each-ref --sort=-committerdate --format='%(refname)' refs/heads refs/remotes/origin)"}; do
     ref=${${ref#refs/heads/}#refs/remotes/origin/}
     [[ $ref == HEAD || -n $skip[$ref] ]] && continue
@@ -177,13 +179,15 @@ _lazyfleet_winrows() {
 }
 
 _lazyfleet_names() {
-  local repo e
+  local repo e p
   local -a repos
   _lazyfleet_repos; repos=($reply)
   for repo in $repos; do
     _lazyfleet_worktrees $repo
     for e in $reply; do
-      _lazyfleet_session $repo ${e%%$'\t'*} ${e##*$'\t'}
+      _lazyfleet_wt_path $e; p=$REPLY
+      _lazyfleet_wt_ismain $e
+      _lazyfleet_session $repo $p $REPLY
       print -r -- $REPLY
     done
   done
@@ -209,8 +213,8 @@ _lazyfleet_pr_preview() {
   local -a fl
   _lazyfleet_pr_enabled || return 0
   _lazyfleet_ghslug $1 || return 0; slug=$REPLY
-  br=$(git -C $1 branch --show-current 2>/dev/null)
-  [[ -n $br ]] || return 0
+  _lazyfleet_branch_of $1 || return 0
+  br=$REPLY
   _lazyfleet_pr_read $slug || return 0; age=$REPLY
   pv=$prs[${slug:l}:$br]
   [[ -n $pv ]] || return 0

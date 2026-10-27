@@ -76,8 +76,7 @@ _lazyfleet_doctor_optional() {
   else
     _lazyfleet_doctor_report warn "curl is not installed: no update check" "sudo apt install curl / brew install curl"
   fi
-  _lazyfleet_setting pr_status LAZYFLEET_PR_STATUS on
-  if [[ ${REPLY:l} == (off|no|false|0) ]]; then
+  if ! _lazyfleet_flag pr_status LAZYFLEET_PR_STATUS on; then
     _lazyfleet_doctor_report ok "pull request marks are off (pr_status=off)"
   elif (( ! $+commands[gh] )); then
     _lazyfleet_doctor_report warn "gh is not installed: no pull request marks" "https://cli.github.com"
