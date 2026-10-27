@@ -19,7 +19,7 @@ cat >$STUB/mybrowser <<'STUB'
 #!/bin/sh
 for a in "$@"; do printf '%s\n' "$a" >>"$BROWSER_LOG"; done
 STUB
-cp $STUB/mybrowser $STUB/xdg-open
+cp $STUB/mybrowser $STUB/xdg-open; cp $STUB/mybrowser $STUB/open
 chmod +x $STUB/*
 path=($STUB $path); rehash
 export BROWSER=mybrowser BROWSER_LOG=$SANDBOX/browser.log
@@ -74,7 +74,7 @@ check 'an origin that is not on GitHub is refused' eval 'test $rc = 1 && gq "nee
 ORIGIN=git@github.com:acme/widgets.git run $w
 check 'an ssh origin works' eval 'test $rc = 0 && gq "acme/widgets/compare/feat/a" <<<"$(seen)"'
 unset BROWSER
-out=$( ( : $commands[xdg-open]; unset "commands[xdg-open]"; _lazyfleet_newpr $w ) 2>&1); rc=$?
+out=$( ( : $commands[xdg-open] $commands[open]; unset "commands[xdg-open]" "commands[open]"; _lazyfleet_newpr $w ) 2>&1); rc=$?
 check 'with no browser at all it says so' eval 'test $rc = 1 && gq "no browser found" <<<$out'
 export BROWSER=mybrowser
 

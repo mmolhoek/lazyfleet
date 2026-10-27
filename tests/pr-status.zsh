@@ -234,7 +234,8 @@ prs=(); _lazyfleet_pr_read acme/widgets
 check 'and the verdict follows' test "$(field feat/open-pending 3)" = pass
 
 # a failed fetch keeps the old rows and moves only the time
-sed -i '1s/.*/#lazyfleet-pr 1 1000 ok/' $CACHE
+setline1() { sed "1s/.*/$1/" $CACHE >$CACHE.new && mv $CACHE.new $CACHE }   # portable: BSD sed -i wants a suffix
+setline1 '#lazyfleet-pr 1 1000 ok'
 rows_before=$(tail -n +2 $CACHE)
 GH_FAIL=1 _lazyfleet_pr_fetch acme/widgets $CACHE $WANT; rc=$?
 check 'a failed fetch fails' test $rc != 0
@@ -299,7 +300,7 @@ wtdir() { print -r -- $LAZYFLEET_WORKTREES/widgets/${1//\//-} }
 POSTLOG=$SANDBOX/post.log; : >$POSTLOG
 _lazyfleet_fzfpost() { print -r -- "$1" >>$POSTLOG }     # what the detached job tells fzf
 _lazyfleet_pr_cachefile acme/widgets; CACHE=$REPLY
-setage() { sed -i "1s/.*/#lazyfleet-pr 1 $(( EPOCHSECONDS - $1 )) ok/" $CACHE }   # make the cache $1 seconds old
+setage() { setline1 "#lazyfleet-pr 1 $(( EPOCHSECONDS - $1 )) ok" }   # make the cache $1 seconds old
 rowfor() { grep -F "$1" <<<"$rows" | grep -F "${2:-widgets}" }
 idle() { retry '[[ ! -d $CACHE.lock ]]' }
 

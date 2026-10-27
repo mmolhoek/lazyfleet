@@ -42,7 +42,7 @@ cat >$STUB/mybrowser <<'EOF'
 #!/bin/sh
 for a in "$@"; do printf '%s\n' "$a" >>"$BROWSER_LOG"; done
 EOF
-cp $STUB/mybrowser $STUB/xdg-open
+cp $STUB/mybrowser $STUB/xdg-open; cp $STUB/mybrowser $STUB/open
 chmod +x $STUB/*
 export TOOL_LOG=$SANDBOX/tool.log BROWSER_LOG=$SANDBOX/browser.log
 
@@ -216,7 +216,7 @@ check 'a BROWSER with arguments works' eval 'test "$(seen)" = $'"'"'--new-window
 unset BROWSER
 opened $wp
 check 'without BROWSER, xdg-open is used' eval 'test $rc = 0 && test "$(seen)" = https://github.com/acme/widgets/pull/7'
-out=$( ( unset 'commands[xdg-open]'; _lazyfleet_openpr $wp ) 2>&1); rc=$?
+out=$( ( unset 'commands[xdg-open]' 'commands[open]'; _lazyfleet_openpr $wp ) 2>&1); rc=$?
 check 'with no browser at all it says so' eval 'test $rc = 1 && gq "no browser found" <<<$out'
 export BROWSER=mybrowser
 
