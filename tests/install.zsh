@@ -25,7 +25,7 @@ publish() {
   [[ $ref == v<->.<->.<-> ]] || kind=heads
   local tree=$SANDBOX/tree/lazyfleet-$dir
   rm -rf $tree; mkdir -p $tree $site/mmolhoek/lazyfleet/archive/refs/$kind/${ref:h}
-  cp -R $ROOT/lazyfleet.zsh $ROOT/bin $ROOT/_lazyfleet $ROOT/LICENSE $tree/
+  cp -R $ROOT/lazyfleet.zsh $ROOT/lib $ROOT/bin $ROOT/_lazyfleet $ROOT/LICENSE $tree/
   [[ -n $2 ]] && rm -rf $tree/$2
   tar -czf $site/mmolhoek/lazyfleet/archive/refs/$kind/$ref.tar.gz -C $SANDBOX/tree lazyfleet-$dir
 }
@@ -49,9 +49,19 @@ installed() { [[ -d $INST ]] }
 tagurl() { print -rn -- https://github.com/mmolhoek/lazyfleet/releases/tag/$1 }
 
 # --- installing a pinned version
+# a release from before lib/: lazyfleet.zsh is the whole program
+fresh; publish v0.9.0 lib; print -r -- '_lazyfleet_main() { print one-file }' >$SANDBOX/tree/lazyfleet-0.9.0/lazyfleet.zsh; tar -czf $site/mmolhoek/lazyfleet/archive/refs/tags/v0.9.0.tar.gz -C $SANDBOX/tree lazyfleet-0.9.0
+LAZYFLEET_VERSION=v0.9.0 run
+check 'a release without lib/ still installs' eval 'test $rc = 0 && test -f $INST/lazyfleet.zsh && test ! -e $INST/lib'
+# a download that points to lib/ but has none is not lazyfleet
+fresh; publish v1.0.0 lib; LAZYFLEET_VERSION=v1.0.0 run
+check 'a download that lacks the lib/ it needs is refused' eval 'test $rc != 0 && gq "no lib" <<<$out && test ! -e $INST'
+
 fresh; publish v1.0.0; LAZYFLEET_VERSION=v1.0.0 run
 check 'a pinned install succeeds' test $rc = 0
 check 'it installs the program files' test -f $INST/lazyfleet.zsh -a -x $INST/bin/lazyfleet -a -f $INST/_lazyfleet
+check 'it installs the parts in lib/' test -f $INST/lib/core.zsh -a -f $INST/lib/prune.zsh
+check 'the installed copy runs from its own directory' eval '[[ $(env -i HOME=$HOME PATH=$PATH $INST/bin/lazyfleet version) == "lazyfleet v1.0.0" ]]'
 check 'it records the version' test "$(<$INST/VERSION)" = 1.0.0
 check 'it marks itself as the installer' test -f $INST/INSTALLER
 check 'it installs the agent hook script, executable' test -x $INST/bin/lazyfleet-hook

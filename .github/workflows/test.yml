@@ -24,7 +24,7 @@ jobs:
         run: sudo apt-get update && sudo apt-get install -y zsh
       - name: zsh syntax
         run: |
-          for f in lazyfleet.zsh _lazyfleet bin/lazyfleet tests/lib.zsh tests/all.zsh; do
+          for f in lazyfleet.zsh _lazyfleet bin/lazyfleet lib/*.zsh tests/lib.zsh tests/all.zsh; do
             zsh -n "$f"
           done
       - name: shellcheck (the POSIX sh scripts)

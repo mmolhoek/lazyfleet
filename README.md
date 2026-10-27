@@ -297,6 +297,26 @@ search_depth=3
   background and safe to delete.
 - `LAZYFLEET_TMUX` overrides the tmux command (e.g. `tmux -L other`).
 
+## Code
+
+`lazyfleet.zsh` loads the parts in `lib/`, one per concern, and holds the command dispatch and the completion setup.
+`bin/lazyfleet` is the entry point that the TUI's key bindings run, and `bin/lazyfleet-hook` is the plain-sh script that
+agents call.
+
+| part               | what is in it                                                          |
+| ------------------ | ---------------------------------------------------------------------- |
+| `lib/core.zsh`     | tmux, temp files, the repo registry, worktrees and session names        |
+| `lib/config.zsh`   | settings, and the lookup of `copy=` / `setup=`                          |
+| `lib/sessions.zsh` | a worktree's tmux session: create, switch, attach, status               |
+| `lib/agents.zsh`   | Claude Code / Copilot CLI / omp in tmux panes: state, marks, hooks      |
+| `lib/pr.zsh`       | pull request and CI marks                                               |
+| `lib/rows.zsh`     | the TUI's rows and previews, repo discovery, the picker                 |
+| `lib/commands.zsh` | add, forget, ls, new, open, rm, pull, config                            |
+| `lib/tui.zsh`      | the fzf driver, its keys and the prompts behind them                    |
+| `lib/update.zsh`   | the version of this copy and the daily check for a new release          |
+| `lib/doctor.zsh`   | `lazyfleet doctor`                                                      |
+| `lib/prune.zsh`    | `lazyfleet prune`                                                       |
+
 ## Test
 
 ```zsh
