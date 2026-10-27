@@ -3,6 +3,8 @@
 # that is the whole PATH, so "not installed" is real and no network is touched.
 
 ROOT=${0:A:h:h}
+source ${0:A:h}/lib.zsh
+need_tools git
 SANDBOX=${$(mktemp -d):A}
 trap 'rm -rf $SANDBOX' EXIT
 export HOME=$SANDBOX/home XDG_CONFIG_HOME=$SANDBOX/cfg TMPDIR=$SANDBOX/tmp
@@ -14,12 +16,6 @@ LAZYFLEET_DIR=$SANDBOX/inst
 realpath=$PATH
 BIN=$SANDBOX/bin
 
-fails=0
-ok()   { print -P "%F{green}ok%f   $1" }
-fail() { print -P "%F{red}FAIL%f $1"; (( fails++ )) }
-check() { local d=$1; shift; if "$@"; then ok $d; else fail $d; fi }
-skip() { print -P "%F{yellow}skip%f $1 ($2)" }
-not() { ! "$@" }
 has() { [[ $out == *${~${(b)1}}* ]] }       # does the last output contain $1?
 hasnot() { [[ $out != *${~${(b)1}}* ]] }
 
@@ -202,5 +198,4 @@ check 'completion lists doctor'            grep -q "'doctor:" $ROOT/_lazyfleet
 fzf_installer=$(sed -n 's/^MIN_FZF=\([0-9.]*\).*/\1/p' $ROOT/install.sh)
 check 'the installer and doctor agree on the fzf minimum' test "$fzf_installer" = "$_LAZYFLEET_MIN_FZF"
 
-if (( fails )); then print -P "%F{red}$fails failed%f"; exit 1; fi
-print -P "%F{green}all passed%f"
+finish

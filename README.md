@@ -214,8 +214,11 @@ In the `n` and `a` pickers, Enter takes the highlighted entry. If nothing matche
 
 ## `.lazyfleet`
 
-This is an optional file in the repo root, made of `key=value` lines. It is read as data and never sourced. The new worktree's
-copy takes precedence over the main one's.
+This is an optional file in the repo root, made of `key=value` lines. It is read as data and never sourced, but `setup=` is a
+command that runs on your machine. The new worktree's copy takes precedence over the main one's only when it says the same
+thing: a branch can bring its own `.lazyfleet` (think `new --pr`), so a `setup=` or `copy=` that differs from the main
+worktree's is skipped, and the summary says so. Set `trust_branch_config=on` to run those anyway. `copy=` entries must be
+paths inside the repo (no leading `/`, no `..`).
 
 ```
 setup=npm ci
@@ -273,6 +276,7 @@ same meaning wins when it's set.
 | `agent_icons`: `off` hides the `✻` `✦` `π` agent marks | `LAZYFLEET_AGENT_ICONS` | `on`                                                                                                           |
 | `agent_notify`: `off` stops the tmux message when an agent needs you or is done | `LAZYFLEET_AGENT_NOTIFY` | `on`                                                                                              |
 | `pr_status`: `off` hides the `#42 ✓` pull request and CI marks | `LAZYFLEET_PR_STATUS` | `on`                                                                                                           |
+| `trust_branch_config`: `on` runs `setup=`/`copy=` from a branch's own `.lazyfleet` even when it differs from the main worktree's | `LAZYFLEET_TRUST_BRANCH_CONFIG` | `off` |
 
 ```
 search=~/Projects ~/work
@@ -293,21 +297,54 @@ search_depth=3
   background and safe to delete.
 - `LAZYFLEET_TMUX` overrides the tmux command (e.g. `tmux -L other`).
 
+## Code
+
+`lazyfleet.zsh` loads the parts in `lib/`, one per concern, and holds the command dispatch and the completion setup.
+`bin/lazyfleet` is the entry point that the TUI's key bindings run, and `bin/lazyfleet-hook` is the plain-sh script that
+agents call.
+
+| part               | what is in it                                                          |
+| ------------------ | ---------------------------------------------------------------------- |
+| `lib/core.zsh`     | tmux, temp files, the repo registry, worktrees and session names        |
+| `lib/config.zsh`   | settings, and the lookup of `copy=` / `setup=`                          |
+| `lib/sessions.zsh` | a worktree's tmux session: create, switch, attach, status               |
+| `lib/agents.zsh`   | Claude Code / Copilot CLI / omp in tmux panes: state, marks, hooks      |
+| `lib/pr.zsh`       | pull request and CI marks                                               |
+| `lib/rows.zsh`     | the TUI's rows and previews, repo discovery, the picker                 |
+| `lib/commands.zsh` | add, forget, ls, new, open, rm, pull, config                            |
+| `lib/tui.zsh`      | the fzf driver, its keys and the prompts behind them                    |
+| `lib/update.zsh`   | the version of this copy and the daily check for a new release          |
+| `lib/doctor.zsh`   | `lazyfleet doctor`                                                      |
+| `lib/prune.zsh`    | `lazyfleet prune`                                                       |
+
 ## Test
 
 ```zsh
-zsh lazyfleet/tests/run.zsh       # the end-to-end suite (needs tmux and a recent fzf)
-zsh lazyfleet/tests/update.zsh    # the update check
-zsh lazyfleet/tests/install.zsh   # install.sh
-zsh lazyfleet/tests/agents.zsh    # the Claude / Copilot / omp marks
-zsh lazyfleet/tests/agent-state.zsh  # agent state: hook script, marks, status, notifications, hooks install
-zsh lazyfleet/tests/pr-status.zsh   # pull request and CI marks (uses a stub gh, no network)
-zsh lazyfleet/tests/doctor.zsh      # lazyfleet doctor (stub tools, no network)
-zsh lazyfleet/tests/new-from-pr.zsh # new --pr / --issue (stub gh, local "GitHub")
-zsh lazyfleet/tests/prune.zsh       # lazyfleet prune (local "GitHub", stub gh)
-zsh lazyfleet/tests/handoff.zsh    # the e, g and o keys (stub tools, real tmux)
-zsh lazyfleet/tests/new-pr.zsh     # the O key (stub browser, no network)
-zsh lazyfleet/tests/busy-rm.zsh      # the warning before removing a worktree with agents running
+zsh lazyfleet/tests/all.zsh             # every suite, with a summary (-v shows their output)
+zsh lazyfleet/tests/all.zsh prune doctor  # just these
+zsh lazyfleet/tests/prune.zsh           # or one suite on its own
 ```
+
+The suites (`tests/*.zsh`) share their helpers in `tests/lib.zsh`. Most run real git and tmux; `run.zsh` also needs
+fzf 0.58 or newer and says so, instead of failing check by check, when yours is older. GitHub Actions runs
+`tests/all.zsh` on every push and pull request, plus `zsh -n` and shellcheck on the scripts.
+
+| suite             | what it covers                                                                      |
+| ----------------- | ----------------------------------------------------------------------------------- |
+| `run`             | the end-to-end suite: commands and the TUI                                           |
+| `update`          | the update check                                                                    |
+| `install`         | `install.sh`                                                                        |
+| `agents`          | the Claude / Copilot / omp marks                                                    |
+| `agent-state`     | agent state: hook script, marks, status, notifications, hooks install               |
+| `pr-status`       | pull request and CI marks (stub `gh`, no network)                                   |
+| `doctor`          | `lazyfleet doctor` (stub tools, no network)                                         |
+| `new-from-pr`     | `new --pr` / `--issue` (stub `gh`, local "GitHub")                                  |
+| `branch-trust`    | which `.lazyfleet` a new worktree may take `setup=` and `copy=` from                |
+| `prune`           | `lazyfleet prune` (local "GitHub", stub `gh`)                                       |
+| `handoff`         | the `e`, `g` and `o` keys (stub tools, real tmux)                                   |
+| `new-pr`          | the `O` key (stub browser, no network)                                              |
+| `busy-rm`         | the warning before removing a worktree with agents running                          |
+| `helpers`         | the small helpers the commands share (worktree entries, settings, prompts)          |
+| `all-runner`      | `tests/all.zsh` itself                                                              |
 
 The tests run in a throwaway HOME against an isolated tmux server.

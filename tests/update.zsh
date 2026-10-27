@@ -2,6 +2,8 @@
 # Tests for the update check (no network: curl is a stub).
 
 ROOT=${0:A:h:h}
+source ${0:A:h}/lib.zsh
+need_tools git
 SANDBOX=${$(mktemp -d):A}
 trap 'rm -rf $SANDBOX' EXIT
 export HOME=$SANDBOX/home XDG_CONFIG_HOME=$SANDBOX/cfg
@@ -42,13 +44,6 @@ LAZYFLEET_DIR=$SANDBOX/inst
 cache=$HOME/.cache/lazyfleet/latest-release
 conf=$XDG_CONFIG_HOME/lazyfleet/config
 
-fails=0
-ok()   { print -P "%F{green}ok%f   $1" }
-fail() { print -P "%F{red}FAIL%f $1"; (( fails++ )) }
-check() { local d=$1; shift; if "$@"; then ok $d; else fail $d; fi }
-gq() { grep "$@" >/dev/null 2>&1 }
-not() { ! "$@" }
-retry() { local i; for i in {1..50}; do eval "$1" && return 0; sleep 0.1; done; return 1 }
 calls() { [[ -e $STUB_LOG ]] && wc -l <$STUB_LOG | tr -d ' ' || print 0 }
 # fresh state: version $1 installed, no cache, no config, no curl calls
 reset() {
@@ -316,5 +311,4 @@ reset 0.1.0; _lazyfleet_main version >/dev/null; sleep 0.2
 check 'showing the version never uses the network' test "$(calls)" = 0
 check 'completion offers version' gq "'version:" $ROOT/_lazyfleet
 
-(( fails )) && { print -P "\n%F{red}$fails failed%f"; exit 1 }
-print -P "\n%F{green}all passed%f"
+finish

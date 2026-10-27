@@ -1,0 +1,60 @@
+name: test
+
+on:
+  push:
+    branches: [main]
+  pull_request:
+
+permissions:
+  contents: read
+
+env:
+  TERM: xterm-256color
+  # the first fzf lazyfleet supports is 0.58; the suites are run with this one
+  FZF_VERSION: "0.74.0"
+  FZF_LINUX_AMD64_SHA256: cf919f05b7581b4c744d764eaa704665d61dd6d3ca785f0df2351281dff60cda
+
+jobs:
+  lint:
+    runs-on: ubuntu-latest
+    timeout-minutes: 5
+    steps:
+      - uses: actions/checkout@v4
+      - name: Install zsh
+        run: sudo apt-get update && sudo apt-get install -y zsh
+      - name: zsh syntax
+        run: |
+          for f in lazyfleet.zsh _lazyfleet bin/lazyfleet lib/*.zsh tests/lib.zsh tests/all.zsh; do
+            zsh -n "$f"
+          done
+      - name: shellcheck (the POSIX sh scripts)
+        run: shellcheck -s sh install.sh bin/lazyfleet-hook
+
+  test-linux:
+    runs-on: ubuntu-latest
+    timeout-minutes: 20
+    steps:
+      - uses: actions/checkout@v4
+      - name: Install zsh, tmux and jq
+        run: sudo apt-get update && sudo apt-get install -y zsh tmux jq
+      - name: Install fzf ${{ env.FZF_VERSION }}
+        run: |
+          curl -fsSL -o /tmp/fzf.tgz "https://github.com/junegunn/fzf/releases/download/v${FZF_VERSION}/fzf-${FZF_VERSION}-linux_amd64.tar.gz"
+          echo "${FZF_LINUX_AMD64_SHA256}  /tmp/fzf.tgz" | sha256sum -c -
+          sudo tar -xzf /tmp/fzf.tgz -C /usr/local/bin fzf
+          fzf --version
+      - name: Test suites
+        run: zsh tests/all.zsh
+
+  # lazyfleet is used on macOS too, but this job has not been seen green yet:
+  # it reports without blocking until it has
+  test-macos:
+    runs-on: macos-latest
+    timeout-minutes: 30
+    continue-on-error: true
+    steps:
+      - uses: actions/checkout@v4
+      - name: Install tmux, fzf and jq
+        run: brew install tmux fzf jq
+      - name: Test suites
+        run: zsh tests/all.zsh

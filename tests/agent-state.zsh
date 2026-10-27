@@ -3,6 +3,8 @@
 # notifications and the hook installer.
 
 ROOT=${0:A:h:h}
+source ${0:A:h}/lib.zsh
+need_tools git tmux
 HOOK=$ROOT/bin/lazyfleet-hook
 SANDBOX=${$(mktemp -d):A}
 export HOME=$SANDBOX/home XDG_CONFIG_HOME=$SANDBOX/cfg XDG_CACHE_HOME=$SANDBOX/cache TMPDIR=$SANDBOX/tmp
@@ -14,14 +16,6 @@ AGENTS=$XDG_CACHE_HOME/lazyfleet/agents
 cleanup() { tmux -L lazyfleet-state-$$ kill-server 2>/dev/null; rm -rf $SANDBOX }
 trap cleanup EXIT
 
-fails=0
-ok()   { print -P "%F{green}ok%f   $1" }
-fail() { print -P "%F{red}FAIL%f $1"; (( fails++ )) }
-check() { local d=$1; shift; if "$@"; then ok $d; else fail $d; fi }
-skip() { print -P "%F{yellow}skip%f $1 ($2)" }
-gq() { grep "$@" >/dev/null 2>&1 }
-not() { ! "$@" }
-retry() { local i; for i in {1..50}; do eval "$1" && return 0; sleep 0.1; done; return 1 }
 plain() { sed 's/\x1b\[[0-9;]*m//g' }
 
 # ============================================================ the hook script
@@ -410,5 +404,4 @@ else
 fi
 check 'without jq the command says what it needs' eval 'out=$(PATH=/nonexistent /bin/zsh -f -c "source $ROOT/lazyfleet.zsh; _lazyfleet_hooks install" 2>&1); [[ $out == *jq* ]]'
 
-(( fails )) && { print -P "\n%F{red}$fails failed%f"; exit 1 }
-print -P "\n%F{green}all passed%f"
+finish

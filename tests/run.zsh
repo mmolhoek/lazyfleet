@@ -4,12 +4,17 @@
 setopt pipe_fail
 zmodload zsh/stat
 ROOT=${0:A:h:h}
+source ${0:A:h}/lib.zsh
+need_tools git tmux fzf
 SANDBOX=${$(mktemp -d):A}
 export HOME=$SANDBOX XDG_CONFIG_HOME=$SANDBOX/.config LAZYFLEET_WORKTREES=$SANDBOX/wt TMPDIR=$SANDBOX/tmp
 mkdir -p $TMPDIR
 # setup runs through an interactive zsh: give it an rc file (or zsh's new-user
 # wizard blocks), which asks a question first when ~/.ask exists, like a mise
 # enter hook
+# and no system rc files: a distro's /etc/zsh/zshrc runs compinit, which asks a
+# question of its own when the machine's directories are group-writable (CI)
+print -r -- 'setopt no_global_rcs' >$SANDBOX/.zshenv
 print -r -- '[[ -e ~/.ask ]] && { rm ~/.ask; read -r ans; print -r -- $ans >~/answer }' >$SANDBOX/.zshrc
 # keep the test tmux server's socket in the sandbox, so it goes away with it
 # every fixture repo commits, also on hosts without a git identity
@@ -19,19 +24,6 @@ export LAZYFLEET_TMUX="tmux -L lazyfleet-test-$$" SHELL=${commands[zsh]}
 unset TMUX
 source $ROOT/lazyfleet.zsh
 
-fails=0
-ok()   { print -P "%F{green}ok%f   $1" }
-fail() { print -P "%F{red}FAIL%f $1"; (( fails++ )) }
-check() { local d=$1; shift; if "$@"; then ok $d; else fail $d; fi }
-skip() { print -P "%F{yellow}skip%f $1 ($2)" }
-# check, unless the reason in $2 rules it out here
-check_unless() { local why=$1; shift; if [[ -n $why ]]; then skip "$1" "$why"; else check "$@"; fi }
-waitfor() { local i; for i in {1..50}; do [[ -e $1 ]] && return 0; sleep 0.1; done; return 1 }
-# like grep -q, but reads all input: with pipe_fail, an early exit would
-# fail the producer with SIGPIPE
-gq() { grep "$@" >/dev/null }
-retry() { local i; for i in {1..20}; do eval "$1" && return 0; sleep 0.1; done; return 1 }
-waitpane() { local i; for i in {1..50}; do _lazyfleet_tmux capture-pane -p -t "=$1:" | gq -- $2 && return 0; sleep 0.1; done; return 1 }
 cleanup() { _lazyfleet_tmux kill-server 2>/dev/null; rm -rf $SANDBOX }
 trap cleanup EXIT
 
@@ -76,7 +68,15 @@ _lazyfleet_tmux kill-session -t '=sb'
 LAZYFLEET_STATUS_BRANCH=off lazyfleet new feat/nosb --no-open >/dev/null 2>&1
 check 'status_branch=off leaves the status bar alone' eval '_lazyfleet_tmux has-session -t "=app/feat-nosb" && [[ -z $(_lazyfleet_tmux show -v -t "=app/feat-nosb:" status-right) ]]'
 lazyfleet rm -f -D feat/nosb 2>/dev/null
-check 'new runs setup' waitfor $p/.setup-ran
+# on failure, show what the setup window printed (a shell stuck at a prompt, say)
+setup_ran() {
+  waitfor $p/.setup-ran && return 0
+  print -r -- "       tmux $(tmux -V), SHELL=$SHELL TERM=$TERM, shell panes:"
+  _lazyfleet_tmux list-panes -a -F '       #{session_name} #{pane_current_command} dead=#{pane_dead}' 2>&1
+  _lazyfleet_tmux capture-pane -p -t '=app/feat-x:' 2>&1 | sed 's/^/       | /'
+  return 1
+}
+check 'new runs setup' setup_ran
 cfg=$XDG_CONFIG_HOME/lazyfleet/config
 mkdir -p ${cfg:h}
 print -l '[app]' 'copy=.env .nope' 'setup=' '  touch .ml-a' '  touch .ml-b' >$cfg
@@ -89,6 +89,13 @@ check 'setup runs as the window command, not typed in' eval '_lazyfleet_tmux dis
 check 'multi-line setup still runs' waitfor $LAZYFLEET_WORKTREES/app/feat-sum/.ml-b
 rm $cfg
 lazyfleet rm -f -D feat/sum 2>/dev/null
+# an empty setup= is no setup (it once ran the summary's first line as a command)
+print -l '[app]' 'setup=' >$cfg
+lazyfleet new feat/emptysetup --no-open >/dev/null 2>$SANDBOX/new.err
+check 'an empty setup= is reported as no setup' gq -F 'nothing (no setup= configured)' $SANDBOX/new.err
+check 'an empty setup= starts no setup window command' eval '! _lazyfleet_tmux display -p -t "=app/feat-emptysetup:0" "#{pane_start_command}" | gq -- "-ic"'
+rm $cfg
+lazyfleet rm -f -D feat/emptysetup 2>/dev/null
 # a file that can't be copied fails new before setup starts
 print -l '[app]' 'copy=.env .locked' 'setup=touch .setup-ran' >$cfg
 print x >$repo/.locked; chmod 000 $repo/.locked
@@ -101,7 +108,9 @@ lazyfleet rm -f -D feat/cpfail 2>/dev/null
 # a question while the shell starts gets the user's answer, not our setup keys
 touch $HOME/.ask
 lazyfleet new feat/ask --no-open >/dev/null 2>/dev/null
-sleep 0.5
+# the rc removes ~/.ask right before it reads the answer, so wait for that
+# (a fixed pause was too short on a loaded machine)
+waitfor_gone $HOME/.ask
 _lazyfleet_tmux send-keys -t '=app/feat-ask:' staging Enter
 check 'startup question gets the user'"'"'s answer' eval 'waitfor $HOME/answer && [[ $(<$HOME/answer) == staging ]]'
 check 'setup runs after the question' waitfor $LAZYFLEET_WORKTREES/app/feat-ask/.setup-ran
@@ -493,4 +502,5 @@ lazyfleet forget app
 check 'forget unregisters' test -z "$(lazyfleet repos)"
 
 print
-(( fails == 0 )) && print -P '%F{green}all passed%f' || { print -P "%F{red}$fails failed%f"; exit 1 }
+
+finish

@@ -4,6 +4,8 @@
 # programs through jq, so the JSON handling is tested too.
 
 ROOT=${0:A:h:h}
+source ${0:A:h}/lib.zsh
+need_tools git tmux
 SANDBOX=${$(mktemp -d):A}
 export HOME=$SANDBOX/home XDG_CONFIG_HOME=$SANDBOX/cfg LAZYFLEET_WORKTREES=$SANDBOX/wt TMPDIR=$SANDBOX/tmp
 export TMUX_TMPDIR=$SANDBOX GIT_AUTHOR_NAME=t GIT_AUTHOR_EMAIL=t@t GIT_COMMITTER_NAME=t GIT_COMMITTER_EMAIL=t@t
@@ -15,14 +17,6 @@ source $ROOT/lazyfleet.zsh
 cleanup() { _lazyfleet_tmux kill-server 2>/dev/null; rm -rf $SANDBOX }
 trap cleanup EXIT
 
-fails=0
-ok()   { print -P "%F{green}ok%f   $1" }
-fail() { print -P "%F{red}FAIL%f $1"; (( fails++ )) }
-check() { local d=$1; shift; if "$@"; then ok $d; else fail $d; fi }
-skip() { print -P "%F{yellow}skip%f $1 ($2)" }
-gq() { grep "$@" >/dev/null 2>&1 }
-not() { ! "$@" }
-retry() { local i; for i in {1..60}; do eval "$1" && return 0; sleep 0.1; done; return 1 }
 plain() { sed 's/\x1b\[[0-9;]*m//g' }
 
 # ---------------------------------------------------------------- remotes
@@ -240,7 +234,8 @@ prs=(); _lazyfleet_pr_read acme/widgets
 check 'and the verdict follows' test "$(field feat/open-pending 3)" = pass
 
 # a failed fetch keeps the old rows and moves only the time
-sed -i '1s/.*/#lazyfleet-pr 1 1000 ok/' $CACHE
+setline1() { sed "1s/.*/$1/" $CACHE >$CACHE.new && mv $CACHE.new $CACHE }   # portable: BSD sed -i wants a suffix
+setline1 '#lazyfleet-pr 1 1000 ok'
 rows_before=$(tail -n +2 $CACHE)
 GH_FAIL=1 _lazyfleet_pr_fetch acme/widgets $CACHE $WANT; rc=$?
 check 'a failed fetch fails' test $rc != 0
@@ -305,7 +300,7 @@ wtdir() { print -r -- $LAZYFLEET_WORKTREES/widgets/${1//\//-} }
 POSTLOG=$SANDBOX/post.log; : >$POSTLOG
 _lazyfleet_fzfpost() { print -r -- "$1" >>$POSTLOG }     # what the detached job tells fzf
 _lazyfleet_pr_cachefile acme/widgets; CACHE=$REPLY
-setage() { sed -i "1s/.*/#lazyfleet-pr 1 $(( EPOCHSECONDS - $1 )) ok/" $CACHE }   # make the cache $1 seconds old
+setage() { setline1 "#lazyfleet-pr 1 $(( EPOCHSECONDS - $1 )) ok" }   # make the cache $1 seconds old
 rowfor() { grep -F "$1" <<<"$rows" | grep -F "${2:-widgets}" }
 idle() { retry '[[ ! -d $CACHE.lock ]]' }
 
@@ -418,5 +413,4 @@ check 'the whole worktree preview includes it' eval '_lazyfleet_preview w $(wtdi
 rm -f $CACHE
 check 'without a cache there is no section' test -z "$(_lazyfleet_pr_preview $(wtdir feat/open-pass))"
 
-(( fails )) && { print -P "\n%F{red}$fails failed%f"; exit 1 }
-print -P "\n%F{green}all passed%f"
+finish

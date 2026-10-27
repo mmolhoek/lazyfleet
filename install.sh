@@ -144,6 +144,10 @@ install() {
   for f in lazyfleet.zsh bin/lazyfleet _lazyfleet; do
     [ -f "$work/src/$f" ] || die "the download is not lazyfleet (no $f)"
   done
+  # newer releases keep their code in lib/ (older ones are the one file)
+  if grep -q '/lib/' "$work/src/lazyfleet.zsh" && [ ! -d "$work/src/lib" ]; then
+    die "the download is not lazyfleet (no lib)"
+  fi
 
   # check the link before anything is replaced, then swap the install in with
   # renames so a failure leaves the old one working
@@ -156,6 +160,7 @@ install() {
   stage=$INSTALL_DIR.new.$$
   rm -rf "$stage"; mkdir "$stage"
   cp -R "$work/src/lazyfleet.zsh" "$work/src/bin" "$work/src/_lazyfleet" "$stage/"
+  [ -d "$work/src/lib" ] && cp -R "$work/src/lib" "$stage/"
   [ -f "$work/src/LICENSE" ] && cp "$work/src/LICENSE" "$stage/"
   printf '%s\n' "$version" >"$stage/VERSION"
   printf 'install.sh\n' >"$stage/INSTALLER"
@@ -182,11 +187,13 @@ install() {
   say "For zsh completion, add this to ~/.zshrc instead of the PATH line:"
   say "  source $INSTALL_DIR/lazyfleet.zsh"
   say "lazyfleet looks for a newer release once a day; turn that off with update_check=off in"
+  # shellcheck disable=SC2088  # the ~ is for the reader, not for expanding
   say "~/.config/lazyfleet/config (or LAZYFLEET_UPDATE_CHECK=off)."
 }
 
 uninstall() {
   # only remove a directory this script made
+  # shellcheck disable=SC2015  # die runs when either test fails, as meant
   [ -f "$INSTALL_DIR/INSTALLER" ] && [ -f "$INSTALL_DIR/lazyfleet.zsh" ] ||
     die "$INSTALL_DIR was not installed by install.sh; nothing removed"
   link=$BIN_DIR/lazyfleet
