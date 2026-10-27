@@ -2092,7 +2092,7 @@ _lazyfleet_help() {
                                  keeps a backup)
   lazyfleet doctor               check that zsh, git, tmux and fzf (and gh) are there and recent enough
   lazyfleet version              show the installed version
-  lazyfleet update               look for a newer release now (otherwise once a day)
+  lazyfleet update [--install]   look for a newer release now (otherwise once a day); --install installs it
 
 .lazyfleet (repo root, key=value; indent lines to continue a value):
   setup=…  copy=file1 file2
@@ -2199,11 +2199,18 @@ _lazyfleet_update_notice() {
   print -ru2 -- "lazyfleet $tag is available (you have v$cur). Update: $REPLY"
 }
 
-# lazyfleet update — look for a newer release right now, in the foreground,
-# whatever the daily cache or update_check say; the answer refreshes the cache
+# lazyfleet update [--install] — look for a newer release right now, in the
+# foreground, whatever the daily cache or update_check say; the answer
+# refreshes the cache. With --install, also install it.
 _lazyfleet_update() {
   emulate -L zsh
-  local cur tag= stamp= f
+  local cur tag= stamp= f install=
+  case ${1-} in
+    ('') ;;
+    (--install|-i) install=1 ;;
+    (*) _lazyfleet_err "usage: lazyfleet update [--install]"; return 1 ;;
+  esac
+  (( $# > 1 )) && { _lazyfleet_err "usage: lazyfleet update [--install]"; return 1 }
   _lazyfleet_version || {
     _lazyfleet_err "this copy does not know its version (no VERSION file); a git checkout updates with git pull"
     return 1
@@ -2217,12 +2224,42 @@ _lazyfleet_update() {
     _lazyfleet_err "could not find the latest release (offline, or none published yet)"
     return 1
   fi
-  if _lazyfleet_newer ${tag#v} $cur; then
+  if ! _lazyfleet_newer ${tag#v} $cur; then
+    print -r -- "lazyfleet v$cur is up to date."
+    return 0
+  fi
+  if [[ -z $install ]]; then
     _lazyfleet_update_hint
     print -r -- "lazyfleet $tag is available (you have v$cur). Update: $REPLY"
-  else
-    print -r -- "lazyfleet v$cur is up to date."
+    return 0
   fi
+  _lazyfleet_update_install $tag $cur
+}
+
+# Install release $1 (the current one is $2) by running that release's own
+# install.sh on this installation. Only a copy that install.sh put here can be
+# replaced this way.
+_lazyfleet_update_install() {
+  emulate -L zsh
+  local tag=$1 cur=$2 tmp url
+  if [[ ! -e $LAZYFLEET_DIR/INSTALLER ]]; then
+    _lazyfleet_update_hint
+    _lazyfleet_err "this copy was not installed by install.sh, so it cannot update itself. $tag is available (you have v$cur): $REPLY"
+    return 1
+  fi
+  tmp=$(mktemp -d "${TMPDIR:-/tmp}/lazyfleet-update.XXXXXX") || { _lazyfleet_err "could not make a temporary directory"; return 1 }
+  {
+    url=${LAZYFLEET_INSTALLER_URL:-https://raw.githubusercontent.com/mmolhoek/lazyfleet/$tag/install.sh}
+    print -r -- "Installing lazyfleet $tag (you have v$cur)..."
+    if ! command curl -fsSL --max-time 30 -o $tmp/install.sh $url 2>/dev/null || [[ ! -s $tmp/install.sh ]]; then
+      _lazyfleet_err "could not download the installer for $tag"
+      return 1
+    fi
+    # that release's installer, aimed at this directory and exactly that tag
+    env -u LAZYFLEET_SHA256 LAZYFLEET_VERSION=$tag LAZYFLEET_INSTALL_DIR=$LAZYFLEET_DIR sh $tmp/install.sh
+  } always {
+    rm -rf $tmp
+  }
 }
 
 # REPLY=the TUI's border label, which points out an available update

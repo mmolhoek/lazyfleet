@@ -6,7 +6,8 @@ SANDBOX=${$(mktemp -d):A}
 trap 'rm -rf $SANDBOX' EXIT
 export HOME=$SANDBOX/home XDG_CONFIG_HOME=$SANDBOX/cfg
 unset XDG_CACHE_HOME LAZYFLEET_UPDATE_CHECK LAZYFLEET_RELEASES_URL
-mkdir -p $HOME $XDG_CONFIG_HOME $SANDBOX/stub $SANDBOX/inst
+export TMPDIR=$SANDBOX/tmp
+mkdir -p $HOME $XDG_CONFIG_HOME $SANDBOX/stub $SANDBOX/inst $TMPDIR
 
 # curl stub: logs its arguments, fails when STUB_FAIL is set, else answers with
 # the url a redirect to the latest release would end at
@@ -14,10 +15,26 @@ cat >$SANDBOX/stub/curl <<'STUB'
 #!/bin/sh
 echo "$*" >>"$STUB_LOG"
 [ -n "$STUB_FAIL" ] && exit 22
-printf '%s' "$STUB_URL"
+case "$*" in
+  *install.sh*)
+    [ -n "$STUB_NO_INSTALLER" ] && exit 22
+    out=
+    while [ $# -gt 0 ]; do [ "$1" = -o ] && out=$2; shift; done
+    if [ -n "$STUB_EMPTY" ]; then : >"$out"; else cp "$STUB_INSTALLER" "$out"; fi
+    ;;
+  *) printf '%s' "$STUB_URL" ;;
+esac
 STUB
 chmod +x $SANDBOX/stub/curl
 export STUB_LOG=$SANDBOX/curl.log
+export STUB_INSTALLER=$SANDBOX/fake-install.sh INSTALLER_LOG=$SANDBOX/installer.log
+# the installer a release would ship: it only records how it was run
+cat >$STUB_INSTALLER <<'FAKE'
+#!/bin/sh
+echo "version=$LAZYFLEET_VERSION dir=$LAZYFLEET_INSTALL_DIR sha=${LAZYFLEET_SHA256-unset} args=$*" >>"$INSTALLER_LOG"
+echo "fake installer ran"
+exit ${INSTALLER_RC:-0}
+FAKE
 path=($SANDBOX/stub $path)
 
 source $ROOT/lazyfleet.zsh
@@ -35,8 +52,8 @@ retry() { local i; for i in {1..50}; do eval "$1" && return 0; sleep 0.1; done; 
 calls() { [[ -e $STUB_LOG ]] && wc -l <$STUB_LOG | tr -d ' ' || print 0 }
 # fresh state: version $1 installed, no cache, no config, no curl calls
 reset() {
-  rm -rf $HOME/.cache $XDG_CONFIG_HOME/lazyfleet $STUB_LOG $SANDBOX/inst/INSTALLER
-  unset STUB_FAIL LAZYFLEET_UPDATE_CHECK
+  rm -rf $HOME/.cache $XDG_CONFIG_HOME/lazyfleet $STUB_LOG $INSTALLER_LOG $SANDBOX/inst/INSTALLER
+  unset STUB_FAIL STUB_NO_INSTALLER STUB_EMPTY INSTALLER_RC LAZYFLEET_UPDATE_CHECK LAZYFLEET_INSTALLER_URL LAZYFLEET_SHA256
   export STUB_URL=https://github.com/mmolhoek/lazyfleet/releases/tag/v0.2.0
   LAZYFLEET_DIR=$SANDBOX/inst
   [[ -n $1 ]] && print -r -- $1 >$SANDBOX/inst/VERSION || rm -f $SANDBOX/inst/VERSION
@@ -178,6 +195,47 @@ reset main; out_of _lazyfleet_main update
 check 'update fails on a branch install' eval 'test $rc = 1 && gq "does not know its version" <<<$out'
 check 'the help lists update' eval '_lazyfleet_help | gq "lazyfleet update"'
 check 'completion offers update' gq "'update:" $ROOT/_lazyfleet
+
+# --- lazyfleet update --install
+installer_log() { [[ -r $INSTALLER_LOG ]] && cat $INSTALLER_LOG }
+reset 0.1.0; print install.sh >$SANDBOX/inst/INSTALLER; out_of _lazyfleet_main update --install
+check 'update --install runs the installer' eval 'test $rc = 0 && gq "fake installer ran" <<<$out'
+check 'it installs exactly the release it found' eval 'installer_log | gq "version=v0.2.0 "'
+check 'it installs into this directory' eval 'installer_log | gq "dir=$SANDBOX/inst "'
+check 'it runs the installer once' test "$(installer_log | wc -l | tr -d " ")" = 1
+check 'it says what it is doing' eval 'gq "Installing lazyfleet v0.2.0 (you have v0.1.0)" <<<$out'
+check 'it fetches the installer of that release' gq "raw.githubusercontent.com/mmolhoek/lazyfleet/v0.2.0/install.sh" $STUB_LOG
+reset 0.1.0; print install.sh >$SANDBOX/inst/INSTALLER; out_of _lazyfleet_main update -i
+check '-i is short for --install' eval 'installer_log | gq "version=v0.2.0 "'
+reset 0.1.0; print install.sh >$SANDBOX/inst/INSTALLER; LAZYFLEET_SHA256=abc out_of _lazyfleet_main update --install
+check 'a checksum meant for another version is not passed on' eval 'installer_log | gq "sha=unset"'
+reset 0.1.0; print install.sh >$SANDBOX/inst/INSTALLER; LAZYFLEET_INSTALLER_URL=https://example.test/i.sh out_of _lazyfleet_main update --install
+check 'LAZYFLEET_INSTALLER_URL moves the download' gq "example.test/i.sh" $STUB_LOG
+reset 0.3.0; print install.sh >$SANDBOX/inst/INSTALLER; out_of _lazyfleet_main update --install
+check 'up to date: nothing is installed' eval 'test $rc = 0 && gq "is up to date" <<<$out && test -z "$(installer_log)"'
+reset 0.1.0; out_of _lazyfleet_main update --install
+check 'a copy not put there by install.sh is not touched' eval 'test $rc = 1 && gq "not installed by install.sh" <<<$out && test -z "$(installer_log)"'
+check 'it points to the way to update that copy' eval 'gq "releases" <<<$out'
+reset 0.1.0; print install.sh >$SANDBOX/inst/INSTALLER; STUB_NO_INSTALLER=1 out_of _lazyfleet_main update --install
+check 'a failed installer download fails' eval 'test $rc = 1 && gq "could not download the installer" <<<$out'
+check 'a failed download runs nothing' eval 'test -z "$(installer_log)"'
+reset 0.1.0; print install.sh >$SANDBOX/inst/INSTALLER; STUB_EMPTY=1 out_of _lazyfleet_main update --install
+check 'an empty download is not run' eval 'test $rc = 1 && gq "could not download the installer" <<<$out'
+reset 0.1.0; print install.sh >$SANDBOX/inst/INSTALLER; INSTALLER_RC=3 out_of _lazyfleet_main update --install
+check "the installer's failure is the exit status" test $rc = 3
+reset 0.1.0; print install.sh >$SANDBOX/inst/INSTALLER; out_of _lazyfleet_main update --install
+check 'the downloaded installer is removed again' eval 'test -z "$(print -l $TMPDIR/lazyfleet-update.*(N))"'
+reset 0.1.0; print install.sh >$SANDBOX/inst/INSTALLER; STUB_FAIL=1; export STUB_FAIL; out_of _lazyfleet_main update --install
+check 'offline: nothing is installed' eval 'test $rc = 1 && test -z "$(installer_log)"'
+unset STUB_FAIL
+reset 0.1.0; print install.sh >$SANDBOX/inst/INSTALLER; out_of _lazyfleet_main update --bogus
+check 'an unknown option is refused' eval 'test $rc = 1 && gq "usage: lazyfleet update" <<<$out && test "$(calls)" = 0'
+out_of _lazyfleet_main update --install extra
+check 'extra arguments are refused' eval 'test $rc = 1 && gq "usage: lazyfleet update" <<<$out'
+reset; print install.sh >$SANDBOX/inst/INSTALLER; out_of _lazyfleet_main update --install
+check '--install without a version fails like update does' eval 'test $rc = 1 && gq "does not know its version" <<<$out'
+check 'the help lists --install' eval '_lazyfleet_help | gq -- "update \[--install\]"'
+check 'completion offers --install' gq -- "--install" $ROOT/_lazyfleet
 
 # --- showing the version: footers, help, `lazyfleet version`
 reset 0.1.0
