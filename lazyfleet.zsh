@@ -1344,19 +1344,96 @@ _lazyfleet_ls() {
   _lazyfleet_rows -s -p | while IFS=$'\t' read -r k p d; do print -r -- "$d  $p"; done
 }
 
-# lazyfleet new <branch> [-r repo] [-b base] [--no-open] [-q (summary only in the session)]
+# --- new --pr / new --issue --------------------------------------------------
+# What GitHub says about a pull request or an issue is data, not instructions:
+# the branch name is checked by git, and an issue's title only ever becomes
+# [a-z0-9-] in a branch name.
+
+# Common to both: REPLY=the repo's owner/name, after checking that the number
+# is a number and that gh is there. Args: repo dir, number.
+_lazyfleet_new_gh() {
+  emulate -L zsh
+  [[ $2 == <1-999999999> ]] || { _lazyfleet_err "not a number: ${2//[[:cntrl:]]/ }"; return 1 }
+  (( $+commands[gh] )) || { _lazyfleet_err "this needs gh (https://cli.github.com), logged in"; return 1 }
+  _lazyfleet_ghslug $1 || { _lazyfleet_err "this needs a GitHub remote called origin"; return 1 }
+}
+
+# REPLY=the branch to work on for pull request $2 of repo $1, fetched. A
+# pull request from a fork has no branch here, so it gets a local branch pr-N.
+_lazyfleet_new_from_pr() {
+  emulate -L zsh
+  local slug out ref head
+  local -a f
+  _lazyfleet_new_gh $1 $2 || return 1
+  slug=$REPLY
+  out=$(gh api repos/$slug/pulls/$2 --jq '[.head.ref, (.head.repo.full_name // "-")] | @tsv' 2>/dev/null) ||
+    { _lazyfleet_err "could not read pull request #$2 of $slug (does it exist, and is gh logged in?)"; return 1 }
+  f=("${(@ps:\t:)out}")
+  ref=$f[1] head=$f[2]
+  if [[ ${head:l} != ${slug:l} ]]; then
+    # a fork, or a repository that is gone: GitHub keeps the commits as pull/N/head
+    if ! git -C $1 show-ref -q --verify refs/heads/pr-$2; then
+      git -C $1 fetch -q origin pull/$2/head:refs/heads/pr-$2 2>/dev/null ||
+        { _lazyfleet_err "could not fetch pull request #$2"; return 1 }
+    fi
+    REPLY=pr-$2
+    return 0
+  fi
+  # (a leading - is refused here too: the name goes to git fetch as an argument)
+  [[ -n $ref && $ref != -* ]] && git check-ref-format --branch $ref >/dev/null 2>&1 ||
+    { _lazyfleet_err "pull request #$2 has a branch name git does not accept"; return 1 }
+  git -C $1 fetch -q origin $ref 2>/dev/null ||
+    { _lazyfleet_err "could not fetch branch $ref of pull request #$2 (has it been deleted?)"; return 1 }
+  REPLY=$ref
+}
+
+# REPLY=a branch name for issue $2 of repo $1: issue-<number>-<words of the title>
+_lazyfleet_new_from_issue() {
+  emulate -L zsh
+  setopt extended_glob
+  local slug out title name
+  _lazyfleet_new_gh $1 $2 || return 1
+  slug=$REPLY
+  out=$(gh api repos/$slug/issues/$2 --jq '[.title, (.pull_request != null | tostring)] | @tsv' 2>/dev/null) ||
+    { _lazyfleet_err "could not read issue #$2 of $slug (does it exist, and is gh logged in?)"; return 1 }
+  [[ ${out##*$'\t'} == true ]] && { _lazyfleet_err "#$2 is a pull request: use --pr $2"; return 1 }
+  title=${out%$'\t'*}
+  name=${${${${title:l}//[^a-z0-9]##/-}#-}%-}
+  name=${name[1,40]}; name=${name%-}
+  REPLY=issue-$2${name:+-$name}
+  # by construction a plain name; git has the last word
+  git check-ref-format --branch $REPLY >/dev/null 2>&1 || { _lazyfleet_err "could not make a branch name for issue #$2"; return 1 }
+}
+
+# lazyfleet new <branch> | --pr <n> | --issue <n> [-r repo] [-b base] [--no-open] [-q (summary only in the session)]
 _lazyfleet_new() {
-  local -a o_r o_b o_n o_q
-  zparseopts -D -E -F r:=o_r b:=o_b -no-open=o_n q=o_q || return 1
+  local -a o_r o_b o_n o_q o_pr o_is
+  zparseopts -D -E -F r:=o_r b:=o_b -no-open=o_n q=o_q -pr:=o_pr -issue:=o_is || return 1
   local _lazyfleet_quiet=${o_q:+1}
-  local br=$1 repo base p
-  [[ -n $br ]] || { _lazyfleet_err 'usage: lazyfleet new <branch> [-r repo] [-b base] [--no-open]'; return 1 }
+  local br=$1 repo base p src=
+  # zparseopts leaves the = of --pr=7 on the value
+  (( $#o_pr )) && o_pr[2]=${o_pr[2]#=}
+  (( $#o_is )) && o_is[2]=${o_is[2]#=}
+  local usage='usage: lazyfleet new <branch> | --pr <number> | --issue <number>  [-r repo] [-b base] [--no-open]'
+  (( $#o_pr + $#o_is > 2 )) && { _lazyfleet_err "give --pr or --issue, not both"; return 1 }
+  if (( $#o_pr + $#o_is )); then
+    [[ -z $br ]] || { _lazyfleet_err "give a branch, or --pr / --issue, not both"; return 1 }
+  elif [[ -z $br ]]; then
+    _lazyfleet_err $usage; return 1
+  fi
   if (( $#o_r )); then
     _lazyfleet_find_repo $o_r[2] || _lazyfleet_toplevel $o_r[2] || { _lazyfleet_err "unknown repo: $o_r[2]"; return 1 }
   else
     _lazyfleet_toplevel || { _lazyfleet_err 'not in a repo; pass -r <repo>'; return 1 }
   fi
   repo=$REPLY
+  if (( $#o_pr )); then
+    _lazyfleet_new_from_pr $repo $o_pr[2] || return 1
+    br=$REPLY src="pull request #$o_pr[2]"
+  elif (( $#o_is )); then
+    _lazyfleet_new_from_issue $repo $o_is[2] || return 1
+    br=$REPLY src="issue #$o_is[2]"
+  fi
   # unregistered (e.g. a name clash) means no worktree: it'd share that name's
   # sessions and dir, and be missing from the lists
   _lazyfleet_add $repo >/dev/null || return 1
@@ -1379,6 +1456,7 @@ _lazyfleet_new() {
   fi || return 1
   _lazyfleet_say "lazyfleet: new worktree ${p/#$HOME/~}"
   _lazyfleet_say "  branch  $br" "($how)"
+  [[ -n $src ]] && _lazyfleet_say "  from    $src"
 
   local f
   local -a copied skipped
@@ -1898,6 +1976,8 @@ _lazyfleet_help() {
   lazyfleet repos                list registered repos
   lazyfleet ls                   list worktrees with status
   lazyfleet new <branch> [-r repo] [-b base] [--no-open]
+  lazyfleet new --pr <number> | --issue <number> [-r repo] [-b base] [--no-open]
+                                 the same, for a pull request's branch or a branch named after an issue (needs gh)
                                  create a worktree (+ .lazyfleet copy/setup) and open it
   lazyfleet open [worktree]      attach/switch to a worktree's session
   lazyfleet rm [worktree] [-f] [-D]
