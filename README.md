@@ -214,8 +214,11 @@ In the `n` and `a` pickers, Enter takes the highlighted entry. If nothing matche
 
 ## `.lazyfleet`
 
-This is an optional file in the repo root, made of `key=value` lines. It is read as data and never sourced. The new worktree's
-copy takes precedence over the main one's.
+This is an optional file in the repo root, made of `key=value` lines. It is read as data and never sourced, but `setup=` is a
+command that runs on your machine. The new worktree's copy takes precedence over the main one's only when it says the same
+thing: a branch can bring its own `.lazyfleet` (think `new --pr`), so a `setup=` or `copy=` that differs from the main
+worktree's is skipped, and the summary says so. Set `trust_branch_config=on` to run those anyway. `copy=` entries must be
+paths inside the repo (no leading `/`, no `..`).
 
 ```
 setup=npm ci
@@ -273,6 +276,7 @@ same meaning wins when it's set.
 | `agent_icons`: `off` hides the `✻` `✦` `π` agent marks | `LAZYFLEET_AGENT_ICONS` | `on`                                                                                                           |
 | `agent_notify`: `off` stops the tmux message when an agent needs you or is done | `LAZYFLEET_AGENT_NOTIFY` | `on`                                                                                              |
 | `pr_status`: `off` hides the `#42 ✓` pull request and CI marks | `LAZYFLEET_PR_STATUS` | `on`                                                                                                           |
+| `trust_branch_config`: `on` runs `setup=`/`copy=` from a branch's own `.lazyfleet` even when it differs from the main worktree's | `LAZYFLEET_TRUST_BRANCH_CONFIG` | `off` |
 
 ```
 search=~/Projects ~/work

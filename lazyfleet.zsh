@@ -187,9 +187,13 @@ _lazyfleet_conf_read() {
 # ~/.config/lazyfleet/projects/<repo>.conf, the repo's [section] in
 # ~/.config/lazyfleet/config (older layout), .lazyfleet in the worktree, then
 # in the repo. _lazyfleet_from says which one it was.
+# The worktree's own .lazyfleet comes from whatever branch it has checked out,
+# maybe somebody else's (new --pr): its value only counts when the main
+# worktree's .lazyfleet says the same, or trust_branch_config is on. A value
+# that was passed over sets _lazyfleet_ignored to the key.
 _lazyfleet_conf() {
   local f
-  typeset -g _lazyfleet_from=
+  typeset -g _lazyfleet_from= _lazyfleet_ignored=
   _lazyfleet_projconf $3; f=$REPLY
   if [[ -r $f ]] && _lazyfleet_conf_read $f $1; then
     _lazyfleet_from="${f/#$HOME/~}"
@@ -201,13 +205,28 @@ _lazyfleet_conf() {
     return 0
   fi
   for f in $2/.lazyfleet $3/.lazyfleet; do
-    if [[ -r $f ]] && _lazyfleet_conf_read $f $1; then
-      [[ $f == $2/* ]] && _lazyfleet_from=.lazyfleet || _lazyfleet_from="${f/#$HOME/~}"
-      return 0
+    [[ -r $f ]] && _lazyfleet_conf_read $f $1 || continue
+    if [[ $f == $2/* ]] && ! _lazyfleet_branchconf_trusted $1 $REPLY $3; then
+      _lazyfleet_ignored=$1
+      continue
     fi
+    [[ $f == $2/* ]] && _lazyfleet_from=.lazyfleet || _lazyfleet_from="${f/#$HOME/~}"
+    return 0
   done
   REPLY=
   return 1
+}
+
+# Is $2, the value of key $1 in a new worktree's own .lazyfleet, fine to use
+# for repo $3? Yes when the repo's main worktree has the same value, or
+# trust_branch_config=on (LAZYFLEET_TRUST_BRANCH_CONFIG) says to trust branches.
+# Leaves REPLY alone.
+_lazyfleet_branchconf_trusted() {
+  emulate -L zsh
+  local key=$1 val=$2 repo=$3 REPLY
+  _lazyfleet_setting trust_branch_config LAZYFLEET_TRUST_BRANCH_CONFIG off
+  [[ ${REPLY:l} == (on|yes|true|1) ]] && return 0
+  [[ -r $repo/.lazyfleet ]] && _lazyfleet_conf_read $repo/.lazyfleet $key && [[ $REPLY == $val ]]
 }
 
 # REPLY=path of repo $1's own config file
@@ -1387,6 +1406,19 @@ _lazyfleet_new_from_issue() {
   git check-ref-format --branch $REPLY >/dev/null 2>&1 || { _lazyfleet_err "could not make a branch name for issue #$2"; return 1 }
 }
 
+# Say (like _lazyfleet_say) that the branch's .lazyfleet value for key $1 was
+# passed over, if _lazyfleet_conf did that
+_lazyfleet_say_ignored() {
+  [[ $_lazyfleet_ignored == $1 ]] || return 0
+  _lazyfleet_say "  ${(r:8:)1}skipped the branch's .lazyfleet value" "(it differs from the main worktree's; trust_branch_config=on uses it)"
+}
+
+# Is $1 a path inside the repo (relative, without a .. part)? Copy lists
+# come from config files, which a branch can bring along.
+_lazyfleet_inside() {
+  [[ $1 != /* && $1 != (..|../*|*/..|*/../*) ]]
+}
+
 # lazyfleet new <branch> | --pr <n> | --issue <n> [-r repo] [-b base] [--no-open] [-q (summary only in the session)]
 _lazyfleet_new() {
   local -a o_r o_b o_n o_q o_pr o_is
@@ -1441,10 +1473,13 @@ _lazyfleet_new() {
   [[ -n $src ]] && _lazyfleet_say "  from    $src"
 
   local f
-  local -a copied skipped
+  local -a copied skipped outside
   if _lazyfleet_conf copy $p $repo; then
+    _lazyfleet_say_ignored copy
     for f in ${=REPLY}; do
-      if [[ -e $repo/$f ]]; then
+      if ! _lazyfleet_inside $f; then
+        outside+=($f)
+      elif [[ -e $repo/$f ]]; then
         # setup may need these files: don't start it without them
         mkdir -p $p/${f:h} && cp -R $repo/$f $p/$f || {
           _lazyfleet_err "could not copy $f into ${p/#$HOME/~}; the worktree is there, but setup didn't run"
@@ -1457,8 +1492,10 @@ _lazyfleet_new() {
     done
     (( $#copied )) && _lazyfleet_say "  copy    $copied " "from ${repo/#$HOME/~} ($_lazyfleet_from)"
     for f in $skipped; do _lazyfleet_say "  ${(l:8:)}skipped $f: not in the main worktree"; done
+    for f in $outside; do _lazyfleet_say "  ${(l:8:)}skipped $f: not a path inside the repo"; done
   else
     _lazyfleet_say "  copy   " "nothing (no copy= configured)"
+    _lazyfleet_say_ignored copy
   fi
   _lazyfleet_session $repo $p 0
   local s=$REPLY
@@ -1466,6 +1503,7 @@ _lazyfleet_new() {
   # arguments below and the summary's first line would run as the command)
   if _lazyfleet_conf setup $p $repo && [[ -n $REPLY ]]; then
     local cmd=$REPLY
+    _lazyfleet_say_ignored setup
     if [[ $cmd == *$'\n'* ]]; then
       _lazyfleet_say "  setup   ${#${(f)cmd}}-line script" "($_lazyfleet_from) → running in session $s:"
       for f in ${(f)cmd}; do _lazyfleet_say "          " "$f"; done
@@ -1475,6 +1513,7 @@ _lazyfleet_new() {
     _lazyfleet_setup_run $s $p "$cmd" $_lazyfleet_sum || return 1
   else
     _lazyfleet_say "  setup  " "nothing (no setup= configured)"
+    _lazyfleet_say_ignored setup
     _lazyfleet_ensure $p || return 1
   fi
   print -r -- $p
@@ -1998,6 +2037,7 @@ _lazyfleet_config() {
 # update_check=off     (don't look for a newer release once a day; LAZYFLEET_UPDATE_CHECK)
 # agent_icons=off      (no ✻ Claude Code / ✦ Copilot CLI / π omp marks on worktrees and windows; LAZYFLEET_AGENT_ICONS)
 # pr_status=off        (no pull request / CI marks on worktrees; LAZYFLEET_PR_STATUS)
+# trust_branch_config=on  (run setup=/copy= from a branch's own .lazyfleet even when it differs from the main worktree's; LAZYFLEET_TRUST_BRANCH_CONFIG)
 EOF
     fi
   fi
@@ -2132,7 +2172,7 @@ _lazyfleet_help() {
 .lazyfleet (repo root, key=value; indent lines to continue a value):
   setup=…  copy=file1 file2
 ~/.config/lazyfleet/projects/<repo>.conf: the same keys, for one repo (wins)
-~/.config/lazyfleet/config: search=dirs  search_depth=n  worktrees=dir  status_branch=off  update_check=off  agent_icons=off  agent_notify=off  pr_status=off
+~/.config/lazyfleet/config: search=dirs  search_depth=n  worktrees=dir  status_branch=off  update_check=off  agent_icons=off  agent_notify=off  pr_status=off  trust_branch_config=on
 EOF
   if _lazyfleet_update_available; then
     tag=$REPLY; _lazyfleet_update_hint
