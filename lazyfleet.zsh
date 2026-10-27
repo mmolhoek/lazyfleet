@@ -3,9 +3,10 @@
 
 typeset -g LAZYFLEET_DIR=${${(%):-%x}:A:h}
 # keys that type into the find input instead while it's shown
-typeset -g _LAZYFLEET_LETTERS='j,k,n,d,p,r,a,w,c,C,R,q,/'
+typeset -g _LAZYFLEET_LETTERS='j,k,n,d,p,e,g,o,r,a,w,c,C,R,q,/'
 typeset -g _LAZYFLEET_FOOTER_WT=$'↵ open  (n)ew worktree  (a)dd project
-(d)elete  (p)ull  (w)indows  ⇥ repos  / find
+(d)elete  (p)ull  (e)ditor  (g) lazygit  (o) PR
+(w)indows  ⇥ repos  / find
 (c) project config  (C) global settings
 (r)eload  (q)uit'
 typeset -g _LAZYFLEET_FOOTER_REPO=$'↵ worktrees  (n)ew worktree  (a)dd project
@@ -1651,7 +1652,7 @@ _lazyfleet_ui() {
   # Query changes emitted by a transform are ignored by fzf, so the
   # view-switching keys reset the input with directly chained actions.
   local reset="+clear-query+hide-input+rebind($_LAZYFLEET_LETTERS)"
-  for k in / n d p r a c C R q; do binds+=(--bind "${k}:transform:$bin _key {1} {2}"); done
+  for k in / n d p e g o r a c C R q; do binds+=(--bind "${k}:transform:$bin _key {1} {2}"); done
   for k in enter tab esc w; do binds+=(--bind "${k}:transform($bin _key {1} {2})$reset"); done
   binds+=(--bind "load:transform:$bin _loaded")
   while :; do
@@ -1685,6 +1686,7 @@ _lazyfleet_ui() {
       (open) view= sel=$lines[2]; _lazyfleet_open_path $sel || _lazyfleet_pause ;;
       (new) view=; _lazyfleet_ui_new $lines[2] || continue
             sel=$REPLY; _lazyfleet_open_path $sel ;;
+      (edit|lazygit) view= sel=$lines[2]; _lazyfleet_handoff $lines[1] $sel || _lazyfleet_pause ;;
       (window) view=windows sel=$lines[2]; _lazyfleet_open_window $sel || _lazyfleet_pause ;;
       (*) rm -f $LAZYFLEET_POSFILE; return 0 ;;
     esac
@@ -1796,6 +1798,13 @@ _lazyfleet_key() {
         (t) print -r -- "execute($bin _ui_killwin {2})+$rl" ;;
         (*) print -r -- "execute($bin _ui_rm {2})+$rl" ;;
       esac ;;
+    (e|g)
+      # the editor or lazygit, in a window of the worktree's session
+      [[ $kind == w && -n $p ]] || return 0
+      [[ $FZF_KEY == e ]] && print -r -- "become(printf '%s\\n' edit {2})" || print -r -- "become(printf '%s\\n' lazygit {2})" ;;
+    (o)
+      [[ $kind == w && -n $p ]] || return 0
+      print -r -- "execute($bin _ui_openpr {2})" ;;
     (p)
       [[ $kind == w && -n $p ]] || return 0
       # in the background when fzf listens: the row shows ⟳ until it's done
@@ -1803,6 +1812,94 @@ _lazyfleet_key() {
       else print -r -- "execute($bin _ui_pull {2})+$rl"; fi ;;
   esac
 }
+
+# --- hand-off: other tools, in the worktree ---------------------------------
+# The editor and lazygit run in a window of the worktree's own session (named
+# "edit" and "lazygit"), which is created once and shown again when it exists.
+
+# REPLY=the command line to run in the worktree for tool $1 (edit|lazygit)
+_lazyfleet_tool() {
+  emulate -L zsh
+  local ed
+  case $1 in
+    (edit)
+      ed=${VISUAL:-${EDITOR:-vi}}
+      (( $+commands[${ed%% *}] )) || [[ ${ed%% *} == */* && -x ${ed%% *} ]] ||
+        { _lazyfleet_err "editor '${ed%% *}' not found (set \$VISUAL or \$EDITOR)"; return 1 }
+      REPLY="$ed ." ;;
+    (lazygit)
+      (( $+commands[lazygit] )) ||
+        { _lazyfleet_err "lazygit is not installed (https://github.com/jesseduffield/lazygit)"; return 1 }
+      REPLY=lazygit ;;
+    (*) _lazyfleet_err "unknown tool: $1"; return 1 ;;
+  esac
+}
+
+# Show tool $1 (edit|lazygit) for worktree $2: in its window, started when
+# there is none, then switch to it (inside tmux) or attach (outside)
+_lazyfleet_handoff() {
+  emulate -L zsh
+  local tool=$1 p=$2 cmd s id= line sep='@@lf@@'
+  _lazyfleet_tool $tool || return 1
+  cmd=$REPLY
+  _lazyfleet_ensure $p || return 1
+  s=$REPLY
+  for line in ${(f)"$(_lazyfleet_tmux list-windows -t "=$s" -F "#{window_name}${sep}#{window_id}" 2>/dev/null)"}; do
+    if [[ ${line%%$sep*} == $tool ]]; then id=${line##*$sep}; break; fi
+  done
+  if [[ -z $id ]]; then
+    id=$(_lazyfleet_tmux new-window -d -P -F '#{window_id}' -t "=$s:" -c ${p:A} -n $tool "exec $cmd") ||
+      { _lazyfleet_err "could not start $tool in session $s"; return 1 }
+    # a tool that cannot start ends its window at once: give it a moment, so
+    # that we can say so instead of switching to nothing
+    zmodload zsh/zselect 2>/dev/null && zselect -t 20
+  fi
+  _lazyfleet_tmux select-window -t $id 2>/dev/null ||
+    { _lazyfleet_err "$tool ended right away; run '${cmd% .}' in ${p/#$HOME/~} to see why"; return 1 }
+  _lazyfleet_attach "=$s"
+}
+
+# Open URL $1 in a browser: $BROWSER, else the system's opener
+_lazyfleet_browser() {
+  emulate -L zsh
+  if [[ -n $BROWSER ]]; then
+    command ${=BROWSER} $1
+  elif [[ $OSTYPE == darwin* ]] && (( $+commands[open] )); then
+    command open $1 &>/dev/null
+  elif (( $+commands[xdg-open] )); then
+    command xdg-open $1 &>/dev/null
+  else
+    _lazyfleet_err "no browser found (set \$BROWSER)"; return 1
+  fi
+}
+
+# Open the pull request of worktree $1 in the browser, from what the pull
+# request marks know (so it needs the same: gh, a GitHub origin, pr_status on).
+_lazyfleet_openpr() {
+  emulate -L zsh
+  local p=$1 repo slug br url
+  local -A prs
+  local -a f
+  _lazyfleet_toplevel $p && repo=$REPLY || { _lazyfleet_err "not a git worktree: $p"; return 1 }
+  br=$(git -C $p branch --show-current 2>/dev/null)
+  [[ -n $br ]] || { _lazyfleet_err "${p/#$HOME/~} is not on a branch"; return 1 }
+  if _lazyfleet_pr_enabled && _lazyfleet_ghslug $repo; then
+    slug=$REPLY
+  else
+    _lazyfleet_err "pull requests need gh, a GitHub origin, and pr_status on"; return 1
+  fi
+  _lazyfleet_pr_read $slug >/dev/null ||
+    { _lazyfleet_err "no pull request data yet (it is fetched in the background): try again in a moment"; return 1 }
+  f=("${(@ps:\t:)prs[${slug:l}:$br]}")
+  url=$f[4]
+  [[ -n $url ]] || { _lazyfleet_err "no pull request known for $br"; return 1 }
+  # the cache is data, and this goes to a program: only GitHub pull request links
+  [[ $url =~ '^https://github\.com/[A-Za-z0-9_.-]+/[A-Za-z0-9_.-]+/pull/[0-9]+$' ]] ||
+    { _lazyfleet_err "not a GitHub pull request link: ${url//[[:cntrl:]]/ }"; return 1 }
+  _lazyfleet_browser $url
+}
+
+_lazyfleet_ui_openpr() { _lazyfleet_openpr $1 || _lazyfleet_pause }
 
 # Prompt for a branch and create its worktree; REPLY=its path
 _lazyfleet_ui_new() {
