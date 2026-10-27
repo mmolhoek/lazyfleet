@@ -172,11 +172,20 @@ _lazyfleet_tmux() {
 }
 rows=$(_lazyfleet_winrows | plain)
 row() { print -r -- $rows | grep -E "$1" }
-check 'a window with Claude gets the Claude mark' eval 'row "alpha +0:shell" | gq "✻"'
-check 'a window with Copilot gets the Copilot mark' eval 'row "alpha +1:agent" | gq "✦"'
-check 'a window with omp gets the omp mark' eval 'row "eps +0:pi" | gq "π"'
-check 'a window without agents gets no mark' not eval 'row "beta +0:vim" | gq -E "✻|✦|π"'
-check 'the live marker is kept next to the mark' eval 'row "alpha +1:agent" | gq "● ✦"'
+check 'a window with Claude gets the Claude mark' eval 'row "alpha.* 0:shell" | gq "✻"'
+check 'a window with Copilot gets the Copilot mark' eval 'row "alpha.* 1:agent" | gq "✦"'
+check 'a window with omp gets the omp mark' eval 'row "eps.* 0:pi" | gq "π"'
+check 'a window without agents gets no mark' not eval 'row "beta.* 0:vim" | gq -E "✻|✦|π"'
+check 'the live marker is kept next to the mark' eval 'row "alpha.* 1:agent" | gq "● ✦"'
+check 'the live marker and the mark follow the session name directly' eval 'row "alpha.* 1:agent" | gq "^t.*alpha ● ✦  "'
+check 'a window without marks has just the name' eval 'row "beta.* 0:vim" | cut -f3 | grep -E "^beta +0:vim" >/dev/null'
+# the columns after the name line up whatever the icons: the same offset of every window number
+(
+  export LC_ALL=C.UTF-8
+  cols=$(_lazyfleet_winrows | plain | cut -f3 | sed -E 's/[0-9]+:.*//' | while IFS= read -r l; do print ${#l}; done | sort -u | wc -l | tr -d ' ')
+  exit $(( cols != 1 ))
+)
+check 'the window columns line up' test $? = 0
 rows=$(LAZYFLEET_AGENT_ICONS=off _lazyfleet_winrows | plain)
 check 'no marks when the icons are off' not eval 'print -r -- $rows | gq -E "✻|✦|π"'
 unset -f _lazyfleet_tmux; source $ROOT/lazyfleet.zsh

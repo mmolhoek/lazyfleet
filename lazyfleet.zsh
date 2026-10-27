@@ -1169,12 +1169,14 @@ _lazyfleet_pick() {
 # One row per tmux window: "t<TAB>=session:index<TAB>display"; ● marks the
 # window an attached client is looking at
 _lazyfleet_winrows() {
-  local line ws=0 wn=0 wc=0 i k
+  emulate -L zsh
+  setopt extended_glob
+  local line ws=0 wn=0 wc=0 i k pad w green=$'\e[32m' off=$'\e[0m'
   # tmux >= 3.4 turns control characters (tabs) in -F output into "_" unless
   # it writes to a terminal, so use a printable ASCII separator (safe in any
   # locale) and turn it into tabs
   local sep='@@lf@@'
-  local -a f S N C P M keyed
+  local -a f S N C P M I W keyed
   local -A agtally
   # by session name, then window number
   for line in ${(f)"$(_lazyfleet_tmux list-windows -a -F "#{session_name}${sep}#{window_index}:#{window_name}${sep}#{pane_current_command}${sep}#{pane_current_path}${sep}#{?#{&&:#{window_active},#{session_attached}},●,}" 2>/dev/null)"}; do
@@ -1185,16 +1187,24 @@ _lazyfleet_winrows() {
   for line in ${${(o)keyed}#*$'\0'*$'\0'}; do
     f=("${(@ps:\t:)line}")
     S+=($f[1]); N+=($f[2]); C+=($f[3]); P+=(${f[4]/#$HOME/\~}); M+=("$f[5]")
-    (( $#f[1] > ws )) && ws=$#f[1]
     (( $#f[2] > wn )) && wn=$#f[2]
     (( $#f[3] > wc )) && wc=$#f[3]
   done
   _lazyfleet_agent_icons_on && _lazyfleet_agent_tally w
+  # the status icons follow the session name directly; the other columns line
+  # up after the widest name-and-icons
   for (( i = 1; i <= $#S; i++ )); do
     k=$S[i]:${N[i]%%:*}
     _lazyfleet_agent_marks_at $k
-    printf 't\t=%s:%s\t\e[34m%-*s\e[0m  %-*s  \e[33m%-*s\e[0m  %s \e[32m%s\e[0m%s\n' \
-      $S[i] ${N[i]%%:*} $ws $S[i] $wn $N[i] $wc $C[i] $P[i] "$M[i]" "${REPLY:+ $REPLY}"
+    I[i]="${M[i]:+$green$M[i]$off}${REPLY:+${M[i]:+ }$REPLY}"
+    W[i]=${#${I[i]//$'\e'\[[0-9;]##m/}}
+    w=$(( ${#S[i]} + (W[i] ? 1 : 0) + W[i] ))
+    (( w > ws )) && ws=$w
+  done
+  for (( i = 1; i <= $#S; i++ )); do
+    pad=$(( ws - ${#S[i]} - (W[i] ? 1 : 0) - W[i] ))
+    printf 't\t=%s:%s\t\e[34m%s\e[0m%s%s  %-*s  \e[33m%-*s\e[0m  %s\n' \
+      $S[i] ${N[i]%%:*} $S[i] "${I[i]:+ $I[i]}" "${(l:pad:)}" $wn $N[i] $wc $C[i] $P[i]
   done
 }
 

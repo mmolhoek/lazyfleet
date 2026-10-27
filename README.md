@@ -203,7 +203,8 @@ Choose "Create draft pull request" in the page's button menu if you want a draft
 sorted alphabetically.
 
 The Windows view lists every tmux window in every session, with its command and directory, and previews what's on its
-screen. `●` marks the window an attached client is showing.
+screen. The status icons (`●` for the window an attached client is showing, then the agent marks) follow the session
+name directly, and the other columns line up after them.
 
 Outside tmux, opening a worktree attaches to its session. When you detach (`prefix d`) or exit its last shell, you're back in the TUI.
 Inside tmux, it switches the client and the TUI closes.
