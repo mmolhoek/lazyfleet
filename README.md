@@ -181,7 +181,7 @@ branch `pr-123` with the pull request's commits. Neither writes anything to GitH
 | `e`         | open the worktree in `$VISUAL` / `$EDITOR` (a window named `edit`)  |                            |                    |
 | `g`         | open lazygit in the worktree (a window named `lazygit`)            |                            |                    |
 | `o`         | open the worktree's pull request in the browser                    |                            |                    |
-| `O` · `D`   | open GitHub's page for a new pull request · a new draft pull request |                            |                    |
+| `O`         | open GitHub's page for a new pull request                          |                            |                    |
 | `a`         | add repo: pick one found under your project dirs, or type a path   | add repo                   | add repo           |
 | `tab` · `w` | next view · Windows view                                           |                            |                    |
 | `c` · `C`   | edit the project config · the global settings                     | same                       | global settings     |
@@ -194,11 +194,10 @@ pull request marks know, so it needs the same setup (`gh`, a GitHub `origin`, `p
 cached data, a moment after the marks appear. It uses `$BROWSER`, else `open` (macOS) or `xdg-open`, and only ever opens
 `https://github.com/<owner>/<repo>/pull/<number>` links.
 
-`O` opens GitHub's "create pull request" page for the worktree's branch, and `D` the same page asking for a draft; the
+`O` opens GitHub's "create pull request" page for the worktree's branch; the
 title and description are written on that page, and nothing is created by lazyfleet itself. It needs a GitHub `origin`
 (not `gh`), and the branch must already be on `origin` (`git push -u origin <branch>`); the default branch is refused.
-GitHub does not document a draft option for that page, so `D` sends `draft=1` as a best effort: if it is ignored, pick
-"Create draft pull request" in the page's button menu.
+Choose "Create draft pull request" in the page's button menu if you want a draft.
 
 `lazyfleet` opens on the Windows view when tmux has any windows open, and on Worktrees otherwise. All lists are
 sorted alphabetically.
@@ -306,7 +305,7 @@ zsh lazyfleet/tests/doctor.zsh      # lazyfleet doctor (stub tools, no network)
 zsh lazyfleet/tests/new-from-pr.zsh # new --pr / --issue (stub gh, local "GitHub")
 zsh lazyfleet/tests/prune.zsh       # lazyfleet prune (local "GitHub", stub gh)
 zsh lazyfleet/tests/handoff.zsh    # the e, g and o keys (stub tools, real tmux)
-zsh lazyfleet/tests/new-pr.zsh     # the O and D keys (stub browser, no network)
+zsh lazyfleet/tests/new-pr.zsh     # the O key (stub browser, no network)
 zsh lazyfleet/tests/busy-rm.zsh      # the warning before removing a worktree with agents running
 ```
 

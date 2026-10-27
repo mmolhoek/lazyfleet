@@ -3,10 +3,10 @@
 
 typeset -g LAZYFLEET_DIR=${${(%):-%x}:A:h}
 # keys that type into the find input instead while it's shown
-typeset -g _LAZYFLEET_LETTERS='j,k,n,d,p,e,g,o,O,D,r,a,w,c,C,R,q,/'
+typeset -g _LAZYFLEET_LETTERS='j,k,n,d,p,e,g,o,O,r,a,w,c,C,R,q,/'
 typeset -g _LAZYFLEET_FOOTER_WT=$'↵ open  (n)ew worktree  (a)dd project
 (d)elete  (p)ull  (e)ditor  (g) lazygit
-(o)pen PR  (O) new PR  (D) new draft PR
+(o)pen PR  (O) new PR
 (w)indows  ⇥ repos  / find
 (c) project config  (C) global settings
 (r)eload  (q)uit'
@@ -1698,7 +1698,7 @@ _lazyfleet_ui() {
   # Query changes emitted by a transform are ignored by fzf, so the
   # view-switching keys reset the input with directly chained actions.
   local reset="+clear-query+hide-input+rebind($_LAZYFLEET_LETTERS)"
-  for k in / n d p e g o O D r a c C R q; do binds+=(--bind "${k}:transform:$bin _key {1} {2}"); done
+  for k in / n d p e g o O r a c C R q; do binds+=(--bind "${k}:transform:$bin _key {1} {2}"); done
   for k in enter tab esc w; do binds+=(--bind "${k}:transform($bin _key {1} {2})$reset"); done
   binds+=(--bind "load:transform:$bin _loaded")
   while :; do
@@ -1851,11 +1851,10 @@ _lazyfleet_key() {
     (o)
       [[ $kind == w && -n $p ]] || return 0
       print -r -- "execute($bin _ui_openpr {2})" ;;
-    (O|D)
-      # GitHub's page for a new (draft) pull request of the worktree's branch
+    (O)
+      # GitHub's page for a new pull request of the worktree's branch
       [[ $kind == w && -n $p ]] || return 0
-      if [[ $FZF_KEY == D ]]; then print -r -- "execute($bin _ui_newpr {2} draft)"
-      else print -r -- "execute($bin _ui_newpr {2})"; fi ;;
+      print -r -- "execute($bin _ui_newpr {2})" ;;
     (p)
       [[ $kind == w && -n $p ]] || return 0
       # in the background when fzf listens: the row shows ⟳ until it's done
@@ -1968,8 +1967,8 @@ _lazyfleet_urlencode() {
 }
 
 # Open GitHub's "create pull request" page for the branch of worktree $1 in the
-# browser; with a second argument ("draft") the page asks for a draft. Nothing
-# is created here: the title and the description are written on the page.
+# browser. Nothing is created here: the title and the description are written
+# on the page.
 _lazyfleet_newpr() {
   emulate -L zsh
   local p=$1 repo slug br def url
@@ -1984,7 +1983,7 @@ _lazyfleet_newpr() {
   git -C $repo show-ref --verify -q "refs/remotes/origin/$br" ||
     { _lazyfleet_err "$br is not on origin yet: run 'git push -u origin $br' first"; return 1 }
   _lazyfleet_urlencode $br
-  url="https://github.com/$slug/compare/$REPLY?expand=1${2:+&draft=1}"
+  url="https://github.com/$slug/compare/$REPLY?expand=1"
   _lazyfleet_browser $url
 }
 
