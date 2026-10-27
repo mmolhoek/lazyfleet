@@ -42,6 +42,18 @@ none. It skips agents you can see right now. When an agent starts waiting or fin
 the status bars and shows a short tmux message (`✻ app needs you`) on clients that are in other sessions. Turn the
 message off with `agent_notify=off` (or `LAZYFLEET_AGENT_NOTIFY=off`); the status segment stays.
 
+### Pull requests and CI
+
+Each worktree whose branch has a pull request shows it as `#42` after the branch, with the CI result next to it:
+`✓` the checks pass, `✗` one failed, `…` they are still running. A draft shows `draft`, and a merged or closed
+pull request `merged` or `closed`. A pull request without any checks shows a bare `#42`. The Details pane adds the
+title, the state and the checks.
+
+It needs [`gh`](https://cli.github.com) with a login, and a GitHub remote. lazyfleet asks GitHub in the background
+(at most every 90 seconds, backing off when GitHub or the network fails), so the list never waits for it; rows
+update when an answer comes in. Only open pull requests get their checks fetched, for at most 25 of them per
+repository. Turn the marks off with `pr_status=off` (or `LAZYFLEET_PR_STATUS=off`).
+
 ## Install
 
 With the install script, which puts the files in `~/.local/share/lazyfleet` and links `~/.local/bin/lazyfleet`
@@ -198,6 +210,7 @@ same meaning wins when it's set.
 | `update_check`: `off` stops the daily check for a new release | `LAZYFLEET_UPDATE_CHECK` | `on`                                                                                                           |
 | `agent_icons`: `off` hides the `✻` `✦` `π` agent marks | `LAZYFLEET_AGENT_ICONS` | `on`                                                                                                           |
 | `agent_notify`: `off` stops the tmux message when an agent needs you or is done | `LAZYFLEET_AGENT_NOTIFY` | `on`                                                                                              |
+| `pr_status`: `off` hides the `#42 ✓` pull request and CI marks | `LAZYFLEET_PR_STATUS` | `on`                                                                                                           |
 
 ```
 search=~/Projects ~/work
@@ -214,6 +227,8 @@ search_depth=3
   within `status-interval`.
 - Agent state: one small file per agent and pane in `~/.cache/lazyfleet/agents` (`LAZYFLEET_AGENT_DIR` moves
   it). Files of agents that have stopped are removed.
+- Pull request cache: one small file per repository in lazyfleet's temporary directory (`pr/`), refreshed in the
+  background and safe to delete.
 - `LAZYFLEET_TMUX` overrides the tmux command (e.g. `tmux -L other`).
 
 ## Test
@@ -224,6 +239,7 @@ zsh lazyfleet/tests/update.zsh    # the update check
 zsh lazyfleet/tests/install.zsh   # install.sh
 zsh lazyfleet/tests/agents.zsh    # the Claude / Copilot / omp marks
 zsh lazyfleet/tests/agent-state.zsh  # agent state: hook script, marks, status, notifications, hooks install
+zsh lazyfleet/tests/pr-status.zsh   # pull request and CI marks (uses a stub gh, no network)
 ```
 
 The tests run in a throwaway HOME against an isolated tmux server.
