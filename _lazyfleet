@@ -14,6 +14,7 @@ local -a cmds=(
   'update:look for a newer release now'
   'status:tmux status segment for agents that need you'
   'hooks:install Claude Code hooks for agent state'
+  'doctor:check the tools lazyfleet needs'
   'version:show the installed version'
   'help:show help'
 )

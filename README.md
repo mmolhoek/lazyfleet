@@ -116,9 +116,23 @@ lazyfleet rm [worktree] [-f] [-D]   -f: even if dirty or locked (e.g. by Supacod
 lazyfleet pull [worktree]      fast-forward to its upstream (git pull --ff-only)
 lazyfleet windows              TUI on all tmux windows; enter switches to one
 lazyfleet config [repo]        edit the settings, or a repo's own config file, in $VISUAL / $EDITOR (vi)
+lazyfleet doctor               check that the tools lazyfleet needs are there and recent enough
 lazyfleet version              show the installed version
 lazyfleet update               look for a newer release now
 ```
+
+### Doctor
+
+When something does not work, `lazyfleet doctor` checks the machine. Each finding is `ok`, `warn` (a feature is
+reduced, or may not work) or `FAIL` (lazyfleet cannot work), with a suggested command when there is one:
+
+- `zsh`, `git`, `tmux` and `fzf` are installed and recent enough (fzf 0.58 or newer; an older zsh, git or tmux
+  only warns, as those minimums are cautious);
+- `curl` (update check), `gh` with a login (pull request marks, unless `pr_status=off`), and, when `claude` is
+  installed, `jq` and the Claude Code hooks (agent state);
+- the version of this install, and registered repositories whose directory is gone.
+
+It exits with status 1 when anything failed, so it can be used in scripts.
 
 You can name a worktree by its path, its branch (`feat/x`), its session name (`app/feat-x`) or its directory name.
 
@@ -240,6 +254,7 @@ zsh lazyfleet/tests/install.zsh   # install.sh
 zsh lazyfleet/tests/agents.zsh    # the Claude / Copilot / omp marks
 zsh lazyfleet/tests/agent-state.zsh  # agent state: hook script, marks, status, notifications, hooks install
 zsh lazyfleet/tests/pr-status.zsh   # pull request and CI marks (uses a stub gh, no network)
+zsh lazyfleet/tests/doctor.zsh      # lazyfleet doctor (stub tools, no network)
 ```
 
 The tests run in a throwaway HOME against an isolated tmux server.
