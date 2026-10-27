@@ -112,12 +112,92 @@ _lazyfleet_inside() {
   [[ $1 != /* && $1 != (..|../*|*/..|*/../*) ]]
 }
 
+# Check out branch $2 of repo $1 as the new worktree $3, and start the summary
+# (_lazyfleet_sum). A branch that does not exist yet starts from base $4, else
+# origin/HEAD, else HEAD. $5 says where the branch came from, if it came from
+# a pull request or an issue.
+_lazyfleet_new_checkout() {
+  local repo=$1 br=$2 p=$3 base=$4 src=$5 how
+  typeset -ga _lazyfleet_sum=()
+  if git -C $repo show-ref -q --verify refs/heads/$br; then
+    how='existing local branch'
+    git -C $repo worktree add -q $p $br
+  elif git -C $repo show-ref -q --verify refs/remotes/origin/$br; then
+    how="new, tracking origin/$br"
+    git -C $repo worktree add -q --track -b $br $p origin/$br
+  else
+    base=${base:-$(git -C $repo symbolic-ref -q --short refs/remotes/origin/HEAD)}
+    how="new, from ${base:-HEAD}"
+    git -C $repo worktree add -q -b $br $p ${base:-HEAD}
+  fi || return 1
+  _lazyfleet_say "lazyfleet: new worktree ${p/#$HOME/~}"
+  _lazyfleet_say "  branch  $br" "($how)"
+  [[ -n $src ]] && _lazyfleet_say "  from    $src"
+  return 0
+}
+
+# Copy what copy= lists from repo $1 into its new worktree $2, and say what was
+# copied and what was not. Fails when a copy fails: setup may need the file.
+_lazyfleet_new_copy() {
+  local repo=$1 p=$2 f
+  local -a copied skipped outside
+  if _lazyfleet_conf copy $p $repo; then
+    _lazyfleet_say_ignored copy
+    for f in ${=REPLY}; do
+      if ! _lazyfleet_inside $f; then
+        outside+=($f)
+      elif [[ -e $repo/$f ]]; then
+        # setup may need these files: don't start it without them
+        mkdir -p $p/${f:h} && cp -R $repo/$f $p/$f || {
+          _lazyfleet_err "could not copy $f into ${p/#$HOME/~}; the worktree is there, but setup didn't run"
+          return 1
+        }
+        copied+=($f)
+      else
+        skipped+=($f)
+      fi
+    done
+    (( $#copied )) && _lazyfleet_say "  copy    $copied " "from ${repo/#$HOME/~} ($_lazyfleet_from)"
+    for f in $skipped; do _lazyfleet_say "  ${(l:8:)}skipped $f: not in the main worktree"; done
+    for f in $outside; do _lazyfleet_say "  ${(l:8:)}skipped $f: not a path inside the repo"; done
+  else
+    _lazyfleet_say "  copy   " "nothing (no copy= configured)"
+    _lazyfleet_say_ignored copy
+  fi
+  return 0
+}
+
+# Run the setup= of repo $1 in the new worktree $2's session, which that
+# creates; without one, just create the session. The summary so far goes with it.
+_lazyfleet_new_setup() {
+  local repo=$1 p=$2 s cmd f
+  _lazyfleet_session $repo $p 0
+  s=$REPLY
+  # (an empty setup= is no setup: unquoted, an empty $cmd would vanish from the
+  # arguments below and the summary's first line would run as the command)
+  if _lazyfleet_conf setup $p $repo && [[ -n $REPLY ]]; then
+    cmd=$REPLY
+    _lazyfleet_say_ignored setup
+    if [[ $cmd == *$'\n'* ]]; then
+      _lazyfleet_say "  setup   ${#${(f)cmd}}-line script" "($_lazyfleet_from) → running in session $s:"
+      for f in ${(f)cmd}; do _lazyfleet_say "          " "$f"; done
+    else
+      _lazyfleet_say "  setup   $cmd " "($_lazyfleet_from) → running in session $s"
+    fi
+    _lazyfleet_setup_run $s $p "$cmd" $_lazyfleet_sum
+  else
+    _lazyfleet_say "  setup  " "nothing (no setup= configured)"
+    _lazyfleet_say_ignored setup
+    _lazyfleet_ensure $p
+  fi
+}
+
 # lazyfleet new <branch> | --pr <n> | --issue <n> [-r repo] [-b base] [--no-open] [-q (summary only in the session)]
 _lazyfleet_new() {
   local -a o_r o_b o_n o_q o_pr o_is
   zparseopts -D -E -F r:=o_r b:=o_b -no-open=o_n q=o_q -pr:=o_pr -issue:=o_is || return 1
   local _lazyfleet_quiet=${o_q:+1}
-  local br=$1 repo base p src=
+  local br=$1 repo p src=
   # zparseopts leaves the = of --pr=7 on the value
   (( $#o_pr )) && o_pr[2]=${o_pr[2]#=}
   (( $#o_is )) && o_is[2]=${o_is[2]#=}
@@ -148,67 +228,9 @@ _lazyfleet_new() {
   p=${~REPLY}/${repo:t}/${br//\//-}
   [[ -e $p ]] && { _lazyfleet_err "already exists: $p"; return 1 }
   # what we did goes to stderr (stdout is the path, for scripts and the TUI)
-  local how
-  typeset -ga _lazyfleet_sum=()
-  if git -C $repo show-ref -q --verify refs/heads/$br; then
-    how='existing local branch'
-    git -C $repo worktree add -q $p $br
-  elif git -C $repo show-ref -q --verify refs/remotes/origin/$br; then
-    how="new, tracking origin/$br"
-    git -C $repo worktree add -q --track -b $br $p origin/$br
-  else
-    base=${o_b[2]:-$(git -C $repo symbolic-ref -q --short refs/remotes/origin/HEAD)}
-    how="new, from ${base:-HEAD}"
-    git -C $repo worktree add -q -b $br $p ${base:-HEAD}
-  fi || return 1
-  _lazyfleet_say "lazyfleet: new worktree ${p/#$HOME/~}"
-  _lazyfleet_say "  branch  $br" "($how)"
-  [[ -n $src ]] && _lazyfleet_say "  from    $src"
-
-  local f
-  local -a copied skipped outside
-  if _lazyfleet_conf copy $p $repo; then
-    _lazyfleet_say_ignored copy
-    for f in ${=REPLY}; do
-      if ! _lazyfleet_inside $f; then
-        outside+=($f)
-      elif [[ -e $repo/$f ]]; then
-        # setup may need these files: don't start it without them
-        mkdir -p $p/${f:h} && cp -R $repo/$f $p/$f || {
-          _lazyfleet_err "could not copy $f into ${p/#$HOME/~}; the worktree is there, but setup didn't run"
-          return 1
-        }
-        copied+=($f)
-      else
-        skipped+=($f)
-      fi
-    done
-    (( $#copied )) && _lazyfleet_say "  copy    $copied " "from ${repo/#$HOME/~} ($_lazyfleet_from)"
-    for f in $skipped; do _lazyfleet_say "  ${(l:8:)}skipped $f: not in the main worktree"; done
-    for f in $outside; do _lazyfleet_say "  ${(l:8:)}skipped $f: not a path inside the repo"; done
-  else
-    _lazyfleet_say "  copy   " "nothing (no copy= configured)"
-    _lazyfleet_say_ignored copy
-  fi
-  _lazyfleet_session $repo $p 0
-  local s=$REPLY
-  # (an empty setup= is no setup: unquoted, an empty $cmd would vanish from the
-  # arguments below and the summary's first line would run as the command)
-  if _lazyfleet_conf setup $p $repo && [[ -n $REPLY ]]; then
-    local cmd=$REPLY
-    _lazyfleet_say_ignored setup
-    if [[ $cmd == *$'\n'* ]]; then
-      _lazyfleet_say "  setup   ${#${(f)cmd}}-line script" "($_lazyfleet_from) → running in session $s:"
-      for f in ${(f)cmd}; do _lazyfleet_say "          " "$f"; done
-    else
-      _lazyfleet_say "  setup   $cmd " "($_lazyfleet_from) → running in session $s"
-    fi
-    _lazyfleet_setup_run $s $p "$cmd" $_lazyfleet_sum || return 1
-  else
-    _lazyfleet_say "  setup  " "nothing (no setup= configured)"
-    _lazyfleet_say_ignored setup
-    _lazyfleet_ensure $p || return 1
-  fi
+  _lazyfleet_new_checkout $repo $br $p "${o_b[2]}" $src || return 1
+  _lazyfleet_new_copy $repo $p || return 1
+  _lazyfleet_new_setup $repo $p || return 1
   print -r -- $p
   (( $#o_n )) || _lazyfleet_open_path $p
 }

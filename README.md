@@ -344,6 +344,7 @@ fzf 0.58 or newer and says so, instead of failing check by check, when yours is 
 | `handoff`         | the `e`, `g` and `o` keys (stub tools, real tmux)                                   |
 | `new-pr`          | the `O` key (stub browser, no network)                                              |
 | `busy-rm`         | the warning before removing a worktree with agents running                          |
+| `helpers`         | the small helpers the commands share (worktree entries, settings, prompts)          |
 | `all-runner`      | `tests/all.zsh` itself                                                              |
 
 The tests run in a throwaway HOME against an isolated tmux server.

@@ -93,6 +93,13 @@ out=$(_lazyfleet_worktree_arg feat-x 'usage: x' 2>&1); rc=$?
 assert_eq 'a name two worktrees answer to fails' 1 $rc
 assert_contains 'and counts them' "no unique worktree for 'feat-x' (2 matches)" $out
 
+# --- a line of the prune report
+entry="/wt/app/feat-x${T}feat/x${T}pull request #4 was merged"
+assert_eq 'a prune line names the branch and the reason' '  prune  feat/x  —  pull request #4 was merged' "$(_lazyfleet_prune_line prune $entry)"
+assert_eq 'a keep line lines up with it' '  keep   feat/x  —  pull request #4 was merged' "$(_lazyfleet_prune_line keep $entry)"
+entry="/wt${T}evil"$'\e[31m'"x${T}gone"$'\a'"y"
+assert_eq 'control characters are made spaces, not passed to the terminal' '  prune  evil [31mx  —  gone y' "$(_lazyfleet_prune_line prune $entry)"
+
 # --- the question. The keyboard is replaced: it types what $typed holds.
 # (The real read -q is exercised by the TUI suite, in a real tmux pane.)
 _lazyfleet_readkey() { [[ $typed == [yY] ]] }

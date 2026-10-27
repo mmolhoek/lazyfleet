@@ -49,6 +49,64 @@ _lazyfleet_merged() {
   return 2
 }
 
+# Bring repo $1 up to date before it is judged: git fetch --prune (unless $2 is
+# not empty, for --no-fetch) and the GitHub pull request data. Sets the
+# caller's slug (the repo's owner/name, or empty) and fills its array prs.
+_lazyfleet_prune_refresh() {
+  emulate -L zsh
+  local repo=$1 e
+  local -a brs
+  if [[ -z $2 ]]; then
+    _lazyfleet_step "Updating ${repo:t} (git fetch --prune)"
+    git -C $repo fetch -q --prune origin 2>/dev/null
+    _lazyfleet_done || print -ru2 -- "  (offline? going by what is known)"
+  fi
+  slug=; prs=()
+  if _lazyfleet_pr_enabled && _lazyfleet_ghslug $repo; then
+    slug=$REPLY
+    _lazyfleet_worktrees $repo
+    for e in $reply; do _lazyfleet_wt_branch $e; brs+=($REPLY); done
+    _lazyfleet_pr_cachefile $slug && _lazyfleet_pr_fetch $slug $REPLY $brs >/dev/null 2>&1
+    _lazyfleet_pr_read $slug >/dev/null 2>&1
+  fi
+}
+
+# Judge worktree $2 of repo $1 ($3: the repo's GitHub owner/name, if any; the
+# caller's prs holds its pull requests). Returns 0 and REPLY=why when it is to
+# go, 2 and REPLY=why when it is merged but is left alone (a lock, uncommitted
+# changes, running agents, or commits that would be lost), and 1 when it is not
+# merged.
+_lazyfleet_prune_judge() {
+  emulate -L zsh
+  local repo=$1 p=$2 slug=$3 why rc s
+  _lazyfleet_merged $repo $p $slug; rc=$?
+  why=$REPLY
+  (( rc == 0 )) || { REPLY=$why; return rc }
+  if _lazyfleet_locked $p; then
+    why="$why, but it is $REPLY"
+  elif [[ -n $(git -C $p --no-optional-locks status --porcelain 2>/dev/null) ]]; then
+    why="$why, but it has uncommitted changes"
+  else
+    _lazyfleet_session $repo $p 0; s=$REPLY
+    _lazyfleet_session_agents $s
+    if (( $#reply )); then
+      why="$why, but agents are running in $s"
+    else
+      REPLY=$why; return 0
+    fi
+  fi
+  REPLY=$why
+  return 2
+}
+
+# Print the line for entry $2 ("x<TAB>branch<TAB>why") under the word $1. The
+# branch and the reason end up on the terminal, so no control characters.
+_lazyfleet_prune_line() {
+  local e=$2 br why
+  br=${${e#*$'\t'}%%$'\t'*} why=${e##*$'\t'}
+  print -r -- "  ${(r:5:)1}  ${br//[[:cntrl:]]/ }  —  ${why//[[:cntrl:]]/ }"
+}
+
 # lazyfleet prune [-n] [-y] [--keep-branches] [--no-fetch] [-r repo | --all]
 _lazyfleet_prune() {
   emulate -L zsh
@@ -57,10 +115,9 @@ _lazyfleet_prune() {
   local usage='usage: lazyfleet prune [-n] [-y] [--keep-branches] [--no-fetch] [-r repo | --all]'
   (( $# )) && { _lazyfleet_err $usage; return 1 }
   (( $#o_r && $#o_a )) && { _lazyfleet_err "give -r or --all, not both"; return 1 }
-  local repo p br s e why rc cur ans
-  local -a repos todo skipped flags
+  local repo p br e why rc cur ans slug
+  local -a repos todo skipped flags first last
   local -A prs
-  local slug n_other
   if (( $#o_a )); then
     _lazyfleet_repos; repos=($reply)
   elif (( $#o_r )); then
@@ -73,55 +130,28 @@ _lazyfleet_prune() {
   (( $#repos )) || { print -r -- "No repositories registered."; return 0 }
   # the tmux session we are in goes last: closing it ends this command
   [[ -n $TMUX ]] && cur=$(_lazyfleet_tmux display-message -p '#S' 2>/dev/null)
-  local -a first last brs
   for repo in $repos; do
     [[ -d $repo ]] || continue
-    n_other=0
-    if (( ! $#o_f )); then
-      _lazyfleet_step "Updating ${repo:t} (git fetch --prune)"
-      git -C $repo fetch -q --prune origin 2>/dev/null
-      _lazyfleet_done || print -ru2 -- "  (offline? going by what is known)"
-    fi
-    slug=; prs=()
-    if _lazyfleet_pr_enabled && _lazyfleet_ghslug $repo; then
-      slug=$REPLY
-      brs=()
-      _lazyfleet_worktrees $repo
-      for e in $reply; do _lazyfleet_wt_branch $e; brs+=($REPLY); done
-      _lazyfleet_pr_cachefile $slug && _lazyfleet_pr_fetch $slug $REPLY $brs >/dev/null 2>&1
-      _lazyfleet_pr_read $slug >/dev/null 2>&1
-    fi
+    _lazyfleet_prune_refresh $repo ${o_f:+1}
     _lazyfleet_worktrees $repo
     for e in $reply; do
       _lazyfleet_wt_ismain $e; [[ $REPLY == 1 ]] && continue      # the main worktree stays
       _lazyfleet_wt_path $e; p=$REPLY
-      rc=0; _lazyfleet_merged $repo $p $slug; rc=$?
+      _lazyfleet_prune_judge $repo $p $slug; rc=$?
       why=$REPLY
+      (( rc == 1 )) && continue
       _lazyfleet_branch_of $p; br=$REPLY
-      if (( rc == 1 )); then (( n_other++ )); continue; fi
       if (( rc == 0 )); then
-        if _lazyfleet_locked $p; then rc=2 why="$why, but it is $REPLY"
-        elif [[ -n $(git -C $p --no-optional-locks status --porcelain 2>/dev/null) ]]; then rc=2 why="$why, but it has uncommitted changes"
-        else
-          _lazyfleet_session $repo $p 0; s=$REPLY
-          _lazyfleet_session_agents $s
-          if (( $#reply )); then rc=2 why="$why, but agents are running in $s"; fi
-        fi
-      fi
-      if (( rc == 0 )); then
-        if [[ -n $cur && $s == $cur ]]; then last+=("$p"$'\t'"$br"$'\t'"$why"); else first+=("$p"$'\t'"$br"$'\t'"$why"); fi
+        _lazyfleet_session $repo $p 0
+        if [[ -n $cur && $REPLY == $cur ]]; then last+=("$p"$'\t'"$br"$'\t'"$why"); else first+=("$p"$'\t'"$br"$'\t'"$why"); fi
       else
         skipped+=("${repo:t}"$'\t'"$br"$'\t'"$why")
       fi
     done
   done
   todo=($first $last)
-  for e in $todo; do
-    print -r -- "  prune  ${${${e#*$'\t'}%%$'\t'*}//[[:cntrl:]]/ }  —  ${${e##*$'\t'}//[[:cntrl:]]/ }"
-  done
-  for e in $skipped; do
-    print -r -- "  keep   ${${${e#*$'\t'}%%$'\t'*}//[[:cntrl:]]/ }  —  ${${e##*$'\t'}//[[:cntrl:]]/ }"
-  done
+  for e in $todo; do _lazyfleet_prune_line prune $e; done
+  for e in $skipped; do _lazyfleet_prune_line keep $e; done
   if (( ! $#todo )); then
     print -r -- "Nothing to prune."
     return 0
