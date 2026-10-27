@@ -38,7 +38,7 @@ assert_contains '-v shows the suite'"'"'s own output' 'ok   one' $out
 # on GitHub Actions a failing suite is also an annotation, with newlines escaped
 out=$(GITHUB_ACTIONS=true run $SANDBOX/bad.zsh)
 assert_contains 'on GitHub Actions a failure is annotated' '::error title=test suite bad (exit 1)::FAIL two%0A       expected: a' $out
-out=$(run $SANDBOX/bad.zsh)
+out=$(GITHUB_ACTIONS= run $SANDBOX/bad.zsh)
 [[ $out != *'::error'* ]]; assert_eq 'elsewhere there are no annotations' 0 $?
 mk crash 'print "starting"; print "boom" >&2; exit 7'
 out=$(GITHUB_ACTIONS=true run $SANDBOX/crash.zsh)

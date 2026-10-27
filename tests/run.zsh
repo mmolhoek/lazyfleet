@@ -65,7 +65,15 @@ _lazyfleet_tmux kill-session -t '=sb'
 LAZYFLEET_STATUS_BRANCH=off lazyfleet new feat/nosb --no-open >/dev/null 2>&1
 check 'status_branch=off leaves the status bar alone' eval '_lazyfleet_tmux has-session -t "=app/feat-nosb" && [[ -z $(_lazyfleet_tmux show -v -t "=app/feat-nosb:" status-right) ]]'
 lazyfleet rm -f -D feat/nosb 2>/dev/null
-check 'new runs setup' waitfor $p/.setup-ran
+# on failure, show what the setup window printed (a shell stuck at a prompt, say)
+setup_ran() {
+  waitfor $p/.setup-ran && return 0
+  print -r -- "       tmux $(tmux -V), SHELL=$SHELL TERM=$TERM, shell panes:"
+  _lazyfleet_tmux list-panes -a -F '       #{session_name} #{pane_current_command} dead=#{pane_dead}' 2>&1
+  _lazyfleet_tmux capture-pane -p -t '=app/feat-x:' 2>&1 | sed 's/^/       | /'
+  return 1
+}
+check 'new runs setup' setup_ran
 cfg=$XDG_CONFIG_HOME/lazyfleet/config
 mkdir -p ${cfg:h}
 print -l '[app]' 'copy=.env .nope' 'setup=' '  touch .ml-a' '  touch .ml-b' >$cfg
