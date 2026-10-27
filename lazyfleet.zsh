@@ -2615,7 +2615,8 @@ _lazyfleet_prune() {
         elif [[ -n $(git -C $p --no-optional-locks status --porcelain 2>/dev/null) ]]; then rc=2 why="$why, but it has uncommitted changes"
         else
           _lazyfleet_session $repo $p 0; s=$REPLY
-          if _lazyfleet_prune_busy $s; then rc=2 why="$why, but agents are running in $s"; fi
+          _lazyfleet_session_agents $s
+          if (( $#reply )); then rc=2 why="$why, but agents are running in $s"; fi
         fi
       fi
       if (( rc == 0 )); then
@@ -2655,15 +2656,6 @@ _lazyfleet_prune() {
   done
   print -r -- "Removed $done_n worktree(s)${${failed_n:#0}:+, $failed_n failed}."
   (( ! failed_n ))
-}
-
-# Are agents running in tmux session $1?
-_lazyfleet_prune_busy() {
-  emulate -L zsh
-  local line
-  _lazyfleet_agents
-  for line in $reply; do [[ ${line%%$'\t'*} == $1 ]] && return 0; done
-  return 1
 }
 
 _lazyfleet_main() {
