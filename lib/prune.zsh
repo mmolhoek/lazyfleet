@@ -50,8 +50,9 @@ _lazyfleet_merged() {
 }
 
 # Bring repo $1 up to date before it is judged: git fetch --prune (unless $2 is
-# not empty, for --no-fetch) and the GitHub pull request data. Sets the
-# caller's slug (the repo's owner/name, or empty) and fills its array prs.
+# not empty, for --no-fetch) and the GitHub pull request data, which goes in
+# the caller's associative array prs (see _lazyfleet_pr_read). REPLY=the
+# repo's GitHub owner/name, or empty.
 _lazyfleet_prune_refresh() {
   emulate -L zsh
   local repo=$1 e
@@ -61,7 +62,8 @@ _lazyfleet_prune_refresh() {
     git -C $repo fetch -q --prune origin 2>/dev/null
     _lazyfleet_done || print -ru2 -- "  (offline? going by what is known)"
   fi
-  slug=; prs=()
+  local slug=
+  prs=()
   if _lazyfleet_pr_enabled && _lazyfleet_ghslug $repo; then
     slug=$REPLY
     _lazyfleet_worktrees $repo
@@ -69,6 +71,7 @@ _lazyfleet_prune_refresh() {
     _lazyfleet_pr_cachefile $slug && _lazyfleet_pr_fetch $slug $REPLY $brs >/dev/null 2>&1
     _lazyfleet_pr_read $slug >/dev/null 2>&1
   fi
+  REPLY=$slug
 }
 
 # Judge worktree $2 of repo $1 ($3: the repo's GitHub owner/name, if any; the
@@ -115,24 +118,63 @@ _lazyfleet_prune() {
   local usage='usage: lazyfleet prune [-n] [-y] [--keep-branches] [--no-fetch] [-r repo | --all]'
   (( $# )) && { _lazyfleet_err $usage; return 1 }
   (( $#o_r && $#o_a )) && { _lazyfleet_err "give -r or --all, not both"; return 1 }
-  local repo p br e why rc cur ans slug
-  local -a repos todo skipped flags first last
-  local -A prs
-  if (( $#o_a )); then
-    _lazyfleet_repos; repos=($reply)
-  elif (( $#o_r )); then
-    _lazyfleet_find_repo $o_r[2] || _lazyfleet_toplevel $o_r[2] || { _lazyfleet_err "unknown repo: $o_r[2]"; return 1 }
-    repos=($REPLY)
+  local e ans
+  local -a repos todo skipped
+  _lazyfleet_prune_repos ${o_a:+--all} ${o_r[2]:+-r} $o_r[2] || return 1
+  repos=($reply)
+  (( $#repos )) || { print -r -- "No repositories registered."; return 0 }
+  _lazyfleet_prune_scan ${o_f:+--no-fetch} $repos
+  todo=(${${(M)reply:#prune$'\t'*}#prune$'\t'}) skipped=(${${(M)reply:#keep$'\t'*}#keep$'\t'})
+  for e in $todo; do _lazyfleet_prune_line prune $e; done
+  for e in $skipped; do _lazyfleet_prune_line keep $e; done
+  if (( ! $#todo )); then
+    print -r -- "Nothing to prune."
+    return 0
+  fi
+  if (( $#o_n )); then
+    print -r -- "$#todo worktree(s) would be removed (dry run)."
+    return 0
+  fi
+  if (( ! $#o_y )); then
+    ans="Remove $#todo worktree(s)"
+    (( $#o_k )) && ans+=" (keeping their branches)"
+    _lazyfleet_confirm "$ans?" "not on a terminal: use -y to go ahead" || return 1
+  fi
+  _lazyfleet_prune_remove ${o_k:+--keep-branches} $todo
+}
+
+# reply=the repos prune looks at: every registered one (--all), the one
+# named (-r <repo>: a registered name or path, or any repo), or the one we
+# are in. Says what is wrong when there is none.
+_lazyfleet_prune_repos() {
+  emulate -L zsh
+  reply=()
+  if [[ $1 == --all ]]; then
+    _lazyfleet_repos
+  elif [[ $1 == -r ]]; then
+    _lazyfleet_find_repo $2 || _lazyfleet_toplevel $2 || { _lazyfleet_err "unknown repo: $2"; return 1 }
+    reply=($REPLY)
   else
     _lazyfleet_toplevel || { _lazyfleet_err 'not in a repo; pass -r <repo> or --all'; return 1 }
-    repos=($REPLY)
+    reply=($REPLY)
   fi
-  (( $#repos )) || { print -r -- "No repositories registered."; return 0 }
-  # the tmux session we are in goes last: closing it ends this command
+}
+
+# Bring each repo in $@ up to date (not with --no-fetch first) and judge its
+# worktrees. reply=("prune<TAB>path<TAB>branch<TAB>why" ...) for the ones to
+# remove, then ("keep<TAB>repo name<TAB>branch<TAB>why" ...) for merged ones
+# that stay. The tmux session we are in is removed last: closing it ends
+# this command.
+_lazyfleet_prune_scan() {
+  emulate -L zsh
+  local nofetch= repo e p br why rc cur slug
+  local -a first last skipped
+  local -A prs
+  [[ $1 == --no-fetch ]] && { nofetch=1; shift }
   [[ -n $TMUX ]] && cur=$(_lazyfleet_tmux display-message -p '#S' 2>/dev/null)
-  for repo in $repos; do
+  for repo in "$@"; do
     [[ -d $repo ]] || continue
-    _lazyfleet_prune_refresh $repo ${o_f:+1}
+    _lazyfleet_prune_refresh $repo $nofetch; slug=$REPLY      # fills prs
     _lazyfleet_worktrees $repo
     for e in $reply; do
       _lazyfleet_wt_ismain $e; [[ $REPLY == 1 ]] && continue      # the main worktree stays
@@ -149,25 +191,18 @@ _lazyfleet_prune() {
       fi
     done
   done
-  todo=($first $last)
-  for e in $todo; do _lazyfleet_prune_line prune $e; done
-  for e in $skipped; do _lazyfleet_prune_line keep $e; done
-  if (( ! $#todo )); then
-    print -r -- "Nothing to prune."
-    return 0
-  fi
-  if (( $#o_n )); then
-    print -r -- "$#todo worktree(s) would be removed (dry run)."
-    return 0
-  fi
-  if (( ! $#o_y )); then
-    ans="Remove $#todo worktree(s)"
-    (( $#o_k )) && ans+=" (keeping their branches)"
-    _lazyfleet_confirm "$ans?" "not on a terminal: use -y to go ahead" || return 1
-  fi
-  flags=(); (( $#o_k )) || flags=(-D)
-  local done_n=0 failed_n=0
-  for e in $todo; do
+  reply=(${first/#/prune$'\t'} ${last/#/prune$'\t'} ${skipped/#/keep$'\t'})
+}
+
+# Remove the worktrees in $@ ("path<TAB>branch<TAB>why"), with their local
+# branches unless --keep-branches comes first, and say how it went. Fails
+# when any removal failed.
+_lazyfleet_prune_remove() {
+  emulate -L zsh
+  local e done_n=0 failed_n=0
+  local -a flags=(-D)
+  [[ $1 == --keep-branches ]] && { flags=(); shift }
+  for e in "$@"; do
     if _lazyfleet_rm $flags ${e%%$'\t'*}; then (( done_n++ )); else (( failed_n++ )); fi
   done
   print -r -- "Removed $done_n worktree(s)${${failed_n:#0}:+, $failed_n failed}."

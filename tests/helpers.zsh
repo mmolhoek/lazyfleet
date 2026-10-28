@@ -202,6 +202,19 @@ assert_eq 'act: a cancelled new is nothing' 'rc=2 view= sel=' "$(act $'new\n/src
 assert_eq 'act: anything else quits' 'rc=1 view= sel=' "$(act abort)"
 unset LAZYFLEET_POSFILE
 
+# --- which repos prune looks at
+_lazyfleet_prune_repos --all;      assert_eq 'prune repos: --all is every registered one' "$repo" "$reply"
+_lazyfleet_prune_repos -r app;     assert_eq 'prune repos: -r by name' "$repo" "$reply"
+_lazyfleet_prune_repos -r $fx;     assert_eq 'prune repos: -r with a path in a worktree means its repo' "$repo" "$reply"
+out=$(_lazyfleet_prune_repos -r $SANDBOX/plain 2>&1); rc=$?
+assert_eq 'prune repos: -r with no repo fails' 1 $rc
+assert_contains 'prune repos: and names it' "unknown repo: $SANDBOX/plain" $out
+(cd $fx && _lazyfleet_prune_repos && print -r -- $reply) >$SANDBOX/out
+assert_eq 'prune repos: none given means the repo we are in' "$repo" "$(<$SANDBOX/out)"
+out=$(cd $SANDBOX/plain && _lazyfleet_prune_repos 2>&1); rc=$?
+assert_eq 'prune repos: outside a repo fails' 1 $rc
+assert_contains 'prune repos: and says what to do' 'pass -r <repo> or --all' $out
+
 # --- a line of the prune report
 entry="/wt/app/feat-x${T}feat/x${T}pull request #4 was merged"
 assert_eq 'a prune line names the branch and the reason' '  prune  feat/x  —  pull request #4 was merged' "$(_lazyfleet_prune_line prune $entry)"
