@@ -8,13 +8,14 @@ source ${0:A:h}/lib.zsh
 need_tools git tmux
 SANDBOX=${$(mktemp -d):A}
 export HOME=$SANDBOX/home XDG_CONFIG_HOME=$SANDBOX/cfg LAZYFLEET_WORKTREES=$SANDBOX/wt TMPDIR=$SANDBOX/tmp
-export TMUX_TMPDIR=$SANDBOX GIT_AUTHOR_NAME=t GIT_AUTHOR_EMAIL=t@t GIT_COMMITTER_NAME=t GIT_COMMITTER_EMAIL=t@t
+export GIT_AUTHOR_NAME=t GIT_AUTHOR_EMAIL=t@t GIT_COMMITTER_NAME=t GIT_COMMITTER_EMAIL=t@t
 mkdir -p $HOME $TMPDIR $SANDBOX/stub $SANDBOX/fix
 unset TMUX LAZYFLEET_PR_STATUS LAZYFLEET_AGENT_ICONS
-export LAZYFLEET_TMUX="tmux -L lazyfleet-pr-$$" SHELL=${commands[zsh]}
+export SHELL=${commands[zsh]}
+use_tmux pr
 export LAZYFLEET_AGENT_ICONS=off
 source $ROOT/lazyfleet.zsh
-cleanup() { _lazyfleet_tmux kill-server 2>/dev/null; rm -rf $SANDBOX }
+cleanup() { tmux_cleanup; rm -rf $SANDBOX }
 trap cleanup EXIT
 
 plain() { sed 's/\x1b\[[0-9;]*m//g' }

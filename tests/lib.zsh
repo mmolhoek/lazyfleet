@@ -38,20 +38,55 @@ assert_contains() {
 gq() { grep "$@" >/dev/null 2>&1 }
 not() { ! "$@" }
 
-# Poll instead of sleeping: up to 6 seconds, so a loaded machine only makes a
-# suite slower, not wrong.
+# Poll instead of sleeping: up to 15 seconds, so a loaded machine only makes a
+# suite slower, not wrong. (6 s was not always enough on a busy runner.)
 # retry <command string>
-retry() { local i; for i in {1..60}; do eval "$1" && return 0; sleep 0.1; done; return 1 }
+retry() { local i; for i in {1..150}; do eval "$1" && return 0; sleep 0.1; done; return 1 }
 # waitfor <path>: until it exists
-waitfor() { local i; for i in {1..60}; do [[ -e $1 ]] && return 0; sleep 0.1; done; return 1 }
+waitfor() { local i; for i in {1..150}; do [[ -e $1 ]] && return 0; sleep 0.1; done; return 1 }
 # waitfor_gone <path>: until it no longer exists
-waitfor_gone() { local i; for i in {1..60}; do [[ -e $1 ]] || return 0; sleep 0.1; done; return 1 }
+waitfor_gone() { local i; for i in {1..150}; do [[ -e $1 ]] || return 0; sleep 0.1; done; return 1 }
 # waitpane <session> <text>: until the session's pane shows the text (a fixed
 # string, not a pattern). Needs lazyfleet.zsh sourced, for _lazyfleet_tmux.
 waitpane() {
   local i
-  for i in {1..60}; do
+  for i in {1..150}; do
     _lazyfleet_tmux capture-pane -p -t "=$1:" 2>/dev/null | grep -qF -- "$2" && return 0
+    sleep 0.1
+  done
+  return 1
+}
+
+# use_tmux <name>: give the suite a tmux server of its own, lf-<name>-<pid>,
+# with its socket in the sandbox ($SANDBOX must be set), so it goes away with
+# it. A unix socket path holds 103 bytes on macOS, whose temp dirs are already
+# about 70 long: when $TMUX_TMPDIR/tmux-UID/NAME would not fit, the socket
+# goes to a short dir in /tmp instead. tmux_cleanup removes both.
+typeset -g _test_tmux= _test_tmux_dir=
+use_tmux() {
+  local dir=${SANDBOX:?use_tmux needs SANDBOX}
+  _test_tmux=lf-$1-$$
+  if (( $#dir + ${#:-/tmux-$UID/} + $#_test_tmux > 100 )); then
+    dir=$(mktemp -d /tmp/lf.XXXXXX) || { print -u2 -- "tests: cannot make a short dir for the tmux socket"; exit 2 }
+    _test_tmux_dir=$dir
+  fi
+  unset TMUX TMUX_PANE
+  export TMUX_TMPDIR=$dir LAZYFLEET_TMUX="tmux -L $_test_tmux"
+}
+# tmux_cleanup: stop the suite's tmux server and remove a short socket dir
+tmux_cleanup() {
+  [[ -n $_test_tmux ]] && command tmux -L $_test_tmux kill-server 2>/dev/null
+  [[ -n $_test_tmux_dir ]] && rm -rf $_test_tmux_dir
+  return 0
+}
+
+# waitcmd <session> <command>: until the session's pane runs that command
+# (e.g. the `sleep` a test pane ends with: what ran before it has returned).
+# Needs lazyfleet.zsh sourced, for _lazyfleet_tmux.
+waitcmd() {
+  local i
+  for i in {1..150}; do
+    [[ $(_lazyfleet_tmux display-message -p -t "=$1:" '#{pane_current_command}' 2>/dev/null) == $2 ]] && return 0
     sleep 0.1
   done
   return 1
