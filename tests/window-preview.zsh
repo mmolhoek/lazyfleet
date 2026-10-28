@@ -90,8 +90,8 @@ kill $watcher 2>/dev/null; wait $watcher 2>/dev/null
 # --- the whole TUI, started inside one of the sessions it lists (the bug as
 # it was seen). "aaa" sorts first, so its row, our own pane, is selected.
 autoload -Uz is-at-least
-if (( ! $+commands[fzf] )) || ! is-at-least 0.58 ${${(z)$(fzf --version 2>/dev/null)}[1]}; then
-  skip 'the TUI inside its own session' 'needs fzf 0.58 or newer'
+if (( ! $+commands[fzf] )) || ! is-at-least $_test_min_fzf ${${(z)$(fzf --version 2>/dev/null)}[1]}; then
+  skip 'the TUI inside its own session' "needs fzf $_test_min_fzf or newer"
 else
   export LAZYFLEET_UPDATE_CHECK=off LAZYFLEET_PR_STATUS=off LAZYFLEET_AGENT_ICONS=off TERM=${TERM:-xterm-256color}
   [[ $TERM == dumb ]] && export TERM=xterm-256color

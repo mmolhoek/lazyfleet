@@ -24,7 +24,7 @@
 
 set -eu
 
-MIN_FZF=0.58   # first fzf with --style
+MIN_FZF=0.66   # first fzf with --gutter and --listen on a unix socket (the TUI uses both)
 
 say()  { printf '%s\n' "$*"; }
 warn() { printf 'lazyfleet: warning: %s\n' "$*" >&2; }
@@ -176,6 +176,7 @@ place_files() {
   [ -f "$work/src/LICENSE" ] && cp "$work/src/LICENSE" "$stage/"
   printf '%s\n' "$version" >"$stage/VERSION"
   printf 'install.sh\n' >"$stage/INSTALLER"
+  compile_zsh "$stage"
   old=
   if [ -e "$INSTALL_DIR" ]; then
     old=$(cat "$INSTALL_DIR/VERSION" 2>/dev/null || true)
@@ -183,6 +184,16 @@ place_files() {
   fi
   mv "$stage" "$INSTALL_DIR"
   rm -rf "$INSTALL_DIR.old.$$"
+}
+
+# Compile the zsh code in dir $1 to wordcode (.zwc), which zsh loads instead
+# of the source when it is newer: every key press in the TUI starts lazyfleet
+# anew, and this halves what loading costs. Best effort: without zsh, or for
+# a zsh that cannot, nothing changes (zsh ignores a .zwc of another version).
+compile_zsh() {
+  have zsh || return 0
+  # shellcheck disable=SC2016  # $f is for zsh, not for this shell
+  zsh -fc 'for f; do [ -f "$f" ] && zcompile -- "$f" 2>/dev/null; done; :' zsh "$1"/lazyfleet.zsh "$1"/lib/*.zsh || true
 }
 
 # Say what was done, what is missing, and how to set up the shell

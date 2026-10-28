@@ -4,10 +4,13 @@
 # every check passed, 1 when one failed and 2 when this machine cannot run it
 # (see need_tools): tests/all.zsh tells those apart.
 
-typeset -gi fails=0
+# Failures are counted in a file, not a variable: a check inside a ( )
+# subshell must still fail the suite
+typeset -g _test_failfile=$(mktemp "${TMPDIR:-/tmp}/lf-fails.XXXXXX")
+fails() { REPLY=$(wc -l <$_test_failfile 2>/dev/null | tr -d ' '); REPLY=${REPLY:-0} }
 
 ok()   { print -P "%F{green}ok%f   $1" }
-fail() { print -P "%F{red}FAIL%f $1"; (( fails++ )) }
+fail() { print -P "%F{red}FAIL%f $1"; print x >>$_test_failfile }
 skip() { print -P "%F{yellow}skip%f $1 ($2)" }
 
 # check <description> <command...>: ok when the command succeeds
@@ -67,7 +70,7 @@ use_tmux() {
   local dir=${SANDBOX:?use_tmux needs SANDBOX}
   _test_tmux=lf-$1-$$
   if (( $#dir + ${#:-/tmux-$UID/} + $#_test_tmux > 100 )); then
-    dir=$(mktemp -d /tmp/lf.XXXXXX) || { print -u2 -- "tests: cannot make a short dir for the tmux socket"; exit 2 }
+    dir=$(mktemp -d /tmp/lf.XXXXXX) || cannot_run "cannot make a short dir for the tmux socket"
     _test_tmux_dir=$dir
   fi
   unset TMUX TMUX_PANE
@@ -94,21 +97,29 @@ waitcmd() {
 
 # End of a suite: the verdict and the exit status
 finish() {
-  if (( fails )); then print -P "\n%F{red}$fails failed%f"; exit 1; fi
+  fails; local n=$REPLY
+  rm -f $_test_failfile
+  if (( n )); then print -P "\n%F{red}$n failed%f"; exit 1; fi
   print -P "\n%F{green}all passed%f"
 }
+
+# the oldest fzf lazyfleet works with: install.sh's, which doctor has too
+typeset -g _test_min_fzf=$(sed -n 's/^MIN_FZF=\([0-9.]*\).*/\1/p' ${${(%):-%x}:A:h:h}/install.sh)
+
+# cannot_run <why>: this machine cannot run the suite: say why, exit 2
+cannot_run() { print -u2 -- "tests: $1"; rm -f $_test_failfile; exit 2 }
 
 # need_tools <tool>...: exit 2 with a clear message when a tool the suite runs
 # is missing, or when fzf is older than lazyfleet's minimum. (A distro's old
 # fzf used to fail the TUI checks one by one, with no hint why.)
 need_tools() {
-  local t v min=0.58   # the first fzf with --style, as in lazyfleet doctor
+  local t v min=$_test_min_fzf
   autoload -Uz is-at-least
   for t in "$@"; do
-    (( $+commands[$t] )) || { print -u2 -- "tests: $t is not installed; this suite needs it"; exit 2 }
+    (( $+commands[$t] )) || cannot_run "$t is not installed; this suite needs it"
     if [[ $t == fzf ]]; then
       v=${${(z)$(fzf --version 2>/dev/null)}[1]}
-      is-at-least $min $v || { print -u2 -- "tests: fzf $v is too old; this suite needs $min or newer"; exit 2 }
+      is-at-least $min $v || cannot_run "fzf $v is too old; this suite needs $min or newer"
     fi
   done
 }
