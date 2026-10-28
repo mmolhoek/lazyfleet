@@ -89,7 +89,8 @@ done
 check 'd still deletes' eval 'k d | gq "_ui_rm {2}"'
 check 'O is typed into the filter, not run, while it is shown' eval '[[ $_LAZYFLEET_LETTERS == *,O,* ]]'
 check 'the footer names it' eval '[[ $_LAZYFLEET_FOOTER_WT == *"(O) new PR"* ]]'
-check 'the keys are bound' eval '[[ "${functions[_lazyfleet_ui]}" == *"for k in / n d p e g o O r a c C R q"* ]]'
+_lazyfleet_ui_binds /bin/lf ''
+check 'the keys are bound' eval '[[ ${(j: :)reply} == *"--bind O:transform:/bin/lf _key {1} {2}"* ]]'
 check 'the dispatcher reaches _ui_newpr' eval '[[ "${functions[_lazyfleet_main]}" == *"_*) _lazyfleet\$cmd"* ]] && (( $+functions[_lazyfleet_ui_newpr] ))'
 
 finish

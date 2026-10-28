@@ -24,41 +24,25 @@ typeset -g _LAZYFLEET_PW='right,50%' _LAZYFLEET_PW_WIN='right,70%'
 _lazyfleet_ui() {
   local -a o_w
   zparseopts -D -E w=o_w
-  local bin=${(q)LAZYFLEET_DIR}/bin/lazyfleet k q=$1 out view=${o_w:+windows} rows sel i rc
-  local -a binds lines start
+  local bin=${(q)LAZYFLEET_DIR}/bin/lazyfleet q=$1 out view=${o_w:+windows} rows sel rc label sock
+  local -a binds start
+  _lazyfleet_footers
+  _lazyfleet_ui_label; label=$REPLY
+  _lazyfleet_tmpdir || return 1
   # coming back from a session, the first load puts the cursor on the row we
   # left (sel: its path or window target); this file hands that over once
-  _lazyfleet_footers
-  _lazyfleet_ui_label; local label=$REPLY
-  _lazyfleet_tmpdir || return 1
   local -x LAZYFLEET_POSFILE=$REPLY/pos.$$
   # background jobs (pull) send fzf actions here; unix socket paths are
   # limited to 103 bytes; without it p pulls in the foreground
-  local sock=$REPLY/fzf.$$.sock
-  (( $#sock < 104 )) && binds+=(--listen=$sock) || sock=
+  sock=$REPLY/fzf.$$.sock
+  (( $#sock < 104 )) || sock=
+  _lazyfleet_ui_binds $bin $sock; binds=($reply)
   # start on the Windows view when tmux has any (unless given a query)
   [[ -z $view && -z $q && -n $(_lazyfleet_tmux list-windows -a -F x 2>/dev/null) ]] && view=windows
-  # Query changes emitted by a transform are ignored by fzf, so the
-  # view-switching keys reset the input with directly chained actions.
-  local reset="+clear-query+hide-input+rebind($_LAZYFLEET_LETTERS)"
-  for k in / n d p e g o O r a c C R q; do binds+=(--bind "${k}:transform:$bin _key {1} {2}"); done
-  for k in enter tab esc w; do binds+=(--bind "${k}:transform($bin _key {1} {2})$reset"); done
-  binds+=(--bind "load:transform:$bin _loaded")
   while :; do
-    if [[ $view == windows ]]; then
-      start=(--list-label ' Windows ' --footer "$_LAZYFLEET_FOOTER_WIN" --preview-window $_LAZYFLEET_PW_WIN)
-    else
-      start=(--list-label ' Worktrees · loading… ' --footer "$_LAZYFLEET_FOOTER_WT" --preview-window $_LAZYFLEET_PW)
-    fi
-    [[ -n $q ]] && start+=(--bind "start:show-input+unbind($_LAZYFLEET_LETTERS)")
+    _lazyfleet_ui_start "$view" "$q"; start=($reply)
     if [[ $view == windows ]]; then rows=$(_lazyfleet_winrows); else rows=$(_lazyfleet_rows); fi
-    rm -f $LAZYFLEET_POSFILE
-    if [[ -n $sel ]]; then
-      lines=(${(f)rows})
-      k=$'\t'  # $'\t' isn't expanded inside the subscript
-      i=${lines[(i)*$k${(b)sel}$k*]}
-      (( i <= $#lines )) && print $i >$LAZYFLEET_POSFILE
-    fi
+    _lazyfleet_ui_handover $rows "$sel"
     out=$(print -r -- $rows |
       fzf --ansi --style full --layout reverse --no-input --no-sort \
       --delimiter '\t' --with-nth 3 --query "$q" \
@@ -69,18 +53,74 @@ _lazyfleet_ui() {
     rc=$?
     [[ -n $sock ]] && rm -f $sock
     (( rc )) && return 0
-    q= sel=
-    lines=(${(f)out})
-    case $lines[1] in
-      (open) view= sel=$lines[2]; _lazyfleet_open_path $sel || _lazyfleet_pause ;;
-      (new) view=; _lazyfleet_ui_new $lines[2] || continue
-            sel=$REPLY; _lazyfleet_open_path $sel ;;
-      (edit|lazygit) view= sel=$lines[2]; _lazyfleet_handoff $lines[1] $sel || _lazyfleet_pause ;;
-      (window) view=windows sel=$lines[2]; _lazyfleet_open_window $sel || _lazyfleet_pause ;;
-      (*) rm -f $LAZYFLEET_POSFILE; return 0 ;;
+    q=
+    _lazyfleet_ui_act $out; rc=$?
+    view=$reply[1] sel=$reply[2]
+    case $rc in
+      (1) return 0 ;;                 # quit
+      (2) continue ;;                 # nothing happened: show the list again
     esac
+    # inside tmux the client has switched away: the TUI is done
     [[ -n $TMUX ]] && return 0
   done
+}
+
+# reply=fzf's --bind (and --listen) arguments for the TUI; $1 the lazyfleet
+# command, $2 the socket fzf listens on (none when empty)
+_lazyfleet_ui_binds() {
+  local bin=$1 k
+  reply=()
+  [[ -n $2 ]] && reply+=(--listen=$2)
+  # Query changes emitted by a transform are ignored by fzf, so the
+  # view-switching keys reset the input with directly chained actions.
+  local reset="+clear-query+hide-input+rebind($_LAZYFLEET_LETTERS)"
+  for k in / n d p e g o O r a c C R q; do reply+=(--bind "${k}:transform:$bin _key {1} {2}"); done
+  for k in enter tab esc w; do reply+=(--bind "${k}:transform($bin _key {1} {2})$reset"); done
+  reply+=(--bind "load:transform:$bin _loaded")
+}
+
+# reply=the fzf arguments one round of the TUI starts with: view $1
+# ("windows" or empty for worktrees), and query $2 (shows the find input)
+_lazyfleet_ui_start() {
+  if [[ $1 == windows ]]; then
+    reply=(--list-label ' Windows ' --footer "$_LAZYFLEET_FOOTER_WIN" --preview-window $_LAZYFLEET_PW_WIN)
+  else
+    reply=(--list-label ' Worktrees · loading… ' --footer "$_LAZYFLEET_FOOTER_WT" --preview-window $_LAZYFLEET_PW)
+  fi
+  [[ -n $2 ]] && reply+=(--bind "start:show-input+unbind($_LAZYFLEET_LETTERS)")
+}
+
+# Hand the row of the item $2 (a path or window target) in rows $1 over to
+# the next load, through $LAZYFLEET_POSFILE; nothing when $2 is empty or gone
+_lazyfleet_ui_handover() {
+  local k=$'\t' i  # $'\t' isn't expanded inside the subscript
+  local -a lines
+  rm -f $LAZYFLEET_POSFILE
+  [[ -n $2 ]] || return 0
+  lines=(${(f)1})
+  i=${lines[(i)*$k${(b)2}$k*]}
+  (( i <= $#lines )) && print $i >$LAZYFLEET_POSFILE
+  return 0
+}
+
+# Act on what fzf ended with ($1: an action line, then a path or target).
+# reply=(the view to show next, the item to put the cursor on). Status: 0
+# done, 1 quit, 2 nothing happened (a new worktree that was cancelled).
+_lazyfleet_ui_act() {
+  local -a lines=(${(f)1})
+  local what=$lines[1] it=$lines[2] view= sel=$lines[2]
+  case $what in
+    (open) _lazyfleet_open_path $it || _lazyfleet_pause ;;
+    (new)
+      _lazyfleet_ui_new $it || { reply=('' ''); return 2 }
+      sel=$REPLY
+      _lazyfleet_open_path $sel ;;
+    (edit|lazygit) _lazyfleet_handoff $what $it || _lazyfleet_pause ;;
+    (window) view=windows; _lazyfleet_open_window $it || _lazyfleet_pause ;;
+    (*) rm -f $LAZYFLEET_POSFILE; reply=('' ''); return 1 ;;
+  esac
+  # last: what ran above may use reply itself
+  reply=("$view" "$sel")
 }
 
 # The Worktrees view loads in two steps, tracked in the list label: plain

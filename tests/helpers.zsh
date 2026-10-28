@@ -167,6 +167,41 @@ colored=$(_lazyfleet_row_print -- /p app 3 b 1 ● '' '' '' '' '')
 check 'row: colors without -p' eval '[[ $colored == *$'"'"'\e[34mapp'"'"'* && $colored == *$'"'"'\e[32m●'"'"'* ]]'
 check 'row: none with -p' eval '[[ $(row ● "*" 🐳1 1 "#1" x) != *$'"'"'\e'"'"'* ]]'
 
+# --- the TUI loop's pieces
+LAZYFLEET_POSFILE=$SANDBOX/pos
+rows=$'w\t/wt/a\ta\nw\t/wt/b\tb\nt\t=s:1\tw'
+_lazyfleet_ui_handover $rows /wt/b;  assert_eq 'handover: the row of the item left' 2 "$(<$LAZYFLEET_POSFILE)"
+_lazyfleet_ui_handover $rows '=s:1'; assert_eq 'handover: a window target too' 3 "$(<$LAZYFLEET_POSFILE)"
+_lazyfleet_ui_handover $rows /wt;    check 'handover: only a whole field matches' test ! -e $LAZYFLEET_POSFILE
+_lazyfleet_ui_handover $rows '/wt/*'; check 'handover: a * in the item is not a pattern' test ! -e $LAZYFLEET_POSFILE
+print 9 >$LAZYFLEET_POSFILE
+_lazyfleet_ui_handover $rows '';     check 'handover: nothing to hand over clears an old one' test ! -e $LAZYFLEET_POSFILE
+_lazyfleet_ui_start windows '';  assert_eq 'start: the Windows view' ' Windows ' $reply[2]
+_lazyfleet_ui_start '' '';       assert_eq 'start: else the worktrees, loading' ' Worktrees · loading… ' $reply[2]
+_lazyfleet_ui_start '' 'app'
+check 'start: a query shows the find input' eval '[[ ${reply[-1]} == start:show-input* ]]'
+_lazyfleet_ui_binds /bin/lf /tmp/s.sock
+check 'binds: listens on the socket' eval '[[ $reply[1] == --listen=/tmp/s.sock ]]'
+_lazyfleet_ui_binds /bin/lf ''
+check 'binds: no socket, no --listen' eval '[[ ${(j: :)reply} != *--listen* ]]'
+check 'binds: enter resets the find input' eval '[[ ${(j: :)reply} == *"enter:transform(/bin/lf _key {1} {2})+clear-query+hide-input"* ]]'
+act() {
+  (
+    _lazyfleet_open_path() { print -r -- "open $1"; reply=(clobbered); return ${OPEN_RC:-0} }
+    _lazyfleet_open_window() { print -r -- "window $1" }
+    _lazyfleet_ui_new() { [[ -n $NEW ]] && REPLY=$NEW }
+    _lazyfleet_pause() { print pause }
+    _lazyfleet_ui_act $1; print -r -- "rc=$? view=$reply[1] sel=$reply[2]"
+  )
+}
+assert_eq 'act: open opens, then the worktrees with that row' $'open /wt/a\nrc=0 view= sel=/wt/a' "$(act $'open\n/wt/a')"
+assert_eq 'act: a failed open pauses' $'open /wt/a\npause\nrc=0 view= sel=/wt/a' "$(OPEN_RC=1 act $'open\n/wt/a')"
+assert_eq 'act: window goes back to the windows' $'window =s:1\nrc=0 view=windows sel==s:1' "$(act $'window\n=s:1')"
+assert_eq 'act: new opens what was made' $'open /wt/new\nrc=0 view= sel=/wt/new' "$(NEW=/wt/new act $'new\n/src/app')"
+assert_eq 'act: a cancelled new is nothing' 'rc=2 view= sel=' "$(act $'new\n/src/app')"
+assert_eq 'act: anything else quits' 'rc=1 view= sel=' "$(act abort)"
+unset LAZYFLEET_POSFILE
+
 # --- a line of the prune report
 entry="/wt/app/feat-x${T}feat/x${T}pull request #4 was merged"
 assert_eq 'a prune line names the branch and the reason' '  prune  feat/x  —  pull request #4 was merged' "$(_lazyfleet_prune_line prune $entry)"
