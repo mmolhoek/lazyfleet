@@ -62,10 +62,6 @@ checks, `git status` and the latest commits.
 `tab` (or `w`) lists every tmux window in every session, with a live preview of its screen. `enter` jumps there.
 lazyfleet starts on this view when tmux has windows open.
 
-<p align="center">
-  <img src="docs/screenshots/windows.png" alt="The Windows view: every tmux window with its agent marks, and a live preview of a dev server's output" width="900">
-</p>
-
 Outside tmux, opening a worktree attaches to its session, and when you detach (`prefix d`) you are back in the TUI.
 Inside tmux, it switches the client and the TUI closes. Bind it to a key for a switcher popup (with the full path:
 tmux runs it with the PATH its server started with):
