@@ -6,7 +6,8 @@
 # "w<TAB>path<TAB>display". Gathers what the display needs, then hands each
 # row to _lazyfleet_row_print.
 _lazyfleet_rows() {
-  setopt local_options no_monitor no_notify
+  emulate -L zsh
+  setopt no_monitor no_notify
   local -a o_s o_p
   zparseopts -D -E s=o_s p=o_p
   local e i s wn=0 wb=0 slug pv prm pull= pulling
@@ -75,7 +76,8 @@ _lazyfleet_rows_gather() {
 # reply=(the git status of each worktree in $@, in order, then each one's
 # Docker mark: "🐳2" or empty). The statuses are asked for all at once.
 _lazyfleet_rows_status() {
-  setopt local_options no_monitor no_notify
+  emulate -L zsh
+  setopt no_monitor no_notify
   local tmp i line d
   local -A dk
   local -a stats docks
@@ -263,7 +265,6 @@ _lazyfleet_winframe() {
 
 # Print the pull request of worktree $1's branch, if the cache knows one
 _lazyfleet_pr_preview() {
-  emulate -L zsh
   local -A prs
   local slug br pv age what title
   local -a fl

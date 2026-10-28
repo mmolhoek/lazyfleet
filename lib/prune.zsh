@@ -18,7 +18,6 @@
 # it is merged, 2 with REPLY=why when it looks merged but pruning it would lose
 # commits, and 1 when it is not merged (or cannot be told).
 _lazyfleet_merged() {
-  emulate -L zsh
   local repo=$1 p=$2 slug=$3 br head def pr track note=
   local -a f
   _lazyfleet_branch_of $p || return 1
@@ -54,7 +53,6 @@ _lazyfleet_merged() {
 # the caller's associative array prs (see _lazyfleet_pr_read). REPLY=the
 # repo's GitHub owner/name, or empty.
 _lazyfleet_prune_refresh() {
-  emulate -L zsh
   local repo=$1 e
   local -a brs
   if [[ -z $2 ]]; then
@@ -80,7 +78,6 @@ _lazyfleet_prune_refresh() {
 # changes, running agents, or commits that would be lost), and 1 when it is not
 # merged.
 _lazyfleet_prune_judge() {
-  emulate -L zsh
   local repo=$1 p=$2 slug=$3 why rc s
   _lazyfleet_merged $repo $p $slug; rc=$?
   why=$REPLY
@@ -112,7 +109,6 @@ _lazyfleet_prune_line() {
 
 # lazyfleet prune [-n] [-y] [--keep-branches] [--no-fetch] [-r repo | --all]
 _lazyfleet_prune() {
-  emulate -L zsh
   local -a o_n o_y o_k o_f o_r o_a
   zparseopts -D -E -F n=o_n -dry-run=o_n y=o_y -yes=o_y -keep-branches=o_k -no-fetch=o_f r:=o_r -all=o_a || return 1
   local usage='usage: lazyfleet prune [-n] [-y] [--keep-branches] [--no-fetch] [-r repo | --all]'
@@ -147,7 +143,6 @@ _lazyfleet_prune() {
 # named (-r <repo>: a registered name or path, or any repo), or the one we
 # are in. Says what is wrong when there is none.
 _lazyfleet_prune_repos() {
-  emulate -L zsh
   reply=()
   if [[ $1 == --all ]]; then
     _lazyfleet_repos
@@ -166,7 +161,6 @@ _lazyfleet_prune_repos() {
 # that stay. The tmux session we are in is removed last: closing it ends
 # this command.
 _lazyfleet_prune_scan() {
-  emulate -L zsh
   local nofetch= repo e p br why rc cur slug
   local -a first last skipped
   local -A prs
@@ -198,7 +192,6 @@ _lazyfleet_prune_scan() {
 # branches unless --keep-branches comes first, and say how it went. Fails
 # when any removal failed.
 _lazyfleet_prune_remove() {
-  emulate -L zsh
   local e done_n=0 failed_n=0
   local -a flags=(-D)
   [[ $1 == --keep-branches ]] && { flags=(); shift }

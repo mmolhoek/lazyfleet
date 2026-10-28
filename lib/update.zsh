@@ -42,7 +42,6 @@ _lazyfleet_update_fetch() {
 
 # Refresh the cache in the background, unless it is under a day old
 _lazyfleet_update_refresh() {
-  emulate -L zsh
   local f stamp= tag=
   _lazyfleet_update_enabled || return 0
   _lazyfleet_update_cache; f=$REPLY
@@ -54,7 +53,6 @@ _lazyfleet_update_refresh() {
 
 # REPLY=the cached latest version (vX.Y.Z), if newer than this copy
 _lazyfleet_update_available() {
-  emulate -L zsh
   local f stamp= tag= cur
   _lazyfleet_update_enabled || return 1
   _lazyfleet_version; cur=$REPLY
@@ -80,7 +78,6 @@ _lazyfleet_update_hint() {
 # session, and the pane it would print in is out of sight, so it goes to the
 # status line instead (and to stderr only if tmux will not take it).
 _lazyfleet_update_notice() {
-  emulate -L zsh
   local tag cur msg
   _lazyfleet_update_available || return 0
   tag=$REPLY; _lazyfleet_version; cur=$REPLY
@@ -94,7 +91,6 @@ _lazyfleet_update_notice() {
 # REPLY=what the daily update check last found, in words, for doctor.
 # Fails when this copy does not check (no version, no curl, or turned off).
 _lazyfleet_update_status() {
-  emulate -L zsh
   local f stamp= tag= age ago
   if ! _lazyfleet_version; then REPLY='no update check: this copy does not know its version'; return 1; fi
   if (( ! $+commands[curl] )); then REPLY='no update check: curl is not installed'; return 1; fi
@@ -114,7 +110,6 @@ _lazyfleet_update_status() {
 # foreground, whatever the daily cache or update_check say; the answer
 # refreshes the cache. With --install, also install it.
 _lazyfleet_update() {
-  emulate -L zsh
   local cur tag= stamp= f install=
   case ${1-} in
     ('') ;;
@@ -151,7 +146,6 @@ _lazyfleet_update() {
 # install.sh on this installation. Only a copy that install.sh put here can be
 # replaced this way.
 _lazyfleet_update_install() {
-  emulate -L zsh
   local tag=$1 cur=$2 tmp url
   if [[ ! -e $LAZYFLEET_DIR/INSTALLER ]]; then
     _lazyfleet_update_hint
@@ -178,7 +172,6 @@ _lazyfleet_update_install() {
 # Fails when this copy does not know. Only plain name characters are shown,
 # since the VERSION file's content ends up on the terminal.
 _lazyfleet_version_label() {
-  emulate -L zsh
   local v
   if _lazyfleet_version; then REPLY=v$REPLY; return 0; fi
   [[ -r $LAZYFLEET_DIR/VERSION ]] || return 1
@@ -191,7 +184,6 @@ _lazyfleet_version_label() {
 # "update available: v1.2.4" when the cache knows a newer release. Fails when
 # this copy does not know its version.
 _lazyfleet_version_line() {
-  emulate -L zsh
   local label tag
   _lazyfleet_version_label || return 1
   label=$REPLY

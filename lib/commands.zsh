@@ -46,7 +46,6 @@ _lazyfleet_ls() {
 # Common to both: REPLY=the repo's owner/name, after checking that the number
 # is a number and that gh is there. Args: repo dir, number.
 _lazyfleet_new_gh() {
-  emulate -L zsh
   [[ $2 == <1-999999999> ]] || { _lazyfleet_err "not a number: ${2//[[:cntrl:]]/ }"; return 1 }
   (( $+commands[gh] )) || { _lazyfleet_err "this needs gh (https://cli.github.com), logged in"; return 1 }
   _lazyfleet_ghslug $1 || { _lazyfleet_err "this needs a GitHub remote called origin"; return 1 }
@@ -55,7 +54,6 @@ _lazyfleet_new_gh() {
 # REPLY=the branch to work on for pull request $2 of repo $1, fetched. A
 # pull request from a fork has no branch here, so it gets a local branch pr-N.
 _lazyfleet_new_from_pr() {
-  emulate -L zsh
   local slug out ref head
   local -a f
   _lazyfleet_new_gh $1 $2 || return 1
@@ -265,7 +263,6 @@ _lazyfleet_locked() {
 # reply=("kind<TAB>window<TAB>state" ...): the agents running in tmux session
 # $1 (the state is empty when it is not known)
 _lazyfleet_session_agents() {
-  emulate -L zsh
   local line
   local -a f found
   _lazyfleet_agents -d
@@ -279,7 +276,6 @@ _lazyfleet_session_agents() {
 # Tell (on stdout) which agents $@ ("kind<TAB>window<TAB>state" entries) would
 # be ended by closing session $s
 _lazyfleet_agents_warning() {
-  emulate -L zsh
   local s=$1 e kind win state
   shift
   print -r -- $'\e[33mWarning:\e[0m '"$# agent(s) running in this worktree's tmux session ($s):"
@@ -381,7 +377,8 @@ _lazyfleet_pulldir() {
 
 # Send fzf action $1 to the TUI's fzf, through its --listen socket ($FZF_SOCK)
 _lazyfleet_fzfpost() {
-  setopt local_options no_multibyte  # Content-Length counts bytes
+  emulate -L zsh
+  setopt no_multibyte  # Content-Length counts bytes
   local fd r
   [[ -S $FZF_SOCK ]] || return 1
   zmodload zsh/net/socket || return 1

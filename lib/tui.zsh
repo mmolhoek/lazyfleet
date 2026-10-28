@@ -246,7 +246,6 @@ _lazyfleet_key_row() {
 
 # REPLY=the command line to run in the worktree for tool $1 (edit|lazygit)
 _lazyfleet_tool() {
-  emulate -L zsh
   local ed
   case $1 in
     (edit)
@@ -265,7 +264,6 @@ _lazyfleet_tool() {
 # Show tool $1 (edit|lazygit) for worktree $2: in its window, started when
 # there is none, then switch to it (inside tmux) or attach (outside)
 _lazyfleet_handoff() {
-  emulate -L zsh
   local tool=$1 p=$2 cmd s id= line sep='@@lf@@'
   _lazyfleet_tool $tool || return 1
   cmd=$REPLY
@@ -288,7 +286,6 @@ _lazyfleet_handoff() {
 
 # Open URL $1 in a browser: $BROWSER, else the system's opener
 _lazyfleet_browser() {
-  emulate -L zsh
   if [[ -n $BROWSER ]]; then
     command ${=BROWSER} $1
   elif [[ $OSTYPE == darwin* ]] && (( $+commands[open] )); then
@@ -303,7 +300,6 @@ _lazyfleet_browser() {
 # Open the pull request of worktree $1 in the browser, from what the pull
 # request marks know (so it needs the same: gh, a GitHub origin, pr_status on).
 _lazyfleet_openpr() {
-  emulate -L zsh
   local p=$1 repo slug br url
   local -A prs
   local -a f
@@ -330,7 +326,6 @@ _lazyfleet_ui_openpr() { _lazyfleet_openpr $1 || _lazyfleet_pause }
 
 # REPLY=$1 percent-encoded for a URL path (byte by byte, so it does not depend on the locale)
 _lazyfleet_urlencode() {
-  emulate -L zsh
   local c bytes out=
   # (s::) makes one empty element of an empty string, which would encode as %
   for c in ${(s::)1}; do
@@ -348,7 +343,6 @@ _lazyfleet_urlencode() {
 # browser. Nothing is created here: the title and the description are written
 # on the page.
 _lazyfleet_newpr() {
-  emulate -L zsh
   local p=$1 repo slug br def url
   _lazyfleet_toplevel $p && repo=$REPLY || { _lazyfleet_err "not a git worktree: $p"; return 1 }
   _lazyfleet_need_branch $p || return 1

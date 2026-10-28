@@ -13,7 +13,6 @@ typeset -gA _LAZYFLEET_AGENT_COLOR=(claude $'\e[38;5;208m' copilot $'\e[35m' omp
 
 # REPLY=claude, copilot or omp if command line $1 is one of those tools, else empty
 _lazyfleet_agent_kind() {
-  emulate -L zsh
   local -a w
   local x a
   w=(${(z)1})
@@ -49,7 +48,6 @@ _lazyfleet_agent_key() { local s=$1$2; REPLY=${s//[^A-Za-z0-9]/_} }
 # interrupted with Esc never runs the hook that ends it, and a session whose
 # hooks are not installed has no record at all.
 _lazyfleet_agent_state() {
-  emulate -L zsh
   local kind=$1 st= ts file busy=
   REPLY=
   [[ -n $3 ]] || return 0
@@ -72,7 +70,6 @@ _lazyfleet_agent_state() {
 # someone is looking at the pane right now), and the hook's records of agents
 # that have stopped are removed.
 _lazyfleet_agents() {
-  emulate -L zsh
   local line pid p n detail= state vis key
   local -a f live
   local -A parent kinds panes seen
@@ -117,7 +114,6 @@ _lazyfleet_agents() {
 # one per tmux pane (pid: the pane's shell). "on screen" is empty when the
 # pane is what an attached client shows, 0 when it is not. Fails without tmux.
 _lazyfleet_agent_panes() {
-  emulate -L zsh
   # tmux 3.4 turns tabs in -F output into "_", so split on a printable separator
   local sep='@@lf@@' out line
   local -a f
@@ -133,7 +129,6 @@ _lazyfleet_agent_panes() {
 
 # reply=("pid<TAB>parent pid<TAB>agent kind or empty" ...), every process
 _lazyfleet_agent_procs() {
-  emulate -L zsh
   local line pid ppid args kind
   reply=()
   for line in ${(f)"$(ps -axo pid=,ppid=,args= 2>/dev/null)"}; do
@@ -150,7 +145,6 @@ _lazyfleet_agent_procs() {
 # that no longer run that agent. Args: the live "kind.key" names, then the
 # panes' "session TAB window TAB pane TAB socket TAB visible" values.
 _lazyfleet_agent_prune() {
-  emulate -L zsh
   local rec v sk
   local -a live socks f
   local -A servers
@@ -174,7 +168,6 @@ _lazyfleet_agent_prune() {
 # Record an agent's state the way bin/lazyfleet-hook does: kind, tmux socket,
 # pane id, state
 _lazyfleet_agent_set() {
-  emulate -L zsh
   local dir file
   _lazyfleet_agent_dir; dir=$REPLY
   [[ -d $dir ]] || return 0
@@ -189,7 +182,6 @@ _lazyfleet_agent_set() {
 #   #(lazyfleet status)
 # -p prints plain text, without tmux style codes.
 _lazyfleet_status() {
-  emulate -L zsh
   local -a o_p f waiting finished
   local line out= s
   zparseopts -D -E p=o_p
@@ -221,7 +213,6 @@ _lazyfleet_status() {
 # are in other sessions. agent_notify=off (or LAZYFLEET_AGENT_NOTIFY=off) keeps
 # the messages away; the status segment stays.
 _lazyfleet_agent_notify() {
-  emulate -L zsh
   local sep='@@lf@@' kind=$1 st=$2 info sess vis msg line c
   local -a f
   [[ -n $TMUX_PANE && $kind == (claude|copilot|omp) && $st == (waiting|done) ]] || return 0
@@ -275,7 +266,6 @@ typeset -g _LAZYFLEET_HOOKS_JQ_COUNT='
 
 # lazyfleet hooks [install|uninstall|status]
 _lazyfleet_hooks() {
-  emulate -L zsh
   local sub=${1:-status} file hook jq tmp n bak
   (( $+commands[jq] )) || { _lazyfleet_err "hooks needs jq (https://jqlang.org)"; return 1 }
   file=${CLAUDE_CONFIG_DIR:-$HOME/.claude}/settings.json
@@ -333,7 +323,6 @@ typeset -gA _LAZYFLEET_AGENT_STATE_COLOR=(waiting $'\e[1;33m' done $'\e[32m' wor
 # unless the first argument is -p. The arguments are kind=count and
 # kind:state=count, so an absent kind can not shift the others.
 _lazyfleet_agent_marks() {
-  emulate -L zsh
   local plain= kind n out= col end arg st sm sc
   local -A cnt
   [[ $1 == -p ]] && { plain=1; shift }
@@ -359,7 +348,6 @@ _lazyfleet_agent_marks() {
 # agtally, keyed "session:kind" (or, with w, "session:window:kind") and, for
 # agents whose state is known, "...:kind:state"
 _lazyfleet_agent_tally() {
-  emulate -L zsh
   local line k
   local -a f
   _lazyfleet_agents -d
@@ -374,7 +362,6 @@ _lazyfleet_agent_tally() {
 # REPLY=the marks for key $1 (a session, or session:window) from the caller's
 # agtally; -p as $2 for plain marks
 _lazyfleet_agent_marks_at() {
-  emulate -L zsh
   local kind st
   local -a mk
   for kind in $_LAZYFLEET_AGENT_KINDS; do

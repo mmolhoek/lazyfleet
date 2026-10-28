@@ -62,7 +62,6 @@ _lazyfleet_pr_cachefile() {
 # A commit nothing checks has a combined state of "pending" with a count of 0;
 # that is none, not pending.
 _lazyfleet_pr_ci() {
-  emulate -L zsh
   local w fail= pend= pass=
   for w in ${=1}; do
     if [[ ${w%%/*} != completed ]]; then pend=1; continue; fi
@@ -92,7 +91,6 @@ _lazyfleet_pr_ci() {
 # time of the attempt moves, so a failure is not retried at once. REPLY=changed
 # if the rows differ from before, else same.
 _lazyfleet_pr_fetch() {
-  emulate -L zsh
   local slug=$1 f=$2 out old= new= ok=1
   shift 2
   [[ -r $f ]] && old=$(tail -n +2 $f 2>/dev/null)
@@ -116,7 +114,6 @@ _lazyfleet_pr_fetch() {
 # updated (the first) stays. Pull requests from forks are left out. The
 # checks (field 4) are filled in by _lazyfleet_pr_add_checks.
 _lazyfleet_pr_best() {
-  emulate -L zsh
   local slug=$1 line st r ref
   local -a fl
   local -A best rank
@@ -175,7 +172,6 @@ _lazyfleet_pr_add_checks() {
 # Write cache file $1: a header (format 1, now, "ok" when $2 is set, else
 # "fail"), then the lines $3...; replaced at once, never half written
 _lazyfleet_pr_write() {
-  emulate -L zsh
   local f=$1 st=fail tmp=$1.$$
   [[ -n $2 ]] && st=ok
   shift 2
@@ -190,7 +186,6 @@ _lazyfleet_pr_write() {
 # "number<TAB>state<TAB>ci<TAB>url<TAB>title<TAB>head sha". REPLY=seconds since the last
 # attempt to refresh the cache (empty: never). Fails without a usable cache.
 _lazyfleet_pr_read() {
-  emulate -L zsh
   local slug=${1:l} f line content stamp
   local -a fl hf lines
   REPLY=
@@ -213,7 +208,6 @@ _lazyfleet_pr_read() {
 # REPLY=the row mark for pull request fields $1 (number) $2 (state) $3 (ci);
 # -p as $4 for no colours
 _lazyfleet_pr_mark() {
-  emulate -L zsh
   local n=$1 st=$2 ci=$3 col= sym= end=$'\e[0m'
   case $st in
     (open) case $ci in

@@ -16,7 +16,6 @@ typeset -gi _lazyfleet_doctor_fails=0 _lazyfleet_doctor_warns=0
 
 # level (ok|warn|fail), text, and an optional fix to suggest
 _lazyfleet_doctor_report() {
-  emulate -L zsh
   local level=$1 text=${2//[[:cntrl:]]/ } fix=${3//[[:cntrl:]]/ } tag col= end=
   case $level in
     (ok)   tag='ok  '; col=$'\e[32m' ;;
@@ -31,7 +30,6 @@ _lazyfleet_doctor_report() {
 # Judge a tool by the first version number in $2 (what its --version printed):
 # name, version text, minimum, level to report when too old, fix
 _lazyfleet_doctor_judge() {
-  emulate -L zsh
   local name=$1 min=$3 old=$4 fix=$5 v
   if [[ $2 =~ '[0-9]+(\.[0-9]+)*' ]]; then
     v=$MATCH
@@ -49,7 +47,6 @@ _lazyfleet_doctor_judge() {
 # A tool that must be there: name, minimum, level when too old, fix, and the
 # command that prints its version
 _lazyfleet_doctor_need() {
-  emulate -L zsh
   local name=$1 min=$2 old=$3 fix=$4 out missing=
   shift 4
   # LAZYFLEET_TMUX may be a path, which is not in the command table
@@ -70,7 +67,6 @@ _lazyfleet_doctor_install_hint() { REPLY="macOS: brew install $1    Debian/Ubunt
 
 # the tools around the features that can do without them
 _lazyfleet_doctor_optional() {
-  emulate -L zsh
   if (( $+commands[curl] )); then
     _lazyfleet_doctor_report ok "curl (update check)"
   else
@@ -102,7 +98,6 @@ _lazyfleet_doctor_optional() {
 # shell function or a PATH set in .zshrc provides prints nothing there,
 # silently. Checks the running server; without one there is nothing to check.
 _lazyfleet_doctor_statusline() {
-  emulate -L zsh
   local sr cmd tpath d found=
   if ! sr=$(_lazyfleet_tmux show -gv status-right 2>/dev/null); then
     _lazyfleet_doctor_report ok "tmux is not running, so its status line was not checked"
@@ -133,7 +128,6 @@ _lazyfleet_doctor_statusline() {
 
 # the registry: repositories that have gone away
 _lazyfleet_doctor_repos() {
-  emulate -L zsh
   local r
   local -a repos gone
   _lazyfleet_repos
@@ -155,7 +149,6 @@ _lazyfleet_doctor_repos() {
 }
 
 _lazyfleet_doctor() {
-  emulate -L zsh
   _lazyfleet_doctor_fails=0 _lazyfleet_doctor_warns=0
   print -r -- "lazyfleet doctor"
   if _lazyfleet_version_label; then
