@@ -141,7 +141,7 @@ check 'a gh without login is a warning'    has 'warn  gh has no login'
 check 'it says how to log in'              has 'try: gh auth login'
 reset; rm $BIN/gh; LAZYFLEET_PR_STATUS=off run
 check 'pr_status=off needs no gh'          has 'pull request marks are off'
-check 'pr_status=off does not warn'        hasnot 'gh'
+check 'pr_status=off does not warn'        hasnot 'warn  gh'
 reset; rm $BIN/gh; mkdir -p $XDG_CONFIG_HOME/lazyfleet; print 'pr_status=off' >$XDG_CONFIG_HOME/lazyfleet/config; run
 check 'the config file turns the check off too' has 'pull request marks are off'
 
@@ -184,6 +184,53 @@ reset; print -r -- feat/x >$LAZYFLEET_DIR/VERSION; run
 check 'a branch install says so'            has 'lazyfleet feat/x (branch)'
 reset; run
 check 'a checkout says so'                  has 'from a checkout'
+
+# --- the agent segment in tmux's status line
+# a tmux whose server answers: status-right is $SR, its PATH is $TPATH (none
+# when empty); with NOSERVER set no server is running
+tmux_server() {
+  cat >$BIN/tmux <<'EOF'
+#!/bin/sh
+case "$1" in
+  -V) echo 'tmux 3.4' ;;
+  show) [ -n "$NOSERVER" ] && { echo 'no server running' >&2; exit 1; }; printf '%s\n' "$SR" ;;
+  show-environment) if [ -n "$TPATH" ]; then printf 'PATH=%s\n' "$TPATH"; else echo '-PATH'; fi ;;
+  *) exit 1 ;;
+esac
+EOF
+  chmod +x $BIN/tmux
+}
+mkdir -p $SANDBOX/tbin $SANDBOX/home/.local/bin
+print '#!/bin/sh' >$SANDBOX/tbin/lazyfleet; chmod +x $SANDBOX/tbin/lazyfleet
+print '#!/bin/sh' >$HOME/.local/bin/lazyfleet; chmod +x $HOME/.local/bin/lazyfleet
+sl() { reset; tmux_server; SR=$1 TPATH=$2 NOSERVER=$3 run }
+sl x x 1;                                   check 'status line: no server, nothing to check' has 'tmux is not running'
+sl '%H:%M' '';                              check 'status line: no segment is fine'          has '  ok    the status line has no agent segment (optional)'
+check 'status line: and says how to add one'  has "try: set -g status-right '#(lazyfleet status) %H:%M'"
+sl '#(lazyfleet status) %H:%M' $SANDBOX/tbin
+check 'status line: found on tmux PATH'       has "  ok    the status line's agent segment runs $SANDBOX/tbin/lazyfleet"
+sl '#(lazyfleet status) %H:%M' /usr/bin:/bin
+check 'status line: not on tmux PATH warns'   has "warn  the status line runs 'lazyfleet', which tmux cannot find"
+check 'status line: and suggests a full path' has 'try: use the full path in status-right'
+sl '#(lazyfleet status) %H:%M' ''
+check 'status line: tmux without a PATH warns' has "warn  the status line runs 'lazyfleet'"
+sl "#[fg=red]#($SANDBOX/tbin/lazyfleet status -p) %H:%M" ''
+check 'status line: a full path is checked as is' has "  ok    the status line's agent segment runs $SANDBOX/tbin/lazyfleet"
+sl '#(~/.local/bin/lazyfleet status)' ''
+check 'status line: ~ is the home directory, as sh has it' has "runs $HOME/.local/bin/lazyfleet"
+sl '#(/nope/lazyfleet status)' ''
+check 'status line: a full path that is not there warns' has "warn  the status line runs '/nope/lazyfleet'"
+sl '#(lazyfleet status)' $SANDBOX/tbin
+check 'status line: a warning does not fail doctor' test $rc = 0
+reset
+
+# --- what the update check last found (only a copy that knows its version)
+reset; print -r -- 0.3.1 >$LAZYFLEET_DIR/VERSION; mkdir -p $HOME/.cache/lazyfleet
+print -r -- "$(( EPOCHSECONDS - 7200 )) v0.4.0" >$HOME/.cache/lazyfleet/latest-release; run
+check 'update: doctor says what the check last found' has '  ok    the update check last looked 2 h ago: the latest release is v0.4.0'
+check 'update: and how to look now'           has 'try: lazyfleet update'
+rm -rf $HOME/.cache; reset; run
+check 'update: a checkout says nothing about it' hasnot 'the update check'
 
 # --- wiring
 reset

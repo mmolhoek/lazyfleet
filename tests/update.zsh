@@ -136,6 +136,48 @@ check 'the notice names both versions' eval 'gq "lazyfleet v0.2.0 is available (
 check 'the notice says how to update' eval 'gq "install.sh | sh" <<<$msg'
 reset 0.1.0; seed $EPOCHSECONDS v0.1.0
 check 'no notice without an update' test -z "$(_lazyfleet_update_notice 2>&1)"
+
+# inside tmux the TUI has usually switched to another session: the notice
+# goes to the status line. tmux is a stub here; it records what it was asked.
+intmux() {   # $1: the stub's exit status; prints "stderr|tmux args"
+  (
+    TMUX=/tmp/fake,1,0 stub_rc=$1
+    _lazyfleet_tmux() { print -r -- "$*" >$SANDBOX/tmux.args; return stub_rc }
+    rm -f $SANDBOX/tmux.args
+    err=$(_lazyfleet_update_notice 2>&1)
+    print -r -- "$err|$(cat $SANDBOX/tmux.args 2>/dev/null)"
+  )
+}
+reset 0.1.0; seed $EPOCHSECONDS v0.2.0
+out=$(intmux 0)
+check 'tmux: the notice is a tmux message' eval '[[ ${out#*|} == "display-message -- lazyfleet v0.2.0 is available (you have v0.1.0). Update: "* ]]'
+check 'tmux: and not printed as well' eval '[[ ${out%%|*} == "" ]]'
+out=$(intmux 1)
+check 'tmux: when tmux will not take it, it is printed' eval '[[ ${out%%|*} == *"lazyfleet v0.2.0 is available"* ]]'
+reset 0.1.0; seed $EPOCHSECONDS v0.1.0
+check 'tmux: no update, no message' test "$(intmux 0)" = '|'
+LAZYFLEET_RELEASES_URL='https://example.com/#releases'
+reset 0.1.0; seed $EPOCHSECONDS v0.2.0
+out=$(intmux 0)
+check 'tmux: a # is not taken for a tmux format' eval '[[ $out == *"https://example.com/##releases"* ]]'
+unset LAZYFLEET_RELEASES_URL
+
+# --- what doctor says the check last found
+status_is() { _lazyfleet_update_status; print -r -- "$?|$REPLY" }
+reset;       check 'status: a checkout does not check' test "$(status_is)" = '1|no update check: this copy does not know its version'
+reset 0.1.0; LAZYFLEET_UPDATE_CHECK=off
+check 'status: turned off'          test "$(status_is)" = '1|the update check is off (update_check=off)'
+reset 0.1.0; check 'status: not looked yet' test "$(status_is)" = '0|the update check has not looked yet (it runs when the TUI starts)'
+reset 0.1.0; seed $(( EPOCHSECONDS - 600 )) v0.2.0
+check 'status: minutes'             test "$(status_is)" = '0|the update check last looked 10 min ago: the latest release is v0.2.0'
+reset 0.1.0; seed $(( EPOCHSECONDS - 5 * 3600 )) v0.1.0
+check 'status: hours'               test "$(status_is)" = '0|the update check last looked 5 h ago: the latest release is v0.1.0'
+reset 0.1.0; seed $(( EPOCHSECONDS - 3 * 86400 )) v0.1.0
+check 'status: days'                test "$(status_is)" = '0|the update check last looked 3 days ago: the latest release is v0.1.0'
+reset 0.1.0; seed $(( EPOCHSECONDS - 60 ))
+check 'status: a failed look'       test "$(status_is)" = '0|the update check could not reach GitHub (1 min ago)'
+reset 0.1.0
+check 'status: no curl'             test "$(path=(${path:#$SANDBOX/stub}); PATH=/nonexistent; rehash; status_is)" = '1|no update check: curl is not installed'
 reset 0.1.0; seed $EPOCHSECONDS v0.2.0
 check 'the TUI label points out an update' eval '_lazyfleet_ui_label && test "$REPLY" = " lazyfleet · v0.2.0 available "'
 reset 0.1.0; seed $EPOCHSECONDS v0.1.0

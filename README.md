@@ -38,6 +38,8 @@ Finished work in a pane you are looking at counts as seen, so `✓` only stays f
 set -g status-right '#(lazyfleet status) %H:%M'
 ```
 
+tmux runs this through `sh` with the PATH the tmux server started with, so use the full path
+(`#(~/.local/bin/lazyfleet status)`) when `lazyfleet` is only on your shell's PATH; `lazyfleet doctor` checks it.
 It names the sessions whose agent waits for you (`! app`) or has finished (`✓ api`), and nothing when there are
 none. It skips agents you can see right now. When an agent starts waiting or finishes, lazyfleet also refreshes
 the status bars and shows a short tmux message (`✻ app needs you`) on clients that are in other sessions. Turn the
@@ -88,6 +90,8 @@ For a shorter command, add `alias lzs=lazyfleet`.
 An install from the install script looks for a newer release once a day, in the background (a single
 request to github.com, which carries no data from lazyfleet). The TUI's title then reads
 `lazyfleet · v1.2.3 available`, and quitting prints how to update: run the install command above again.
+Inside tmux, where the TUI usually ends by switching to another session, that line shows as a tmux message instead.
+`lazyfleet doctor` says when the check last looked and what it found.
 The installed version is always shown on the last line of the TUI's key help (with the update, when there is one),
 at the top of `lazyfleet help`, and by `lazyfleet version`. An install of a branch shows its name instead
 (`lazyfleet feat/x (branch)`) and never checks for updates.
@@ -137,7 +141,10 @@ reduced, or may not work) or `FAIL` (lazyfleet cannot work), with a suggested co
   only warns, as those minimums are cautious);
 - `curl` (update check), `gh` with a login (pull request marks, unless `pr_status=off`), and, when `claude` is
   installed, `jq` and the Claude Code hooks (agent state);
-- the version of this install, and registered repositories whose directory is gone.
+- the version of this install, and what the update check last found;
+- the agent segment in tmux's status line, when it has one: tmux runs `#(lazyfleet status)` through `sh` with its
+  own PATH, so a `lazyfleet` it cannot find there leaves the segment empty without a word;
+- registered repositories whose directory is gone.
 
 It exits with status 1 when anything failed, so it can be used in scripts.
 
@@ -345,6 +352,8 @@ fzf 0.58 or newer and says so, instead of failing check by check, when yours is 
 | `new-pr`          | the `O` key (stub browser, no network)                                              |
 | `busy-rm`         | the warning before removing a worktree with agents running                          |
 | `helpers`         | the small helpers the commands share (worktree entries, settings, prompts)          |
+| `core`            | reading git's own files: worktree entries (absolute and relative links), HEAD, session names |
+| `window-preview`  | the Windows view's preview, including lazyfleet's own pane (real tmux)              |
 | `all-runner`      | `tests/all.zsh` itself                                                              |
 
 The tests run in a throwaway HOME against an isolated tmux server.
