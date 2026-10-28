@@ -11,7 +11,7 @@
 typeset -g _LAZYFLEET_MIN_ZSH=5.1     # zmodload -F
 typeset -g _LAZYFLEET_MIN_GIT=2.31    # rev-parse --path-format (_lazyfleet_toplevel)
 typeset -g _LAZYFLEET_MIN_TMUX=3.0
-typeset -g _LAZYFLEET_MIN_FZF=0.58    # first fzf with --style (install.sh has the same number)
+typeset -g _LAZYFLEET_MIN_FZF=0.66    # --gutter, --listen=<socket> (install.sh has the same number)
 typeset -gi _lazyfleet_doctor_fails=0 _lazyfleet_doctor_warns=0
 
 # level (ok|warn|fail), text, and an optional fix to suggest

@@ -24,7 +24,7 @@
 
 set -eu
 
-MIN_FZF=0.58   # first fzf with --style
+MIN_FZF=0.66   # first fzf with --gutter and --listen on a unix socket (the TUI uses both)
 
 say()  { printf '%s\n' "$*"; }
 warn() { printf 'lazyfleet: warning: %s\n' "$*" >&2; }

@@ -70,7 +70,7 @@ Run it again to update, or `curl -fsSL https://raw.githubusercontent.com/mmolhoe
 to remove it. To pin a version, set `LAZYFLEET_VERSION=v1.2.3` (and `LAZYFLEET_SHA256` to verify the download), or a branch
 name such as `main` or `feat/x` to try unreleased work (that install does not check for updates);
 `LAZYFLEET_INSTALL_DIR` and `LAZYFLEET_BIN_DIR` change the locations. You need `zsh`, `git`, `tmux` and
-`fzf` 0.58 or newer; the script warns about any that are missing.
+`fzf` 0.66 or newer; the script warns about any that are missing.
 
 Or from a checkout. lazyfleet itself is zsh, so zsh must be installed (it is on macOS), but it doesn't have to be your shell:
 
@@ -137,7 +137,7 @@ lazyfleet update [--install]   look for a newer release now; --install installs 
 When something does not work, `lazyfleet doctor` checks the machine. Each finding is `ok`, `warn` (a feature is
 reduced, or may not work) or `FAIL` (lazyfleet cannot work), with a suggested command when there is one:
 
-- `zsh`, `git`, `tmux` and `fzf` are installed and recent enough (fzf 0.58 or newer; an older zsh, git or tmux
+- `zsh`, `git`, `tmux` and `fzf` are installed and recent enough (fzf 0.66 or newer; an older zsh, git or tmux
   only warns, as those minimums are cautious);
 - `curl` (update check), `gh` with a login (pull request marks, unless `pr_status=off`), and, when `claude` is
   installed, `jq` and the Claude Code hooks (agent state);
@@ -353,7 +353,7 @@ zsh lazyfleet/tests/prune.zsh           # or one suite on its own
 ```
 
 The suites (`tests/*.zsh`) share their helpers in `tests/lib.zsh`. Most run real git and tmux; `run.zsh` also needs
-fzf 0.58 or newer and says so, instead of failing check by check, when yours is older. GitHub Actions runs
+fzf 0.66 or newer and says so, instead of failing check by check, when yours is older. GitHub Actions runs
 `tests/all.zsh` on every push and pull request, plus `zsh -n` and shellcheck on the scripts.
 
 | suite             | what it covers                                                                      |

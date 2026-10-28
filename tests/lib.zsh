@@ -103,6 +103,9 @@ finish() {
   print -P "\n%F{green}all passed%f"
 }
 
+# the oldest fzf lazyfleet works with: install.sh's, which doctor has too
+typeset -g _test_min_fzf=$(sed -n 's/^MIN_FZF=\([0-9.]*\).*/\1/p' ${${(%):-%x}:A:h:h}/install.sh)
+
 # cannot_run <why>: this machine cannot run the suite: say why, exit 2
 cannot_run() { print -u2 -- "tests: $1"; rm -f $_test_failfile; exit 2 }
 
@@ -110,7 +113,7 @@ cannot_run() { print -u2 -- "tests: $1"; rm -f $_test_failfile; exit 2 }
 # is missing, or when fzf is older than lazyfleet's minimum. (A distro's old
 # fzf used to fail the TUI checks one by one, with no hint why.)
 need_tools() {
-  local t v min=0.58   # the first fzf with --style, as in lazyfleet doctor
+  local t v min=$_test_min_fzf
   autoload -Uz is-at-least
   for t in "$@"; do
     (( $+commands[$t] )) || cannot_run "$t is not installed; this suite needs it"
