@@ -11,7 +11,9 @@ SANDBOX=${$(mktemp -d):A}
 export HOME=$SANDBOX TMPDIR=$SANDBOX/tmp TMUX_TMPDIR=$SANDBOX SHELL=/bin/sh
 mkdir -p $TMPDIR
 unset TMUX TMUX_PANE
-export LAZYFLEET_TMUX="tmux -L lazyfleet-winprev-$$"
+# the socket is $TMUX_TMPDIR/tmux-UID/NAME, and a unix socket path holds 103
+# bytes on macOS, whose temp dirs are 70 long already: keep the name short
+export LAZYFLEET_TMUX="tmux -L lf-winprev-$$"
 source $ROOT/lazyfleet.zsh
 trap '_lazyfleet_tmux kill-server 2>/dev/null; rm -rf $SANDBOX' EXIT
 
@@ -32,7 +34,11 @@ trap '_lazyfleet_tmux kill-server 2>/dev/null; rm -rf $SANDBOX' EXIT
 # --- _lazyfleet_winframe against a real tmux server
 dir="$SANDBOX/a dir with spaces"
 mkdir -p $dir
-_lazyfleet_tmux new-session -d -s watched -x 100 -y 20 -c $dir
+if ! err=$(_lazyfleet_tmux new-session -d -s watched -x 100 -y 20 -c $dir 2>&1); then
+  # every check below needs this session: say why once, not as a cascade
+  fail "could not start a tmux server: $err (socket in $TMUX_TMPDIR, ${#TMUX_TMPDIR} bytes)"
+  finish
+fi
 _lazyfleet_tmux send-keys -t '=watched:0' 'echo preview-marker' Enter
 retry '_lazyfleet_tmux capture-pane -p -t "=watched:0" | gq preview-marker' || fail 'the marker never reached the pane'
 pane=$(_lazyfleet_tmux display-message -p -t '=watched:0' '#{pane_id}')
