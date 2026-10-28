@@ -121,16 +121,32 @@ _lazyfleet_loaded() {
 # Key dispatcher: prints fzf actions. Args: row kind, row path.
 _lazyfleet_key() {
   _lazyfleet_footers
-  # the row's path is passed on as {2}, never as text in the actions
-  local bin=${(q)LAZYFLEET_DIR}/bin/lazyfleet kind=$1 p=$2
-  local lbl=${${${FZF_LIST_LABEL# }% }% · *} rl foot=$_LAZYFLEET_FOOTER_WT out wt
+  case $FZF_KEY in
+    (/|esc|q|tab|w|a|c|C|r|R) _lazyfleet_key_view $1 $2 ;;
+    (*) _lazyfleet_key_row $1 $2 ;;
+  esac
+}
+
+# The current view's label without decorations ("Worktrees", "Windows")
+_lazyfleet_key_label() { REPLY=${${${FZF_LIST_LABEL# }% }% · *} }
+
+# REPLY=the fzf action that reloads the current view
+_lazyfleet_key_reload() {
+  local bin=${(q)LAZYFLEET_DIR}/bin/lazyfleet
+  _lazyfleet_key_label
+  if [[ $REPLY == Windows ]]; then REPLY="reload($bin _winrows)"; else _lazyfleet_wtload; fi
+}
+
+# Keys about the list as a whole: find, quit, switch view, reload, settings,
+# add a project. $1 kind of the row (w worktree, t window), $2 its path.
+_lazyfleet_key_view() {
+  local bin=${(q)LAZYFLEET_DIR}/bin/lazyfleet kind=$1 p=$2 lbl rl wt foot=$_LAZYFLEET_FOOTER_WT
   local win="change-list-label( Windows )+change-footer($_LAZYFLEET_FOOTER_WIN)+change-preview-window($_LAZYFLEET_PW_WIN)+reload($bin _winrows)+first"
   local pw="change-preview-window($_LAZYFLEET_PW)"
+  _lazyfleet_key_label; lbl=$REPLY
+  _lazyfleet_key_reload; rl=$REPLY
   _lazyfleet_wtload; wt=$REPLY
-  case $lbl in
-    (Windows) rl="reload($bin _winrows)"; foot=$_LAZYFLEET_FOOTER_WIN ;;
-    (*) rl=$wt ;;
-  esac
+  [[ $lbl == Windows ]] && foot=$_LAZYFLEET_FOOTER_WIN
   case $FZF_KEY in
     (/) print -r -- "show-input+unbind($_LAZYFLEET_LETTERS)" ;;
     (esc)
@@ -148,34 +164,36 @@ _lazyfleet_key() {
         (*) print -r -- $win ;;
       esac ;;
     (w) print -r -- $win ;;
-    (enter)
-      [[ -n $p ]] || return 0
-      if [[ $kind == t ]]; then
-        print -r -- "become(printf '%s\\n' window {2})"
-      else
-        print -r -- "become(printf '%s\\n' open {2})"
-      fi ;;
-    (n) [[ $kind == t ]] || print -r -- "become(printf '%s\\n' new {2})" ;;
     (a) print -r -- "execute($bin _ui_add)+change-footer($_LAZYFLEET_FOOTER_WT)+$pw+$wt" ;;
+  esac
+}
+
+# Keys about the selected row. The row's path is passed on as {2}, never as
+# text in the actions. $1 kind of the row (w worktree, t window), $2 its path.
+_lazyfleet_key_row() {
+  local bin=${(q)LAZYFLEET_DIR}/bin/lazyfleet kind=$1 p=$2 rl
+  # an empty list has no row; n still makes a worktree (it asks for the repo)
+  [[ -n $p || $FZF_KEY == n ]] || return 0
+  _lazyfleet_key_reload; rl=$REPLY
+  case $FZF_KEY in
+    (enter)
+      if [[ $kind == t ]]; then print -r -- "become(printf '%s\\n' window {2})"
+      else print -r -- "become(printf '%s\\n' open {2})"; fi ;;
+    (n) [[ $kind == t ]] || print -r -- "become(printf '%s\\n' new {2})" ;;
     (d)
-      [[ -n $p ]] || return 0
-      case $kind in
-        (t) print -r -- "execute($bin _ui_killwin {2})+$rl" ;;
-        (*) print -r -- "execute($bin _ui_rm {2})+$rl" ;;
-      esac ;;
-    (e|g)
-      # the editor or lazygit, in a window of the worktree's session
-      [[ $kind == w && -n $p ]] || return 0
-      [[ $FZF_KEY == e ]] && print -r -- "become(printf '%s\\n' edit {2})" || print -r -- "become(printf '%s\\n' lazygit {2})" ;;
-    (o)
-      [[ $kind == w && -n $p ]] || return 0
-      print -r -- "execute($bin _ui_openpr {2})" ;;
-    (O)
-      # GitHub's page for a new pull request of the worktree's branch
-      [[ $kind == w && -n $p ]] || return 0
-      print -r -- "execute($bin _ui_newpr {2})" ;;
+      if [[ $kind == t ]]; then print -r -- "execute($bin _ui_killwin {2})+$rl"
+      else print -r -- "execute($bin _ui_rm {2})+$rl"; fi ;;
+  esac
+  # the rest only makes sense for a worktree
+  [[ $kind == w ]] || return 0
+  case $FZF_KEY in
+    # the editor or lazygit, in a window of the worktree's session
+    (e) print -r -- "become(printf '%s\\n' edit {2})" ;;
+    (g) print -r -- "become(printf '%s\\n' lazygit {2})" ;;
+    (o) print -r -- "execute($bin _ui_openpr {2})" ;;
+    # GitHub's page for a new pull request of the worktree's branch
+    (O) print -r -- "execute($bin _ui_newpr {2})" ;;
     (p)
-      [[ $kind == w && -n $p ]] || return 0
       # in the background when fzf listens: the row shows ⟳ until it's done
       if [[ -n $FZF_SOCK ]]; then print -r -- "execute-silent($bin _ui_pull {2})+$rl"
       else print -r -- "execute($bin _ui_pull {2})+$rl"; fi ;;
