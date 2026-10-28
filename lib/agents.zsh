@@ -73,53 +73,77 @@ _lazyfleet_agent_state() {
 # that have stopped are removed.
 _lazyfleet_agents() {
   emulate -L zsh
-  local sep='@@lf@@' line pid ppid args p n out detail= sock state vis dir rec
+  local line pid p n detail= state vis key
   local -a f live
   local -A parent kinds panes seen
   [[ $1 == -d ]] && detail=1
   reply=()
   (( $+commands[ps] )) || return 0
+  _lazyfleet_agent_panes || return 0
+  for line in $reply; do panes[${line%%$'\t'*}]=${line#*$'\t'}; done
+  reply=()
+  (( $#panes )) || return 0
+  _lazyfleet_agent_procs
+  for line in $reply; do
+    f=("${(@ps:\t:)line}")
+    parent[$f[1]]=$f[2]
+    [[ -n $f[3] ]] && kinds[$f[1]]=$f[3]
+  done
+  reply=()
+  for pid in ${(k)kinds}; do
+    # up the process tree to the pane the agent runs in
+    p=$pid n=0
+    while [[ -n $p && $p != 0 && $p != 1 && -z $panes[$p] ]] && (( n++ < 64 )); do p=$parent[$p]; done
+    [[ -n $panes[$p] && -z $seen[$p:$kinds[$pid]] ]] || continue
+    seen[$p:$kinds[$pid]]=1
+    f=("${(@ps:\t:)panes[$p]}")
+    line="$f[1]"$'\t'"$f[2]"$'\t'"$kinds[$pid]"
+    if [[ -n $detail ]]; then
+      _lazyfleet_agent_state $kinds[$pid] $f[4] $f[3]; state=$REPLY
+      vis=1; [[ $f[5] == 0 ]] && vis=0
+      # finished work that is on screen has been seen: no more "done"
+      [[ $state == done && $vis == 1 ]] && { state=idle; _lazyfleet_agent_set $kinds[$pid] $f[4] $f[3] idle }
+      line+=$'\t'"$state"$'\t'"$f[3]"$'\t'"$vis"
+      _lazyfleet_agent_key $f[4] $f[3]; live+=("$kinds[$pid].$REPLY")
+    fi
+    reply+=("$line")
+  done
+  local -a found=("${(@)reply}")
+  [[ -n $detail ]] && _lazyfleet_agent_prune $live ${(u)${(v)panes}}
+  reply=(${(o)found})
+}
+
+# reply=("pid<TAB>session<TAB>window<TAB>pane id<TAB>socket<TAB>on screen" ...),
+# one per tmux pane (pid: the pane's shell). "on screen" is empty when the
+# pane is what an attached client shows, 0 when it is not. Fails without tmux.
+_lazyfleet_agent_panes() {
+  emulate -L zsh
   # tmux 3.4 turns tabs in -F output into "_", so split on a printable separator
-  out=$(_lazyfleet_tmux list-panes -a -F "#{pane_pid}${sep}#{session_name}${sep}#{window_index}${sep}#{pane_id}${sep}#{socket_path}${sep}#{session_attached}#{window_active}#{pane_active}" 2>/dev/null) || return 0
+  local sep='@@lf@@' out line
+  local -a f
+  reply=()
+  out=$(_lazyfleet_tmux list-panes -a -F "#{pane_pid}${sep}#{session_name}${sep}#{window_index}${sep}#{pane_id}${sep}#{socket_path}${sep}#{session_attached}#{window_active}#{pane_active}" 2>/dev/null) || return 1
   for line in ${(f)out}; do
     line=${line//$sep/$'\t'}
     f=("${(@ps:\t:)line}")
-    # value: session, window, pane id, socket, and 1 if the pane is on screen
-    [[ $f[1] == <-> && -n $f[2] ]] && panes[$f[1]]="$f[2]"$'\t'"$f[3]"$'\t'"$f[4]"$'\t'"$f[5]"$'\t'"${${f[6]:#<1->11}:+0}"
+    [[ $f[1] == <-> && -n $f[2] ]] || continue
+    reply+=("$f[1]"$'\t'"$f[2]"$'\t'"$f[3]"$'\t'"$f[4]"$'\t'"$f[5]"$'\t'"${${f[6]:#<1->11}:+0}")
   done
-  (( $#panes )) || return 0
+}
+
+# reply=("pid<TAB>parent pid<TAB>agent kind or empty" ...), every process
+_lazyfleet_agent_procs() {
+  emulate -L zsh
+  local line pid ppid args kind
+  reply=()
   for line in ${(f)"$(ps -axo pid=,ppid=,args= 2>/dev/null)"}; do
     read -r pid ppid args <<<$line
     [[ $pid == <-> && $ppid == <-> ]] || continue
-    parent[$pid]=$ppid
+    kind=
     # most processes are no agent: only look closer at lines that could be
-    [[ $args == *(claude|copilot|omp|gh)* ]] && _lazyfleet_agent_kind $args && kinds[$pid]=$REPLY
+    [[ $args == *(claude|copilot|omp|gh)* ]] && _lazyfleet_agent_kind $args && kind=$REPLY
+    reply+=("$pid"$'\t'"$ppid"$'\t'"$kind")
   done
-  for pid in ${(k)kinds}; do
-    p=$pid n=0
-    while [[ -n $p && $p != 0 && $p != 1 ]] && (( n++ < 64 )); do
-      if [[ -n $panes[$p] ]]; then
-        if [[ -z $seen[$p:$kinds[$pid]] ]]; then
-          seen[$p:$kinds[$pid]]=1
-          f=("${(@ps:\t:)panes[$p]}")
-          line="$f[1]"$'\t'"$f[2]"$'\t'"$kinds[$pid]"
-          if [[ -n $detail ]]; then
-            _lazyfleet_agent_state $kinds[$pid] $f[4] $f[3]; state=$REPLY
-            vis=1; [[ $f[5] == 0 ]] && vis=0
-            # finished work that is on screen has been seen: no more "done"
-            [[ $state == done && $vis == 1 ]] && { state=idle; _lazyfleet_agent_set $kinds[$pid] $f[4] $f[3] idle }
-            line+=$'\t'"$state"$'\t'"$f[3]"$'\t'"$vis"
-            _lazyfleet_agent_key $f[4] $f[3]; live+=("$kinds[$pid].$REPLY")
-          fi
-          reply+=("$line")
-        fi
-        break
-      fi
-      p=$parent[$p]
-    done
-  done
-  [[ -n $detail ]] && _lazyfleet_agent_prune $live ${(u)${(v)panes}}
-  reply=(${(o)reply})
 }
 
 # Remove the hook's records for panes of the tmux servers seen in this round
