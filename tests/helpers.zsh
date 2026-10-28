@@ -93,6 +93,67 @@ out=$(_lazyfleet_worktree_arg feat-x 'usage: x' 2>&1); rc=$?
 assert_eq 'a name two worktrees answer to fails' 1 $rc
 assert_contains 'and counts them' "no unique worktree for 'feat-x' (2 matches)" $out
 
+# --- reading a config file: key=value, indented continuation lines, [sections]
+conf=$SANDBOX/conf.test
+cr() {  # cr <key> [repo]: print "rc|value"
+  _lazyfleet_conf_read $conf $1 $2; print -r -- "$?|$REPLY"
+}
+print -l 'a=1' 'b=two words' 'empty=' 'url=https://x.test/?q=a=b' >$conf
+assert_eq 'conf: a plain value' '0|1' "$(cr a)"
+assert_eq 'conf: spaces are kept' '0|two words' "$(cr b)"
+assert_eq 'conf: an empty value is found, and empty' '0|' "$(cr empty)"
+assert_eq 'conf: only the first = splits' '0|https://x.test/?q=a=b' "$(cr url)"
+REPLY=stale; _lazyfleet_conf_read $conf missing
+assert_eq 'conf: a missing key fails' 1 $?
+check 'conf: a key is not a prefix match' eval '! _lazyfleet_conf_read $conf e'
+print -l 'setup=' '  npm ci' '  npm run build' '' 'copy=.env' >$conf
+assert_eq 'conf: key= with the value on the next lines' $'0|npm ci\nnpm run build' "$(cr setup)"
+assert_eq 'conf: the next key ends a value' '0|.env' "$(cr copy)"
+print -l 'setup=make' '    one' '      two' 'next=x' >$conf
+assert_eq 'conf: continuation lines keep their extra indent' $'0|make\none\n  two' "$(cr setup)"
+print -l '  setup=a' '  b=c' >$conf
+assert_eq 'conf: an indented key ends at a line indented the same' '0|a' "$(cr setup)"
+print -l 'x=top' '[app]' 'x=in app' '[other]' 'x=in other' >$conf
+assert_eq 'conf: no repo means the first one anywhere' '0|top' "$(cr x)"
+assert_eq 'conf: - means only before any section' '0|top' "$(cr x -)"
+assert_eq 'conf: a repo reads its own section by name' '0|in app' "$(cr x /src/app)"
+assert_eq 'conf: and not the others' '0|in other' "$(cr x /src/other)"
+check 'conf: a repo without a section finds nothing' eval '! _lazyfleet_conf_read $conf x /src/none'
+print -l '[~/src/app/]' 'x=by path' >$conf
+assert_eq 'conf: a section by path, with ~ and a trailing /' '0|by path' "$(HOME=/home/u; cr x /home/u/src/app)"
+check 'conf: a path section is not matched by name' eval '! (HOME=/home/u; _lazyfleet_conf_read $conf x /elsewhere/app)'
+print -l '[app]' 'x=1' >$conf
+check 'conf: - ignores everything in sections' eval '! _lazyfleet_conf_read $conf x -'
+
+# --- percent-encoding for URLs (byte by byte, any locale)
+typeset -a enc=(
+  # in                       out
+  feat/x                     feat/x
+  'a b'                      a%20b
+  'v1.2_rc~1-x'              'v1.2_rc~1-x'
+  'a#b?c&d=e%'               a%23b%3Fc%26d%3De%25
+  'ü'                        %C3%BC
+  ''                         ''
+)
+for src want in "${(@)enc}"; do
+  _lazyfleet_urlencode "$src"; assert_eq "urlencode: ${(q+)src}" "$want" "$REPLY"
+done
+_lazyfleet_urlencode 'ü'; u8=$REPLY
+LC_ALL=C _lazyfleet_urlencode 'ü'
+assert_eq 'urlencode: the same bytes in the C locale' $u8 $REPLY
+
+# --- sorting by a key, and finding a registered repo
+reply=(/b/Zeta /a/alpha /c/Beta)
+_lazyfleet_sortby _lazyfleet_key_name
+assert_eq 'sortby: by name, case does not matter' '/a/alpha /c/Beta /b/Zeta' "$reply"
+reply=(); _lazyfleet_sortby _lazyfleet_key_name
+assert_eq 'sortby: nothing stays nothing' '' "$reply"
+_lazyfleet_find_repo app;    assert_eq 'find_repo: by name' $repo $REPLY
+_lazyfleet_find_repo $repo;  assert_eq 'find_repo: by path' $repo $REPLY
+(cd $SANDBOX/src && _lazyfleet_find_repo app/ && print -r -- $REPLY) >$SANDBOX/out
+assert_eq 'find_repo: by a relative path' $repo "$(<$SANDBOX/out)"
+check 'find_repo: an unknown name fails' not _lazyfleet_find_repo nope
+
 # --- a line of the prune report
 entry="/wt/app/feat-x${T}feat/x${T}pull request #4 was merged"
 assert_eq 'a prune line names the branch and the reason' '  prune  feat/x  —  pull request #4 was merged' "$(_lazyfleet_prune_line prune $entry)"

@@ -274,7 +274,8 @@ _lazyfleet_ui_openpr() { _lazyfleet_openpr $1 || _lazyfleet_pause }
 _lazyfleet_urlencode() {
   emulate -L zsh
   local c bytes out=
-  for c in "${(@s::)1}"; do
+  # (s::) makes one empty element of an empty string, which would encode as %
+  for c in ${(s::)1}; do
     if [[ $c == [A-Za-z0-9._~/-] ]]; then
       out+=$c
     else

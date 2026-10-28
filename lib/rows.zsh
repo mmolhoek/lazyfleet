@@ -198,10 +198,11 @@ _lazyfleet_names() {
 _lazyfleet_own_pane() { [[ -n $TMUX_PANE && $1 == $TMUX_PANE ]] }
 
 # REPLY=preview of tmux window $1: a header line, then the pane's last
-# screenful without its trailing blank lines; fails once the window is gone.
-# For the window whose active pane is the one lazyfleet draws in, a note
-# instead: a capture of it would contain this very preview, so every redraw
-# would change what the next capture shows, and never settle.
+# screenful without its trailing blank lines; fails (1) once the window is
+# gone. For the window whose active pane is the one lazyfleet draws in, a note
+# instead, and status 2 (nothing to follow): a capture of it would contain this
+# very preview, so every redraw would change what the next capture shows, and
+# never settle.
 _lazyfleet_winframe() {
   local head id
   local -a out
@@ -212,7 +213,7 @@ _lazyfleet_winframe() {
   [[ $id == %* ]] || return 1
   if _lazyfleet_own_pane $id; then
     REPLY=$'\e[1m'${1#=}$'\e[0m  '$head$'\n\n\e[2mlazyfleet is running here, so there is nothing to preview:\nthis screen would show up inside itself, over and over.\e[0m'
-    return 0
+    return 2
   fi
   out=("${(@f)$(_lazyfleet_tmux capture-pane -ep -t $1)}")
   local n=$(( ${FZF_PREVIEW_LINES:-40} - 2 ))
@@ -262,10 +263,12 @@ _lazyfleet_preview() {
     return
   fi
   if [[ $kind == t ]]; then
-    local last
-    _lazyfleet_winframe $p || return
+    local last rc
+    _lazyfleet_winframe $p; rc=$?
+    (( rc == 1 )) && return 1
     print -r -- $REPLY
-    (( $#o_f )) || return 0
+    # -f follows the pane, unless there is nothing to follow (our own pane)
+    (( $#o_f && rc == 0 )) || return 0
     zmodload zsh/zselect
     last=$REPLY
     # no fork per tick: zselect -t sleeps (in 1/100 s) without a sleep process

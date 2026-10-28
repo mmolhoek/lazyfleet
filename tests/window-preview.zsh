@@ -8,14 +8,11 @@ ROOT=${0:A:h:h}
 source ${0:A:h}/lib.zsh
 need_tools tmux
 SANDBOX=${$(mktemp -d):A}
-export HOME=$SANDBOX TMPDIR=$SANDBOX/tmp TMUX_TMPDIR=$SANDBOX SHELL=/bin/sh
+export HOME=$SANDBOX TMPDIR=$SANDBOX/tmp SHELL=/bin/sh
 mkdir -p $TMPDIR
-unset TMUX TMUX_PANE
-# the socket is $TMUX_TMPDIR/tmux-UID/NAME, and a unix socket path holds 103
-# bytes on macOS, whose temp dirs are 70 long already: keep the name short
-export LAZYFLEET_TMUX="tmux -L lf-winprev-$$"
+use_tmux winprev
 source $ROOT/lazyfleet.zsh
-trap '_lazyfleet_tmux kill-server 2>/dev/null; rm -rf $SANDBOX' EXIT
+trap 'tmux_cleanup; rm -rf $SANDBOX' EXIT
 
 # --- _lazyfleet_own_pane: is pane id $1 the one we run in?
 (
@@ -55,7 +52,8 @@ TMUX_PANE=%9999 _lazyfleet_winframe '=watched:0'
 assert_contains 'frame: another pane is still captured' preview-marker $REPLY
 
 # our own pane is not: a note instead of the capture
-TMUX_PANE=$pane _lazyfleet_winframe '=watched:0'; own=$REPLY
+TMUX_PANE=$pane _lazyfleet_winframe '=watched:0'; rc=$? own=$REPLY
+assert_eq 'own frame: status 2, nothing to follow' 2 $rc
 check 'own frame: leaves the capture out' eval '[[ $own != *preview-marker* ]]'
 assert_contains "own frame: still names the window" 'watched:0' $own
 assert_contains 'own frame: explains why' 'lazyfleet is running here' $own
@@ -84,5 +82,33 @@ sleep 1.5   # long enough for several 0.5 s ticks to notice the change
 kill $watcher 2>/dev/null; wait $watcher 2>/dev/null
 check 'preview -f: no redraw for our own pane' eval '[[ $(<$watch_out) != *$'"'"'\e[2J'"'"'* ]]'
 check 'preview -f: it drew the note once' eval '[[ $(<$watch_out) == *"lazyfleet is running here"* ]]'
+TMUX_PANE=$pane zsh -f -c "source $ROOT/lazyfleet.zsh; _lazyfleet_preview -f t '=watched:0'" >/dev/null 2>&1 &
+watcher=$!
+check 'preview -f: for our own pane it ends by itself' retry '! kill -0 $watcher 2>/dev/null'
+kill $watcher 2>/dev/null; wait $watcher 2>/dev/null
+
+# --- the whole TUI, started inside one of the sessions it lists (the bug as
+# it was seen). "aaa" sorts first, so its row, our own pane, is selected.
+autoload -Uz is-at-least
+if (( ! $+commands[fzf] )) || ! is-at-least 0.58 ${${(z)$(fzf --version 2>/dev/null)}[1]}; then
+  skip 'the TUI inside its own session' 'needs fzf 0.58 or newer'
+else
+  export LAZYFLEET_UPDATE_CHECK=off LAZYFLEET_PR_STATUS=off LAZYFLEET_AGENT_ICONS=off TERM=${TERM:-xterm-256color}
+  [[ $TERM == dumb ]] && export TERM=xterm-256color
+  _lazyfleet_tmux new-session -d -s zzz -c $dir
+  _lazyfleet_tmux new-session -d -s aaa -x 120 -y 24 -c $dir "$ROOT/bin/lazyfleet windows; sleep 30"
+  screen() { _lazyfleet_tmux capture-pane -p -t '=aaa:' }
+  check 'tui: starts inside tmux' waitpane aaa ' Windows '
+  check 'tui: its own window shows the note' waitpane aaa 'lazyfleet is running here'
+  # stable: two looks a second apart (two redraw ticks) see the same screen
+  one=$(screen); sleep 1; two=$(screen)
+  assert_eq 'tui: the screen settles' $one $two
+  check 'tui: no copy of itself inside the preview' eval '(( $(screen | grep -c "Windows") == 1 ))'
+  # the next row is "watched", whose pane shows the marker
+  _lazyfleet_tmux send-keys -t '=aaa:' j
+  check 'tui: another window still shows its pane' retry 'screen | gq -F "late-change"'
+  _lazyfleet_tmux send-keys -t '=aaa:' q
+  check 'tui: q quits' retry '! screen | gq Windows'
+fi
 
 finish
