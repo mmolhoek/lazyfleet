@@ -49,6 +49,16 @@ out=$(run lib 2>&1)
 assert_contains 'lib is not a suite' 'no suite called lib' "$out"
 
 
+
+# --- a failed check fails its suite, even inside a ( ) subshell
+mk subfail "source $ROOT/tests/lib.zsh; ( fail 'inside a subshell' ); finish"
+zsh -f $SANDBOX/subfail.zsh >/dev/null 2>&1; assert_eq 'a fail inside a subshell fails the suite' 1 $?
+mk subok "source $ROOT/tests/lib.zsh; ( ok 'fine' ); finish"
+zsh -f $SANDBOX/subok.zsh >/dev/null 2>&1; assert_eq 'and a suite without one passes' 0 $?
+# and the runner does not trust an exit status that contradicts a FAIL line
+mk liar 'print "FAIL something"; exit 0'
+zsh -f $ROOT/tests/all.zsh $SANDBOX/liar.zsh >/dev/null 2>&1; assert_eq 'a FAIL line fails the run, whatever the exit status' 1 $?
+
 # --- use_tmux: each suite's own tmux server, with a socket path that fits
 (
   # a short sandbox, whatever TMPDIR is
