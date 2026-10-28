@@ -409,6 +409,11 @@ _lazyfleet_pulldir; pd=$REPLY
 git() { [[ $3 == pull ]] && sleep 1; command git "$@" }
 FZF_SOCK=$SANDBOX/x.sock _lazyfleet_ui_pull $pl
 check 'background pull marks the row' eval '_lazyfleet_rows | gq "feat/pull.*⟳ pulling"'
+# every row, not only the first: the marker dir once came from a REPLY
+# that the previous row's agent marks had overwritten
+touch $pd/${repo//\//%}
+check 'a pull marks a later row too' eval '_lazyfleet_rows -p | gq -E "app +main +⟳ pulling"'
+rm -f $pd/${repo//\//%}
 unfunction git
 check 'failed background pull keeps git'"'"'s error' retry '[[ ! -e $pd/${pl//\//%} && -s $pd/${pl//\//%}.err ]]'
 check 'and has fzf show it' eval '_lazyfleet_pulled | gq "^execute(.* _ui_pullfail)+.*reload("'

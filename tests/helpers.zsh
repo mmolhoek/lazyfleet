@@ -154,6 +154,19 @@ _lazyfleet_find_repo $repo;  assert_eq 'find_repo: by path' $repo $REPLY
 assert_eq 'find_repo: by a relative path' $repo "$(<$SANDBOX/out)"
 check 'find_repo: an unknown name fails' not _lazyfleet_find_repo nope
 
+# --- one worktree row: "w<TAB>path<TAB>display"
+row() { _lazyfleet_row_print -p -- /wt/app/x app 5 feat/x 8 "$@" | cut -f3 }
+assert_eq 'row: name and branch padded to their columns' 'app    feat/x' "$(row '' '' '' '' '' '' | sed 's/ *$//')"
+assert_eq 'row: the path is the second field' /wt/app/x "$(_lazyfleet_row_print -p -- /wt/app/x app 5 b 1 '' '' '' '' '' '' | cut -f2)"
+assert_eq 'row: a live session' 'app    feat/x    ●' "$(row ● '' '' '' '' '' | sed 's/ *$//')"
+assert_eq 'row: ahead and behind' 'app    feat/x      ↑1 ↓2' "$(row '' '↑1 ↓2' '' '' '' '' | sed 's/ *$//')"
+assert_eq 'row: the * of changes goes last, after the marks' 'app    feat/x      ↑1 🐳2 #4 merged ✻ *' "$(row '' '* ↑1' 🐳2 '' '#4 merged' ✻)"
+assert_eq 'row: a pull in progress comes first' 'app    feat/x      ⟳ pulling ↑1' "$(row '' '↑1' '' 1 '' '' | sed 's/ *$//')"
+assert_eq 'row: only a *, still last' 'app    feat/x       *' "$(row '' '*' '' '' '' '')"
+colored=$(_lazyfleet_row_print -- /p app 3 b 1 ● '' '' '' '' '')
+check 'row: colors without -p' eval '[[ $colored == *$'"'"'\e[34mapp'"'"'* && $colored == *$'"'"'\e[32m●'"'"'* ]]'
+check 'row: none with -p' eval '[[ $(row ● "*" 🐳1 1 "#1" x) != *$'"'"'\e'"'"'* ]]'
+
 # --- a line of the prune report
 entry="/wt/app/feat-x${T}feat/x${T}pull request #4 was merged"
 assert_eq 'a prune line names the branch and the reason' '  prune  feat/x  —  pull request #4 was merged' "$(_lazyfleet_prune_line prune $entry)"
