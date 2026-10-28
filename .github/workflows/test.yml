@@ -13,6 +13,8 @@ env:
   # the first fzf lazyfleet supports is 0.58; the suites are run with this one
   FZF_VERSION: "0.74.0"
   FZF_LINUX_AMD64_SHA256: cf919f05b7581b4c744d764eaa704665d61dd6d3ca785f0df2351281dff60cda
+  # macos-latest runs on Apple silicon
+  FZF_DARWIN_ARM64_SHA256: da60e8980e4239a0fc5f1fcfe873f243dfda93a6a13b696b00e1dc8584a77a87
 
 jobs:
   lint:
@@ -54,7 +56,15 @@ jobs:
     continue-on-error: true
     steps:
       - uses: actions/checkout@v4
-      - name: Install tmux, fzf and jq
-        run: brew install tmux fzf jq
+      - name: Install tmux and jq
+        run: brew install tmux jq
+      # the same fzf as on Linux, not whatever Homebrew has today
+      - name: Install fzf ${{ env.FZF_VERSION }}
+        run: |
+          curl -fsSL -o /tmp/fzf.tgz "https://github.com/junegunn/fzf/releases/download/v${FZF_VERSION}/fzf-${FZF_VERSION}-darwin_arm64.tar.gz"
+          echo "${FZF_DARWIN_ARM64_SHA256}  /tmp/fzf.tgz" | shasum -a 256 -c -
+          sudo mkdir -p /usr/local/bin
+          sudo tar -xzf /tmp/fzf.tgz -C /usr/local/bin fzf
+          fzf --version
       - name: Test suites
         run: zsh tests/all.zsh
