@@ -62,7 +62,6 @@ _lazyfleet_pr_cachefile() {
 # A commit nothing checks has a combined state of "pending" with a count of 0;
 # that is none, not pending.
 _lazyfleet_pr_ci() {
-  emulate -L zsh
   local w fail= pend= pass=
   for w in ${=1}; do
     if [[ ${w%%/*} != completed ]]; then pend=1; continue; fi
@@ -92,71 +91,94 @@ _lazyfleet_pr_ci() {
 # time of the attempt moves, so a failure is not retried at once. REPLY=changed
 # if the rows differ from before, else same.
 _lazyfleet_pr_fetch() {
-  emulate -L zsh
-  setopt extended_glob no_monitor no_notify
-  local slug=$1 f=$2 out line ref st r i sha dir tmp old= new= ok=1 ci
+  local slug=$1 f=$2 out old= new= ok=1
   shift 2
-  local -a fl rows
-  local -A want best rank
-  for ref in "$@"; do want[$ref]=1; done
   [[ -r $f ]] && old=$(tail -n +2 $f 2>/dev/null)
   out=$(command gh api "repos/$slug/pulls?state=all&sort=updated&direction=desc&per_page=100" --jq $_LAZYFLEET_PR_JQ 2>/dev/null) || ok=
   if [[ -n $ok ]]; then
-    for line in ${(f)out}; do
-      fl=("${(@ps:\t:)line}")
-      (( $#fl >= 8 )) || continue
-      [[ ${fl[7]:l} == ${slug:l} ]] || continue          # not from a fork
-      if [[ $fl[3] == open ]]; then
-        [[ $fl[4] == true ]] && st=draft || st=open; r=4
-      elif [[ $fl[5] == merged ]]; then st=merged; r=3
-      else st=closed; r=2; fi
-      # an open pull request beats a merged one beats a closed one; among
-      # equals the most recently updated (the first) stays
-      (( r > ${rank[$fl[1]]:-0} )) || continue
-      rank[$fl[1]]=$r
-      best[$fl[1]]=$fl[2]$'\t'$st$'\t'-$'\t'$fl[8]$'\t'${fl[9]//\\\\/\\}$'\t'$fl[6]
-    done
-    # checks, for the open pull requests that have a worktree here (at most 25)
-    _lazyfleet_tmpdir 2>/dev/null && dir=$REPLY/ci.$$.$RANDOM && mkdir -m 700 $dir 2>/dev/null
-    if [[ -d $dir ]]; then
-      i=0
-      for ref in ${(k)best}; do
-        [[ -n $want[$ref] ]] || continue
-        st=${${best[$ref]#*$'\t'}%%$'\t'*}
-        [[ $st == (open|draft) ]] || continue
-        sha=${best[$ref]##*$'\t'}
-        [[ $sha == [0-9a-f](#c7,64) ]] || continue
-        (( i >= 25 )) && break
-        (( i++ ))
-        {
-          command gh api "repos/$slug/commits/$sha/check-runs?per_page=100" --jq $_LAZYFLEET_PR_JQ_CHECKS >$dir/$i.c 2>/dev/null || : >$dir/$i.c
-          command gh api "repos/$slug/commits/$sha/status" --jq $_LAZYFLEET_PR_JQ_STATUS >$dir/$i.s 2>/dev/null || : >$dir/$i.s
-        } &
-        print -r -- $ref >$dir/$i.r
-      done
-      wait
-      for (( r = 1; r <= i; r++ )); do
-        [[ -r $dir/$r.r ]] || continue
-        ref=$(<$dir/$r.r)
-        _lazyfleet_pr_ci "$(<$dir/$r.c)" "$(<$dir/$r.s)"; ci=$REPLY
-        best[$ref]=${best[$ref]%%$'\t'*}$'\t'${${best[$ref]#*$'\t'}%%$'\t'*}$'\t'$ci$'\t'${best[$ref]#*$'\t'*$'\t'*$'\t'}
-      done
-      rm -rf $dir
-    fi
-    # (the head commit stays in the cache: prune compares it with a branch)
-    for ref in ${(ok)best}; do rows+=($ref$'\t'$best[$ref]); done
-    new=${(F)rows}
+    _lazyfleet_pr_best $slug $out
+    _lazyfleet_pr_add_checks $slug "$*" $reply
+    new=${(F)reply}
   else
     new=$old
   fi
-  tmp=$f.$$
-  [[ -n $ok ]] && st=ok || st=fail
-  {
-    print -r -- "#lazyfleet-pr 1 $EPOCHSECONDS $st"
-    if [[ -n $new ]]; then print -r -- $new; fi
-  } >|$tmp && mv -f $tmp $f || { rm -f $tmp; return 1 }
+  _lazyfleet_pr_write $f "$ok" $new || return 1
   [[ $new == $old ]] && REPLY=same || REPLY=changed
   [[ -n $ok ]]
+}
+
+# reply=(cache lines "branch<TAB>number<TAB>state<TAB>-<TAB>url<TAB>title<TAB>head sha",
+# by branch) from $2, GitHub's pull requests of repo $1 as _LAZYFLEET_PR_JQ
+# prints them (most recently updated first). Per branch: an open pull request
+# beats a merged one beats a closed one; among equals the most recently
+# updated (the first) stays. Pull requests from forks are left out. The
+# checks (field 4) are filled in by _lazyfleet_pr_add_checks.
+_lazyfleet_pr_best() {
+  local slug=$1 line st r ref
+  local -a fl
+  local -A best rank
+  for line in ${(f)2}; do
+    fl=("${(@ps:\t:)line}")
+    (( $#fl >= 8 )) || continue
+    [[ ${fl[7]:l} == ${slug:l} ]] || continue          # not from a fork
+    if [[ $fl[3] == open ]]; then
+      [[ $fl[4] == true ]] && st=draft || st=open; r=4
+    elif [[ $fl[5] == merged ]]; then st=merged; r=3
+    else st=closed; r=2; fi
+    (( r > ${rank[$fl[1]]:-0} )) || continue
+    rank[$fl[1]]=$r
+    best[$fl[1]]=$fl[2]$'\t'$st$'\t'-$'\t'$fl[8]$'\t'${fl[9]//\\\\/\\}$'\t'$fl[6]
+  done
+  reply=()
+  # (the head commit stays in the cache: prune compares it with a branch)
+  for ref in ${(ok)best}; do reply+=($ref$'\t'$best[$ref]); done
+}
+
+# reply=the cache lines $3... with the CI state (field 4) of the open pull
+# requests whose branch is in $2 (space separated: the branches that have a
+# worktree here), at most 25, asked for all at once. $1 is the repo.
+_lazyfleet_pr_add_checks() {
+  emulate -L zsh
+  setopt extended_glob no_monitor no_notify
+  local slug=$1 dir row ref st sha i=0 n
+  local -a rows=("${(@)argv[3,-1]}") fl
+  local -A want at
+  for ref in ${=2}; do want[$ref]=1; done
+  reply=("${(@)rows}")
+  _lazyfleet_tmpdir 2>/dev/null && dir=$REPLY/ci.$$.$RANDOM && mkdir -m 700 $dir 2>/dev/null || return 0
+  for (( n = 1; n <= $#rows; n++ )); do
+    fl=("${(@ps:\t:)rows[n]}")
+    ref=$fl[1] st=$fl[3] sha=$fl[7]
+    [[ -n $want[$ref] && $st == (open|draft) && $sha == [0-9a-f](#c7,64) ]] || continue
+    (( i >= 25 )) && break
+    (( i++ ))
+    at[$i]=$n
+    {
+      command gh api "repos/$slug/commits/$sha/check-runs?per_page=100" --jq $_LAZYFLEET_PR_JQ_CHECKS >$dir/$i.c 2>/dev/null || : >$dir/$i.c
+      command gh api "repos/$slug/commits/$sha/status" --jq $_LAZYFLEET_PR_JQ_STATUS >$dir/$i.s 2>/dev/null || : >$dir/$i.s
+    } &
+  done
+  wait
+  for i in ${(k)at}; do
+    n=$at[$i]
+    fl=("${(@ps:\t:)reply[n]}")
+    _lazyfleet_pr_ci "$(<$dir/$i.c)" "$(<$dir/$i.s)"
+    fl[4]=$REPLY
+    reply[n]=${(pj:\t:)fl}
+  done
+  rm -rf $dir
+}
+
+# Write cache file $1: a header (format 1, now, "ok" when $2 is set, else
+# "fail"), then the lines $3...; replaced at once, never half written
+_lazyfleet_pr_write() {
+  local f=$1 st=fail tmp=$1.$$
+  [[ -n $2 ]] && st=ok
+  shift 2
+  {
+    print -r -- "#lazyfleet-pr 1 $EPOCHSECONDS $st"
+    if (( $# )) && [[ -n $1 ]]; then print -rl -- "$@"; fi
+  } >|$tmp && mv -f $tmp $f || { rm -f $tmp; return 1 }
 }
 
 # _lazyfleet_pr_read slug: put the cached pull requests of repo $1 into the
@@ -164,7 +186,6 @@ _lazyfleet_pr_fetch() {
 # "number<TAB>state<TAB>ci<TAB>url<TAB>title<TAB>head sha". REPLY=seconds since the last
 # attempt to refresh the cache (empty: never). Fails without a usable cache.
 _lazyfleet_pr_read() {
-  emulate -L zsh
   local slug=${1:l} f line content stamp
   local -a fl hf lines
   REPLY=
@@ -187,7 +208,6 @@ _lazyfleet_pr_read() {
 # REPLY=the row mark for pull request fields $1 (number) $2 (state) $3 (ci);
 # -p as $4 for no colours
 _lazyfleet_pr_mark() {
-  emulate -L zsh
   local n=$1 st=$2 ci=$3 col= sym= end=$'\e[0m'
   case $st in
     (open) case $ci in
@@ -211,8 +231,8 @@ _lazyfleet_pr_mark() {
 _lazyfleet_pr_kick() {
   emulate -L zsh
   setopt extended_glob
-  local slug f age bin=${(q)LAZYFLEET_DIR}/bin/lazyfleet
-  local -a todo dead
+  local slug f age pid i bin=${(q)LAZYFLEET_DIR}/bin/lazyfleet
+  local -a todo
   local -A prs
   while (( $# >= 2 )); do
     slug=$1
@@ -220,12 +240,11 @@ _lazyfleet_pr_kick() {
     prs=()
     _lazyfleet_pr_read $slug; age=$REPLY
     if [[ -z $age ]] || (( age >= _LAZYFLEET_PR_TTL )); then
-      # one refresh per repo at a time; a lock older than two minutes is dead
+      # one refresh per repo at a time: whoever makes the lock dir does it
       if mkdir $f.lock 2>/dev/null; then
         todo+=($slug $f $2)
-      else
-        dead=($f.lock(N/mm+2))
-        (( $#dead )) && rmdir $f.lock 2>/dev/null
+      elif _lazyfleet_pr_lock_dead $f.lock; then
+        rm -rf $f.lock        # the next pass takes it
       fi
     fi
     shift 2
@@ -237,10 +256,27 @@ _lazyfleet_pr_kick() {
       s=$todo[1] file=$todo[2] brs=$todo[3]; shift 3 todo
       _lazyfleet_pr_fetch $s $file ${=brs}
       [[ $REPLY == changed ]] && changed=1
-      rmdir $file.lock 2>/dev/null
+      rm -rf $file.lock
     done
     [[ -n $changed ]] && _lazyfleet_fzfpost "transform($bin _prdone)"
   } </dev/null >/dev/null 2>&1 &!
+  # each lock names the job that holds it, so a lock whose job died is known
+  # to be dead. (A job that is already done has removed its lock: the write
+  # then fails, and that is fine.)
+  pid=$!
+  for (( i = 2; i <= $#todo; i += 3 )); do print -r -- $pid >|$todo[i].lock/pid 2>/dev/null; done
+}
+
+# Is pull request lock dir $1 dead? Yes when the job named in it no longer
+# runs, or when it is older than 10 minutes, whatever it says. A lock with
+# no job in it yet has only just been taken.
+_lazyfleet_pr_lock_dead() {
+  local pid
+  local -a old=($1(N/mm+10))
+  (( $#old )) && return 0
+  [[ -r $1/pid ]] || return 1
+  pid=$(<$1/pid)
+  [[ $pid == <-> ]] && ! kill -0 $pid 2>/dev/null
 }
 
 # fzf action once a refresh found something new: reload the worktrees (with

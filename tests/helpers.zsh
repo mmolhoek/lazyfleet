@@ -93,6 +93,148 @@ out=$(_lazyfleet_worktree_arg feat-x 'usage: x' 2>&1); rc=$?
 assert_eq 'a name two worktrees answer to fails' 1 $rc
 assert_contains 'and counts them' "no unique worktree for 'feat-x' (2 matches)" $out
 
+# --- reading a config file: key=value, indented continuation lines, [sections]
+conf=$SANDBOX/conf.test
+cr() {  # cr <key> [repo]: print "rc|value"
+  _lazyfleet_conf_read $conf $1 $2; print -r -- "$?|$REPLY"
+}
+print -l 'a=1' 'b=two words' 'empty=' 'url=https://x.test/?q=a=b' >$conf
+assert_eq 'conf: a plain value' '0|1' "$(cr a)"
+assert_eq 'conf: spaces are kept' '0|two words' "$(cr b)"
+assert_eq 'conf: an empty value is found, and empty' '0|' "$(cr empty)"
+assert_eq 'conf: only the first = splits' '0|https://x.test/?q=a=b' "$(cr url)"
+REPLY=stale; _lazyfleet_conf_read $conf missing
+assert_eq 'conf: a missing key fails' 1 $?
+check 'conf: a key is not a prefix match' eval '! _lazyfleet_conf_read $conf e'
+print -l 'setup=' '  npm ci' '  npm run build' '' 'copy=.env' >$conf
+assert_eq 'conf: key= with the value on the next lines' $'0|npm ci\nnpm run build' "$(cr setup)"
+assert_eq 'conf: the next key ends a value' '0|.env' "$(cr copy)"
+print -l 'setup=make' '    one' '      two' 'next=x' >$conf
+assert_eq 'conf: continuation lines keep their extra indent' $'0|make\none\n  two' "$(cr setup)"
+print -l '  setup=a' '  b=c' >$conf
+assert_eq 'conf: an indented key ends at a line indented the same' '0|a' "$(cr setup)"
+print -l 'x=top' '[app]' 'x=in app' '[other]' 'x=in other' >$conf
+assert_eq 'conf: no repo means the first one anywhere' '0|top' "$(cr x)"
+assert_eq 'conf: - means only before any section' '0|top' "$(cr x -)"
+assert_eq 'conf: a repo reads its own section by name' '0|in app' "$(cr x /src/app)"
+assert_eq 'conf: and not the others' '0|in other' "$(cr x /src/other)"
+check 'conf: a repo without a section finds nothing' eval '! _lazyfleet_conf_read $conf x /src/none'
+print -l '[~/src/app/]' 'x=by path' >$conf
+assert_eq 'conf: a section by path, with ~ and a trailing /' '0|by path' "$(HOME=/home/u; cr x /home/u/src/app)"
+check 'conf: a path section is not matched by name' eval '! (HOME=/home/u; _lazyfleet_conf_read $conf x /elsewhere/app)'
+print -l '[app]' 'x=1' >$conf
+check 'conf: - ignores everything in sections' eval '! _lazyfleet_conf_read $conf x -'
+
+# --- percent-encoding for URLs (byte by byte, any locale)
+typeset -a enc=(
+  # in                       out
+  feat/x                     feat/x
+  'a b'                      a%20b
+  'v1.2_rc~1-x'              'v1.2_rc~1-x'
+  'a#b?c&d=e%'               a%23b%3Fc%26d%3De%25
+  'ü'                        %C3%BC
+  ''                         ''
+)
+for src want in "${(@)enc}"; do
+  _lazyfleet_urlencode "$src"; assert_eq "urlencode: ${(q+)src}" "$want" "$REPLY"
+done
+_lazyfleet_urlencode 'ü'; u8=$REPLY
+LC_ALL=C _lazyfleet_urlencode 'ü'
+assert_eq 'urlencode: the same bytes in the C locale' $u8 $REPLY
+
+# --- sorting by a key, and finding a registered repo
+reply=(/b/Zeta /a/alpha /c/Beta)
+_lazyfleet_sortby _lazyfleet_key_name
+assert_eq 'sortby: by name, case does not matter' '/a/alpha /c/Beta /b/Zeta' "$reply"
+reply=(); _lazyfleet_sortby _lazyfleet_key_name
+assert_eq 'sortby: nothing stays nothing' '' "$reply"
+_lazyfleet_find_repo app;    assert_eq 'find_repo: by name' $repo $REPLY
+_lazyfleet_find_repo $repo;  assert_eq 'find_repo: by path' $repo $REPLY
+(cd $SANDBOX/src && _lazyfleet_find_repo app/ && print -r -- $REPLY) >$SANDBOX/out
+assert_eq 'find_repo: by a relative path' $repo "$(<$SANDBOX/out)"
+check 'find_repo: an unknown name fails' not _lazyfleet_find_repo nope
+
+# --- one worktree row: "w<TAB>path<TAB>display"
+row() { _lazyfleet_row_print -p -- /wt/app/x app 5 feat/x 8 "$@" | cut -f3 }
+assert_eq 'row: name and branch padded to their columns' 'app    feat/x' "$(row '' '' '' '' '' '' | sed 's/ *$//')"
+assert_eq 'row: the path is the second field' /wt/app/x "$(_lazyfleet_row_print -p -- /wt/app/x app 5 b 1 '' '' '' '' '' '' | cut -f2)"
+assert_eq 'row: a live session' 'app    feat/x    ●' "$(row ● '' '' '' '' '' | sed 's/ *$//')"
+assert_eq 'row: ahead and behind' 'app    feat/x      ↑1 ↓2' "$(row '' '↑1 ↓2' '' '' '' '' | sed 's/ *$//')"
+assert_eq 'row: the * of changes goes last, after the marks' 'app    feat/x      ↑1 🐳2 #4 merged ✻ *' "$(row '' '* ↑1' 🐳2 '' '#4 merged' ✻)"
+assert_eq 'row: a pull in progress comes first' 'app    feat/x      ⟳ pulling ↑1' "$(row '' '↑1' '' 1 '' '' | sed 's/ *$//')"
+assert_eq 'row: only a *, still last' 'app    feat/x       *' "$(row '' '*' '' '' '' '')"
+colored=$(_lazyfleet_row_print -- /p app 3 b 1 ● '' '' '' '' '')
+check 'row: colors without -p' eval '[[ $colored == *$'"'"'\e[34mapp'"'"'* && $colored == *$'"'"'\e[32m●'"'"'* ]]'
+check 'row: none with -p' eval '[[ $(row ● "*" 🐳1 1 "#1" x) != *$'"'"'\e'"'"'* ]]'
+
+# --- the TUI loop's pieces
+LAZYFLEET_POSFILE=$SANDBOX/pos
+rows=$'w\t/wt/a\ta\nw\t/wt/b\tb\nt\t=s:1\tw'
+_lazyfleet_ui_handover $rows /wt/b;  assert_eq 'handover: the row of the item left' 2 "$(<$LAZYFLEET_POSFILE)"
+_lazyfleet_ui_handover $rows '=s:1'; assert_eq 'handover: a window target too' 3 "$(<$LAZYFLEET_POSFILE)"
+_lazyfleet_ui_handover $rows /wt;    check 'handover: only a whole field matches' test ! -e $LAZYFLEET_POSFILE
+_lazyfleet_ui_handover $rows '/wt/*'; check 'handover: a * in the item is not a pattern' test ! -e $LAZYFLEET_POSFILE
+print 9 >$LAZYFLEET_POSFILE
+_lazyfleet_ui_handover $rows '';     check 'handover: nothing to hand over clears an old one' test ! -e $LAZYFLEET_POSFILE
+_lazyfleet_ui_start windows '';  assert_eq 'start: the Windows view' ' Windows ' $reply[2]
+_lazyfleet_ui_start '' '';       assert_eq 'start: else the worktrees, loading' ' Worktrees · loading… ' $reply[2]
+_lazyfleet_ui_start '' 'app'
+check 'start: a query shows the find input' eval '[[ ${reply[-1]} == start:show-input* ]]'
+_lazyfleet_ui_binds /bin/lf /tmp/s.sock
+check 'binds: listens on the socket' eval '[[ $reply[1] == --listen=/tmp/s.sock ]]'
+_lazyfleet_ui_binds /bin/lf ''
+check 'binds: no socket, no --listen' eval '[[ ${(j: :)reply} != *--listen* ]]'
+check 'binds: enter resets the find input' eval '[[ ${(j: :)reply} == *"enter:transform(/bin/lf _key {1} {2})+clear-query+hide-input"* ]]'
+act() {
+  (
+    _lazyfleet_open_path() { print -r -- "open $1"; reply=(clobbered); return ${OPEN_RC:-0} }
+    _lazyfleet_open_window() { print -r -- "window $1" }
+    _lazyfleet_ui_new() { [[ -n $NEW ]] && REPLY=$NEW }
+    _lazyfleet_pause() { print pause }
+    _lazyfleet_ui_act $1; print -r -- "rc=$? view=$reply[1] sel=$reply[2]"
+  )
+}
+assert_eq 'act: open opens, then the worktrees with that row' $'open /wt/a\nrc=0 view= sel=/wt/a' "$(act $'open\n/wt/a')"
+assert_eq 'act: a failed open pauses' $'open /wt/a\npause\nrc=0 view= sel=/wt/a' "$(OPEN_RC=1 act $'open\n/wt/a')"
+assert_eq 'act: window goes back to the windows' $'window =s:1\nrc=0 view=windows sel==s:1' "$(act $'window\n=s:1')"
+assert_eq 'act: new opens what was made' $'open /wt/new\nrc=0 view= sel=/wt/new' "$(NEW=/wt/new act $'new\n/src/app')"
+assert_eq 'act: a cancelled new is nothing' 'rc=2 view= sel=' "$(act $'new\n/src/app')"
+assert_eq 'act: anything else quits' 'rc=1 view= sel=' "$(act abort)"
+unset LAZYFLEET_POSFILE
+
+# --- which repos prune looks at
+_lazyfleet_prune_repos --all;      assert_eq 'prune repos: --all is every registered one' "$repo" "$reply"
+_lazyfleet_prune_repos -r app;     assert_eq 'prune repos: -r by name' "$repo" "$reply"
+_lazyfleet_prune_repos -r $fx;     assert_eq 'prune repos: -r with a path in a worktree means its repo' "$repo" "$reply"
+out=$(_lazyfleet_prune_repos -r $SANDBOX/plain 2>&1); rc=$?
+assert_eq 'prune repos: -r with no repo fails' 1 $rc
+assert_contains 'prune repos: and names it' "unknown repo: $SANDBOX/plain" $out
+(cd $fx && _lazyfleet_prune_repos && print -r -- $reply) >$SANDBOX/out
+assert_eq 'prune repos: none given means the repo we are in' "$repo" "$(<$SANDBOX/out)"
+out=$(cd $SANDBOX/plain && _lazyfleet_prune_repos 2>&1); rc=$?
+assert_eq 'prune repos: outside a repo fails' 1 $rc
+assert_contains 'prune repos: and says what to do' 'pass -r <repo> or --all' $out
+
+# --- the status of many worktrees: in order, and only so many at a time
+(
+  runs=$SANDBOX/runs; mkdir -p $runs
+  # each stand-in status notes how many run along with it
+  _lazyfleet_wtstatus() {
+    local -a on
+    : >$runs/${1:t}.on; on=($runs/*.on(N)); print $#on >>$runs/peak
+    sleep 0.05; rm -f $runs/${1:t}.on; print -rn -- "st-${1:t}"
+  }
+  _lazyfleet_containers() { reply=($'/w/3\tweb\tUp\tid1' $'/w/3\tdb\tUp\tid2') }
+  _LAZYFLEET_STATUS_JOBS=4
+  _lazyfleet_rows_status /w/{1..10}
+  assert_eq 'status: one per worktree, in order' 'st-1 st-2 st-3 st-4 st-5 st-6 st-7 st-8 st-9 st-10' "${reply[1,10]}"
+  assert_eq 'status: then the Docker marks' '🐳2' "$reply[13]"
+  assert_eq 'status: a worktree without containers has no mark' '' "$reply[11]"
+  peak=${${(On)${(f)"$(<$runs/peak)"}}[1]}
+  check 'status: never more than the limit at once' eval '(( peak <= 4 ))'
+  check 'status: but in parallel' eval '(( peak > 1 ))'
+)
+
 # --- a line of the prune report
 entry="/wt/app/feat-x${T}feat/x${T}pull request #4 was merged"
 assert_eq 'a prune line names the branch and the reason' '  prune  feat/x  —  pull request #4 was merged' "$(_lazyfleet_prune_line prune $entry)"
@@ -120,5 +262,32 @@ assert_eq 'and passes a no on' 1 $?
 typed=y; out=$(_lazyfleet_confirm 'Go on?' 'not on a terminal: use -y' </dev/null 2>&1); rc=$?
 assert_eq 'confirm with a message fails off a terminal, whatever the answer' 1 $rc
 assert_eq 'and only prints the message, it does not ask' 'lazyfleet: not on a terminal: use -y' "$out"
+
+
+# --- the questions before removing a worktree, and git's flags after them
+# (the keyboard is the stub above: it types $typed)
+# "status|flags|what it printed"; the flags (REPLY) only count when it succeeds
+rc_() { local rc; _lazyfleet_rm_confirm "$@" >$SANDBOX/rmc.out 2>&1 </dev/null; rc=$?; (( rc )) && REPLY=; print -r -- "$rc|$REPLY|$(<$SANDBOX/rmc.out)" }
+_lazyfleet_session_agents() { reply=() }
+typed=n
+assert_eq 'rm confirm: a clean worktree needs no force' '0||' "$(rc_ $fx $repo)"
+assert_eq 'rm confirm: -f forces it anyway' '0|--force|' "$(rc_ $fx $repo -f)"
+print x >$fx/dirty.txt
+assert_eq 'rm confirm: changes, off a terminal, fail and say why' "1||lazyfleet: $fx has changes (use -f)" "$(rc_ $fx $repo)"
+assert_eq 'rm confirm: changes with -f, no question' '0|--force|' "$(rc_ $fx $repo -f)"
+rm $fx/dirty.txt
+git -C $repo worktree lock --reason test $fx
+assert_eq 'rm confirm: a lock with -f is forced twice, no question' '0|--force --force|' "$(rc_ $fx $repo -f)"
+typed=y; _lazyfleet_confirm() { _lazyfleet_ask $1 }     # as on a terminal
+assert_eq 'rm confirm: a lock, answered yes, is forced twice' "0|--force --force|${fx/#$HOME/~} is locked (test). Remove anyway? [y/N] " "$(rc_ $fx $repo)"
+typed=n
+check 'rm confirm: a lock answered no stops' eval '[[ $(rc_ $fx $repo) == 1\|* ]]'
+git -C $repo worktree unlock $fx
+_lazyfleet_session_agents() { reply=("claude"$'\t'"0") }
+_lazyfleet_agents_warning() { print -r -- "warning about $1" }
+assert_eq 'rm confirm: agents running, off a terminal, fail' "1||lazyfleet: $fx has 1 agent(s) running in session app/feat-x (use -f)" "$(rc_ $fx $repo)"
+assert_eq 'rm confirm: agents with -f, no question' '0|--force|' "$(rc_ $fx $repo -f)"
+unfunction _lazyfleet_session_agents _lazyfleet_agents_warning _lazyfleet_confirm
+source $ROOT/lib/core.zsh       # the real _lazyfleet_confirm again
 
 finish

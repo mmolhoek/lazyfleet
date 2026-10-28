@@ -99,11 +99,11 @@ reset; rm $BIN/tmux; run
 check 'a missing tmux fails'               has 'FAIL  tmux is not installed'
 reset; rm $BIN/fzf; run
 check 'a missing fzf fails'                has 'FAIL  fzf is not installed'
-reset; stub fzf '0.57.2'; run
-check 'fzf 0.57 is too old'                has 'FAIL  fzf 0.57.2 is too old: lazyfleet needs 0.58 or newer'
+reset; stub fzf '0.65.2'; run
+check 'fzf 0.65 is too old'                has 'FAIL  fzf 0.65.2 is too old: lazyfleet needs 0.66 or newer'
 check 'an old fzf makes doctor fail'       test $rc = 1
-reset; stub fzf '0.58.0'; run
-check 'fzf 0.58 is enough'                 test $rc = 0
+reset; stub fzf '0.66.0'; run
+check 'fzf 0.66 is enough'                 test $rc = 0
 reset; stub tmux 'tmux 2.9'; run
 check 'an old tmux only warns'             has 'warn  tmux 2.9 is too old'
 check 'an old tmux does not fail doctor'   test $rc = 0

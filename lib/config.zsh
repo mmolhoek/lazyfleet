@@ -73,7 +73,6 @@ _lazyfleet_conf() {
 # trust_branch_config=on (LAZYFLEET_TRUST_BRANCH_CONFIG) says to trust branches.
 # Leaves REPLY alone.
 _lazyfleet_branchconf_trusted() {
-  emulate -L zsh
   local key=$1 val=$2 repo=$3 REPLY
   _lazyfleet_setting trust_branch_config LAZYFLEET_TRUST_BRANCH_CONFIG off
   [[ ${REPLY:l} == (on|yes|true|1) ]] && return 0

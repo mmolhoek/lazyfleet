@@ -8,13 +8,14 @@ source ${0:A:h}/lib.zsh
 need_tools git tmux
 SANDBOX=${$(mktemp -d):A}
 export HOME=$SANDBOX/home XDG_CONFIG_HOME=$SANDBOX/cfg LAZYFLEET_WORKTREES=$SANDBOX/wt TMPDIR=$SANDBOX/tmp
-export TMUX_TMPDIR=$SANDBOX GIT_AUTHOR_NAME=t GIT_AUTHOR_EMAIL=t@t GIT_COMMITTER_NAME=t GIT_COMMITTER_EMAIL=t@t
+export GIT_AUTHOR_NAME=t GIT_AUTHOR_EMAIL=t@t GIT_COMMITTER_NAME=t GIT_COMMITTER_EMAIL=t@t
 mkdir -p $HOME $TMPDIR $SANDBOX/stub $SANDBOX/fix
 unset TMUX LAZYFLEET_PR_STATUS LAZYFLEET_AGENT_ICONS
-export LAZYFLEET_TMUX="tmux -L lazyfleet-pr-$$" SHELL=${commands[zsh]}
+export SHELL=${commands[zsh]}
+use_tmux pr
 export LAZYFLEET_AGENT_ICONS=off
 source $ROOT/lazyfleet.zsh
-cleanup() { _lazyfleet_tmux kill-server 2>/dev/null; rm -rf $SANDBOX }
+cleanup() { tmux_cleanup; rm -rf $SANDBOX }
 trap cleanup EXIT
 
 plain() { sed 's/\x1b\[[0-9;]*m//g' }
@@ -115,6 +116,41 @@ check 'passing checks with a failing status fail' test "$(ci 'completed/success'
 check 'passing checks with a pending status are pending' test "$(ci 'completed/success' '1 pending')" = pending
 check 'a passing status without checks passes' test "$(ci '' '1 success')" = pass
 check 'a garbled status is ignored' test "$(ci 'completed/success' 'x y')" = pass
+
+# ---------------------------------------------------------------- choosing per branch
+# input lines as _LAZYFLEET_PR_JQ prints them:
+# branch number state draft merged sha repo url title
+T=$'\t'
+pl() { print -r -- "${(pj:\t:)@}" }
+SHA=0123456789abcdef0123456789abcdef01234567
+best() { _lazyfleet_pr_best acme/widgets "$1"; print -rl -- $reply }
+in=$(pl feat/a 7 closed false - $SHA acme/widgets u7 'old try'; pl feat/a 9 open false - $SHA acme/widgets u9 'Second try')
+assert_eq 'best: open beats closed, whatever the order' "feat/a${T}9${T}open${T}-${T}u9${T}Second try${T}$SHA" "$(best $in)"
+in=$(pl feat/a 5 closed false merged $SHA acme/widgets u5 Merged; pl feat/a 6 closed false - $SHA acme/widgets u6 Closed)
+assert_eq 'best: merged beats closed' "feat/a${T}5${T}merged${T}-${T}u5${T}Merged${T}$SHA" "$(best $in)"
+in=$(pl feat/a 3 open false - $SHA acme/widgets u3 Newer; pl feat/a 2 open false - $SHA acme/widgets u2 Older)
+check 'best: among equals the first (most recently updated) stays' eval '[[ $(best $in) == feat/a${T}3${T}* ]]'
+in=$(pl feat/d 4 open true - $SHA acme/widgets u4 Draft)
+check 'best: an open draft is a draft' eval '[[ $(best $in) == feat/d${T}4${T}draft${T}* ]]'
+in=$(pl feat/f 8 open false - $SHA someone/widgets u8 Fork)
+assert_eq 'best: a pull request from a fork is left out' '' "$(best $in)"
+in=$(pl feat/f 8 open false - $SHA ACME/Widgets u8 Case)
+check 'best: the repo compares without case' eval '[[ -n $(best $in) ]]'
+in=$(pl feat/s 1 open false - $SHA)
+assert_eq 'best: a short line is skipped' '' "$(best $in)"
+in=$(pl feat/t 1 open false - $SHA acme/widgets u1 'a\\b')
+check 'best: an escaped backslash in a title is one backslash' eval '[[ $(best $in) == *"${T}a\\b${T}"* ]]'
+in=$(pl zeta 1 open false - $SHA acme/widgets u z; pl alpha 2 open false - $SHA acme/widgets u a)
+assert_eq 'best: lines come out by branch' $'alpha\nzeta' "$(best $in | cut -f1)"
+
+# ---------------------------------------------------------------- writing the cache
+wf=$SANDBOX/write.test
+_lazyfleet_pr_write $wf 1 "a${T}1" "b${T}2"
+check 'write: a header, ok, then the lines' eval '[[ $(head -1 $wf) == "#lazyfleet-pr 1 "<->" ok" && $(tail -n +2 $wf) == "a${T}1"$'"'"'\n'"'"'"b${T}2" ]]'
+_lazyfleet_pr_write $wf ''
+check 'write: no lines and failed is just the header' eval '[[ $(wc -l <$wf | tr -d " ") == 1 && $(<$wf) == *" fail" ]]'
+check 'write: leaves no temp file' eval '[[ -z $(print $wf.*(N)) ]]'
+check 'write: fails when it cannot write' not _lazyfleet_pr_write $SANDBOX/no/such/dir/f 1 x
 
 # ---------------------------------------------------------------- marks
 ESC=$'\e'
@@ -359,7 +395,21 @@ check 'and the new verdict shows' eval 'rowfor feat/open-fail | gq "#31 ✓$"'
 setage 200; : >$GH_LOG; mkdir $CACHE.lock
 _lazyfleet_rows -s -p >/dev/null; sleep 0.8
 check 'a refresh in progress is not started twice' test ! -s $GH_LOG
+# a refresh names itself in its lock while it runs
+rm -rf $CACHE.lock; setage 200
+GH_SLEEP=1 _lazyfleet_rows -s -p >/dev/null
+check 'a running refresh writes its job into the lock' retry '[[ $(<$CACHE.lock/pid) == <-> ]] && kill -0 $(<$CACHE.lock/pid)'
+idle
+setage 200; : >$GH_LOG; mkdir $CACHE.lock
+# a lock whose job still runs is kept, however long the job takes
+print -r -- $$ >$CACHE.lock/pid; touch -t "$(date -d '-5 minutes' +%Y%m%d%H%M 2>/dev/null || date -v-5M +%Y%m%d%H%M)" $CACHE.lock
+check 'a lock whose job still runs is not dead' not _lazyfleet_pr_lock_dead $CACHE.lock
+# one whose job has gone is dead at once
+zsh -fc 'print $$' >$CACHE.lock/pid
+check 'a lock whose job has gone is dead' _lazyfleet_pr_lock_dead $CACHE.lock
+print -r -- $$ >$CACHE.lock/pid
 touch -t 200001010000 $CACHE.lock
+check 'a lock older than 10 minutes is dead, whatever it says' _lazyfleet_pr_lock_dead $CACHE.lock
 _lazyfleet_rows -s -p >/dev/null; sleep 0.3
 check 'a dead lock is cleared' test ! -d $CACHE.lock
 _lazyfleet_rows -s -p >/dev/null

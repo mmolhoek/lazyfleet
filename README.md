@@ -70,7 +70,7 @@ Run it again to update, or `curl -fsSL https://raw.githubusercontent.com/mmolhoe
 to remove it. To pin a version, set `LAZYFLEET_VERSION=v1.2.3` (and `LAZYFLEET_SHA256` to verify the download), or a branch
 name such as `main` or `feat/x` to try unreleased work (that install does not check for updates);
 `LAZYFLEET_INSTALL_DIR` and `LAZYFLEET_BIN_DIR` change the locations. You need `zsh`, `git`, `tmux` and
-`fzf` 0.58 or newer; the script warns about any that are missing.
+`fzf` 0.66 or newer; the script warns about any that are missing.
 
 Or from a checkout. lazyfleet itself is zsh, so zsh must be installed (it is on macOS), but it doesn't have to be your shell:
 
@@ -137,7 +137,7 @@ lazyfleet update [--install]   look for a newer release now; --install installs 
 When something does not work, `lazyfleet doctor` checks the machine. Each finding is `ok`, `warn` (a feature is
 reduced, or may not work) or `FAIL` (lazyfleet cannot work), with a suggested command when there is one:
 
-- `zsh`, `git`, `tmux` and `fzf` are installed and recent enough (fzf 0.58 or newer; an older zsh, git or tmux
+- `zsh`, `git`, `tmux` and `fzf` are installed and recent enough (fzf 0.66 or newer; an older zsh, git or tmux
   only warns, as those minimums are cautious);
 - `curl` (update check), `gh` with a login (pull request marks, unless `pr_status=off`), and, when `claude` is
   installed, `jq` and the Claude Code hooks (agent state);
@@ -324,6 +324,26 @@ agents call.
 | `lib/doctor.zsh`   | `lazyfleet doctor`                                                      |
 | `lib/prune.zsh`    | `lazyfleet prune`                                                       |
 
+### Conventions
+
+- **Names.** Every function is `_lazyfleet_<what>`; a command `lazyfleet foo` is `_lazyfleet_foo`, and the
+  internal commands that fzf runs through `bin/lazyfleet` start with an underscore (`lazyfleet _rows` runs
+  `_lazyfleet_rows`). Constants are `_LAZYFLEET_UPPER`.
+- **Results.** A function returns a value in `REPLY` (a string) or `reply` (an array), not on stdout, so a call
+  costs no subshell. What it prints is for the person or for fzf. The success of a call is its exit status; on
+  failure `REPLY` means nothing. `REPLY` is the caller's to copy at once: the next call may overwrite it.
+- **Shared state.** A few functions fill an associative array that the caller declares with `local -A`, by name:
+  `prs` (pull requests: `_lazyfleet_pr_read`, `_lazyfleet_prune_refresh`) and `agtally` (agent counts:
+  `_lazyfleet_agent_tally`, read by `_lazyfleet_agent_marks_at`). The few globals that carry a second result are
+  set where they are documented: `_lazyfleet_from`, `_lazyfleet_ignored` and `_lazyfleet_sect` (where a config
+  value came from: `lib/config.zsh`), `_lazyfleet_sum` and `_lazyfleet_quiet` (the summary of `new`:
+  `lib/commands.zsh`, `lib/sessions.zsh`), and doctor's counters. Anything new returns its results instead.
+- **Options.** Every command runs with zsh's default options: `bin/lazyfleet` starts `zsh -f`, and
+  `_lazyfleet_main` begins with `emulate -L zsh`. So a function starts with `emulate -L zsh` only when it changes
+  an option (`setopt extended_glob`, say), which keeps the change to itself and the functions it calls.
+- **Size.** Functions stay short (under about 45 lines): gather, decide and print are separate functions, and the
+  parts without side effects (formatting a row, choosing a pull request, reading a config file) have unit tests.
+
 ## Test
 
 ```zsh
@@ -333,7 +353,7 @@ zsh lazyfleet/tests/prune.zsh           # or one suite on its own
 ```
 
 The suites (`tests/*.zsh`) share their helpers in `tests/lib.zsh`. Most run real git and tmux; `run.zsh` also needs
-fzf 0.58 or newer and says so, instead of failing check by check, when yours is older. GitHub Actions runs
+fzf 0.66 or newer and says so, instead of failing check by check, when yours is older. GitHub Actions runs
 `tests/all.zsh` on every push and pull request, plus `zsh -n` and shellcheck on the scripts.
 
 | suite             | what it covers                                                                      |

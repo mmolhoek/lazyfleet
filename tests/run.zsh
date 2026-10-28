@@ -16,15 +16,13 @@ mkdir -p $TMPDIR
 # question of its own when the machine's directories are group-writable (CI)
 print -r -- 'setopt no_global_rcs' >$SANDBOX/.zshenv
 print -r -- '[[ -e ~/.ask ]] && { rm ~/.ask; read -r ans; print -r -- $ans >~/answer }' >$SANDBOX/.zshrc
-# keep the test tmux server's socket in the sandbox, so it goes away with it
 # every fixture repo commits, also on hosts without a git identity
 export GIT_AUTHOR_NAME=t GIT_AUTHOR_EMAIL=t@t GIT_COMMITTER_NAME=t GIT_COMMITTER_EMAIL=t@t
-export TMUX_TMPDIR=$SANDBOX
-export LAZYFLEET_TMUX="tmux -L lazyfleet-test-$$" SHELL=${commands[zsh]}
-unset TMUX
+export SHELL=${commands[zsh]}
+use_tmux test
 source $ROOT/lazyfleet.zsh
 
-cleanup() { _lazyfleet_tmux kill-server 2>/dev/null; rm -rf $SANDBOX }
+cleanup() { tmux_cleanup; rm -rf $SANDBOX }
 trap cleanup EXIT
 
 # 1. repo with .lazyfleet, registered
@@ -39,7 +37,7 @@ setup=touch .setup-ran
 copy=.env
 EOF
 git add -A && git commit -qm init
-check 'no rows without repos or windows' eval '[[ -z $(_lazyfleet_rows) && -z $(LAZYFLEET_TMUX="tmux -L lazyfleet-none-$$" _lazyfleet_winrows) ]]'
+check 'no rows without repos or windows' eval '[[ -z $(_lazyfleet_rows) && -z $(LAZYFLEET_TMUX="tmux -L lf-none-$$" _lazyfleet_winrows) ]]'
 _lazyfleet_tmux new-session -d -s keepalive
 lazyfleet add >/dev/null
 _lazyfleet_help() { print stale }
@@ -102,6 +100,7 @@ print x >$repo/.locked; chmod 000 $repo/.locked
 # root reads a mode 000 file
 noperm=; (( EUID == 0 )) && noperm='running as root'
 check_unless "$noperm" 'new fails when a copy fails' eval '! lazyfleet new feat/cpfail --no-open >/dev/null 2>$SANDBOX/new.err && gq -F "could not copy .locked" $SANDBOX/new.err'
+# (the sleep is a window for something that must NOT happen: nothing to wait for)
 check_unless "$noperm" 'a failed copy starts no setup' eval '! _lazyfleet_tmux has-session -t "=app/feat-cpfail" 2>/dev/null && sleep 0.5 && test ! -e $LAZYFLEET_WORKTREES/app/feat-cpfail/.setup-ran'
 rm -f $cfg $repo/.locked
 lazyfleet rm -f -D feat/cpfail 2>/dev/null
@@ -112,7 +111,8 @@ lazyfleet new feat/ask --no-open >/dev/null 2>/dev/null
 # (a fixed pause was too short on a loaded machine)
 waitfor_gone $HOME/.ask
 _lazyfleet_tmux send-keys -t '=app/feat-ask:' staging Enter
-check 'startup question gets the user'"'"'s answer' eval 'waitfor $HOME/answer && [[ $(<$HOME/answer) == staging ]]'
+waitfor $HOME/answer
+assert_eq 'startup question gets the user'"'"'s answer' staging "$(cat $HOME/answer 2>/dev/null)"
 check 'setup runs after the question' waitfor $LAZYFLEET_WORKTREES/app/feat-ask/.setup-ran
 check 'setup window says it finished' waitpane app/feat-ask 'setup finished (exit 0)'
 lazyfleet rm -f -D feat/ask 2>/dev/null
@@ -187,8 +187,8 @@ check 'key a adds a project and shows the worktrees' eval 'FZF_KEY=a FZF_LIST_LA
 check 'winrows list session windows' retry '_lazyfleet_winrows | gq "^t	=app/feat-x:1	.*1:extra"'
 # tmux >= 3.4 turns tabs in -F output into "_" off a terminal: targets must come out intact
 check 'winrows targets are intact' eval '_lazyfleet_winrows | cut -f2 | gq -x "=app/feat-x:0"'
-_lazyfleet_tmux send-keys -t '=app/feat-x:0' 'echo preview-marker' Enter; sleep 0.3
-check 'window preview shows pane content' eval '_lazyfleet_preview t "=app/feat-x:0" | gq preview-marker'
+_lazyfleet_tmux send-keys -t '=app/feat-x:0' 'echo preview-marker' Enter
+check 'window preview shows pane content' retry '_lazyfleet_preview t "=app/feat-x:0" | gq preview-marker'
 check 'key enter on window switches' eval 'FZF_KEY=enter FZF_LIST_LABEL=" Windows " _lazyfleet_key t "=app/feat-x:1" | gq "^become(printf .* window {2})$"'
 check 'key tab cycles worktrees -> windows' eval 'FZF_KEY=tab FZF_LIST_LABEL=" Worktrees " _lazyfleet_key w $p | tr "\n" " " | gq "Windows .*_winrows"'
 check 'there is no repos view any more' eval '! (( $+functions[_lazyfleet_reporows] )) && [[ $_LAZYFLEET_FOOTER_WT$_LAZYFLEET_FOOTER_WIN != *repos* ]]'
@@ -223,21 +223,19 @@ _lazyfleet_tmux kill-session -t '=probe' 2>/dev/null
 # attach from fzf's become (stdin is /dev/tty) must actually draw the session
 _lazyfleet_tmux new-session -d -s attach -x 100 -y 10 \
   "echo x | env -u TMUX fzf --bind 'start:become($ROOT/bin/lazyfleet open feat/x)'; sleep 5"
-sleep 1.5
-check_unless "$nobecome" 'attach via become renders' eval '_lazyfleet_tmux capture-pane -p -t "=attach:" | gq "app/feat-"'
+check_unless "$nobecome" 'attach via become renders' retry '_lazyfleet_tmux capture-pane -p -t "=attach:" | gq "app/feat-"'
 _lazyfleet_tmux kill-session -t '=attach' 2>/dev/null
 
 # outside tmux, the TUI comes back once the attached session ends
 _lazyfleet_tmux new-session -d -s tui -x 100 -y 20 "env -u TMUX $ROOT/bin/lazyfleet; sleep 5"
 check 'tui starts on windows when tmux has some' waitpane tui ' Windows '
 _lazyfleet_tmux send-keys -t '=tui:' Tab
-waitpane tui 'feat/x'; sleep 0.3
 check 'tui fills in status after loading' retry '_lazyfleet_tmux capture-pane -p -t "=tui:" | gq "─ Worktrees ─"'
 # sorted: feat/x first, then main
-_lazyfleet_tmux send-keys -t '=tui:' j; sleep 0.3
+_lazyfleet_tmux send-keys -t '=tui:' j
+check 'j moves down' retry '_lazyfleet_tmux capture-pane -p -t "=tui:" | gq "▌ app  main"'
 _lazyfleet_tmux send-keys -t '=tui:' Enter
-sleep 1
-check_unless "$nobecome" 'tui enter attaches' eval '_lazyfleet_tmux list-clients -F "#S" | gq -x app'
+check_unless "$nobecome" 'tui enter attaches' retry '_lazyfleet_tmux list-clients -F "#S" | gq -x app'
 _lazyfleet_tmux kill-session -t '=app'
 check_unless "$nobecome" 'tui returns after session ends' waitpane tui Worktrees
 check_unless "$nobecome" 'tui reselects the worktree it left' retry '_lazyfleet_tmux capture-pane -p -t "=tui:" | gq "▌ app  main"'
@@ -246,13 +244,15 @@ _lazyfleet_tmux kill-session -t '=tui' 2>/dev/null
 # windows view: filter to the extra window, enter attaches to it, detach returns
 _lazyfleet_tmux new-session -d -s tui -x 120 -y 20 "env -u TMUX $ROOT/bin/lazyfleet windows; sleep 5"
 waitpane tui '1:extra'
-_lazyfleet_tmux send-keys -t '=tui:' /; sleep 0.3
-_lazyfleet_tmux send-keys -t '=tui:' -l 'app/feat-x 1:extra'; sleep 0.5
+_lazyfleet_tmux send-keys -t '=tui:' /
+# the find input shows as its own box, its first line starting with ">"
+check '/ shows the find input' retry '_lazyfleet_tmux capture-pane -p -t "=tui:" | gq "^│ > "'
+_lazyfleet_tmux send-keys -t '=tui:' -l 'app/feat-x 1:extra'
 check 'find input takes a /' waitpane tui '> app/feat-x 1:extra'
 _lazyfleet_tmux send-keys -t '=app/feat-x:1' 'echo live-$((6*7))' Enter
 check 'window preview follows the pane' waitpane tui 'live-42'
-_lazyfleet_tmux send-keys -t '=tui:' Enter; sleep 1
-check_unless "$nobecome" 'windows enter attaches to that window' eval '_lazyfleet_tmux list-clients -F "#S #W" | gq -x "app/feat-x extra"'
+_lazyfleet_tmux send-keys -t '=tui:' Enter
+check_unless "$nobecome" 'windows enter attaches to that window' retry '_lazyfleet_tmux list-clients -F "#S #W" | gq -x "app/feat-x extra"'
 _lazyfleet_tmux detach-client -s '=app/feat-x'
 check_unless "$nobecome" 'windows view returns after detach' waitpane tui Windows
 check_unless "$nobecome" 'windows view reselects the window it left' retry '_lazyfleet_tmux capture-pane -p -t "=tui:" | gq "▌ app/feat-x *1:extra"'
@@ -282,7 +282,7 @@ check 'rm stops the containers on yes' retry 'gq -sx "id1 id2" $SANDBOX/docker-s
 # keep feat/x: no to deleting the branch, no to removing despite its changes
 waitpane uirm 'Also delete local branch'; _lazyfleet_tmux send-keys -t '=uirm:' n
 waitpane uirm 'uncommitted changes'; _lazyfleet_tmux send-keys -t '=uirm:' n
-sleep 0.3
+check 'rm stops, and waits for a key, after the last no' waitpane uirm 'press any key'
 _lazyfleet_tmux kill-session -t '=uirm' 2>/dev/null
 check 'worktree kept after saying no' test -d $p
 
@@ -312,9 +312,10 @@ pick() {  # pick <query> <key>: run the picker on "alpha beta" in a pane, print 
   rm -f $SANDBOX/pick.out
   _lazyfleet_tmux new-session -d -s pick -x 100 -y 15 \
     "zsh -fc 'source $ROOT/lazyfleet.zsh; print -l alpha beta | _lazyfleet_pick t p && print -r -- \$REPLY >$SANDBOX/pick.out'"
-  sleep 0.8
+  # fzf counts the lines once it is up (2/2), and shows the query after the prompt p
+  waitpane pick '2/2' || return
   _lazyfleet_tmux send-keys -t '=pick:' -l -- $1
-  sleep 0.3
+  waitpane pick "p$1 " || return
   _lazyfleet_tmux send-keys -t '=pick:' $2
   waitfor $SANDBOX/pick.out && cat $SANDBOX/pick.out
   _lazyfleet_tmux kill-session -t '=pick' 2>/dev/null
@@ -326,9 +327,12 @@ check 'pick ctrl-n takes typed name' test "$(pick al C-n)" = al
 # TUI n: pick a new branch name, read the summary, any key opens its session
 _lazyfleet_tmux new-session -d -s tui -x 120 -y 20 "env -u TMUX $ROOT/bin/lazyfleet; sleep 5"
 waitpane tui ' Windows '
-_lazyfleet_tmux send-keys -t '=tui:' Tab; waitpane tui 'feat/x'; sleep 0.3
-_lazyfleet_tmux send-keys -t '=tui:' n; waitpane tui 'branch>'; sleep 0.3
-_lazyfleet_tmux send-keys -t '=tui:' -l feat/e2e; sleep 0.3
+# feat/x is on the Windows view too (session app/feat-x): wait for the
+# Worktrees view itself, with its status loaded, or n lands on the Windows view
+_lazyfleet_tmux send-keys -t '=tui:' Tab
+retry '_lazyfleet_tmux capture-pane -p -t "=tui:" | gq "─ Worktrees ─"'
+_lazyfleet_tmux send-keys -t '=tui:' n; waitpane tui 'branch>'
+_lazyfleet_tmux send-keys -t '=tui:' -l feat/e2e; waitpane tui 'branch> feat/e2e'
 _lazyfleet_tmux send-keys -t '=tui:' C-n
 check_unless "$nobecome" 'tui n opens the new session right away' retry '_lazyfleet_tmux list-clients -F "#S" | gq -x app/feat-e2e'
 _lazyfleet_tmux kill-session -t '=tui' 2>/dev/null
@@ -382,7 +386,7 @@ waitpane uirm 'Remove anyway?'
 _lazyfleet_tmux send-keys -t '=uirm:' y
 check 'rm asks about changes after accepting the lock' waitpane uirm 'has uncommitted changes. Remove anyway?'
 _lazyfleet_tmux send-keys -t '=uirm:' n
-sleep 0.5
+check 'rm returns once told no' waitcmd uirm sleep
 check 'rm keeps a locked dirty worktree when told no' test -e $lp/dirty.txt
 _lazyfleet_tmux kill-session -t '=uirm' 2>/dev/null
 lazyfleet rm -f $lp >/dev/null 2>&1
@@ -405,6 +409,11 @@ _lazyfleet_pulldir; pd=$REPLY
 git() { [[ $3 == pull ]] && sleep 1; command git "$@" }
 FZF_SOCK=$SANDBOX/x.sock _lazyfleet_ui_pull $pl
 check 'background pull marks the row' eval '_lazyfleet_rows | gq "feat/pull.*⟳ pulling"'
+# every row, not only the first: the marker dir once came from a REPLY
+# that the previous row's agent marks had overwritten
+touch $pd/${repo//\//%}
+check 'a pull marks a later row too' eval '_lazyfleet_rows -p | gq -E "app +main +⟳ pulling"'
+rm -f $pd/${repo//\//%}
 unfunction git
 check 'failed background pull keeps git'"'"'s error' retry '[[ ! -e $pd/${pl//\//%} && -s $pd/${pl//\//%}.err ]]'
 check 'and has fzf show it' eval '_lazyfleet_pulled | gq "^execute(.* _ui_pullfail)+.*reload("'
@@ -469,8 +478,7 @@ lazyfleet add $other >/dev/null
 _lazyfleet_tmux new-session -d -s uirm -x 120 -y 10 "zsh -fc 'source $ROOT/lazyfleet.zsh; _lazyfleet_ui_rm $other; sleep 3'"
 waitpane uirm 'Forget api'
 _lazyfleet_tmux send-keys -t '=uirm:' y
-sleep 0.5
-check 'd on main worktree forgets repo' eval '! lazyfleet repos | gq -x $other && test -d $other/.git'
+check 'd on main worktree forgets repo' retry '! lazyfleet repos | gq -x $other && test -d $other/.git'
 _lazyfleet_tmux kill-session -t '=uirm' 2>/dev/null
 
 # a ")" in a repo name can't add fzf actions
@@ -482,6 +490,7 @@ waitpane tui ' Windows '
 _lazyfleet_tmux send-keys -t '=tui:' Tab; waitpane tui ' Worktrees'
 check 'a repo name with ")" is listed as it is' waitpane tui 'demo)+execute-silent(touch PWNED)+change-list-label(x'
 check 'repo names and paths stay out of the action text' eval 'for k in enter c d n; do FZF_KEY=$k FZF_LIST_LABEL=" Worktrees " _lazyfleet_key w $evil; done | { ! gq PWNED }'
+# (the sleep is a window for something that must NOT happen: nothing to wait for)
 check 'a repo name with ")" runs nothing' eval 'sleep 0.5; [[ -z $(find $SANDBOX -name PWNED) ]]'
 _lazyfleet_tmux kill-session -t '=tui' 2>/dev/null
 lazyfleet forget $evil >/dev/null 2>&1

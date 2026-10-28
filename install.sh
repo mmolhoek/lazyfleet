@@ -24,7 +24,7 @@
 
 set -eu
 
-MIN_FZF=0.58   # first fzf with --style
+MIN_FZF=0.66   # first fzf with --gutter and --listen on a unix socket (the TUI uses both)
 
 say()  { printf '%s\n' "$*"; }
 warn() { printf 'lazyfleet: warning: %s\n' "$*" >&2; }
@@ -122,17 +122,26 @@ link_command() {
 install() {
   have curl || die "curl is required"
   have tar || die "tar is required"
+  work=$(mktemp -d)
+  trap 'rm -rf "$work"' EXIT INT TERM
+  fetch_release
+  place_files
+  link_command
+  report
+}
+
+# Download the release (LAZYFLEET_VERSION, else the latest) into $work/src and
+# check that it is lazyfleet. Sets ref (what was asked for) and version (what
+# gets recorded: a tag without its v, a branch as it is named).
+fetch_release() {
   ref=${LAZYFLEET_VERSION:-}
   if [ -z "$ref" ]; then
     say "Looking up the latest release..."
     ref=$(latest_tag) || die "could not find a release. Try LAZYFLEET_VERSION=main to install the development version."
   fi
   url=$(tarball_url "$ref")
-  # the version recorded: a tag without its v, a branch as it is named
   version=$ref
   if printf '%s' "$ref" | grep -Eq '^v[0-9]+\.[0-9]+\.[0-9]+$'; then version=${ref#v}; fi
-  work=$(mktemp -d)
-  trap 'rm -rf "$work"' EXIT INT TERM
 
   say "Downloading lazyfleet $ref..."
   curl -fsSL --retry 3 -o "$work/src.tar.gz" "$url" || die "download failed: $url"
@@ -148,9 +157,12 @@ install() {
   if grep -q '/lib/' "$work/src/lazyfleet.zsh" && [ ! -d "$work/src/lib" ]; then
     die "the download is not lazyfleet (no lib)"
   fi
+}
 
-  # check the link before anything is replaced, then swap the install in with
-  # renames so a failure leaves the old one working
+# Put $work/src in place as $INSTALL_DIR. The link is checked before anything
+# is replaced, and the install is swapped in with renames, so a failure
+# leaves the old one working. Sets old (the version that was there, if any).
+place_files() {
   check_link
   if [ -e "$INSTALL_DIR" ] && [ ! -f "$INSTALL_DIR/INSTALLER" ]; then
     die "$INSTALL_DIR exists and was not installed by install.sh; move it away or set LAZYFLEET_INSTALL_DIR"
@@ -164,6 +176,7 @@ install() {
   [ -f "$work/src/LICENSE" ] && cp "$work/src/LICENSE" "$stage/"
   printf '%s\n' "$version" >"$stage/VERSION"
   printf 'install.sh\n' >"$stage/INSTALLER"
+  compile_zsh "$stage"
   old=
   if [ -e "$INSTALL_DIR" ]; then
     old=$(cat "$INSTALL_DIR/VERSION" 2>/dev/null || true)
@@ -171,8 +184,20 @@ install() {
   fi
   mv "$stage" "$INSTALL_DIR"
   rm -rf "$INSTALL_DIR.old.$$"
-  link_command
+}
 
+# Compile the zsh code in dir $1 to wordcode (.zwc), which zsh loads instead
+# of the source when it is newer: every key press in the TUI starts lazyfleet
+# anew, and this halves what loading costs. Best effort: without zsh, or for
+# a zsh that cannot, nothing changes (zsh ignores a .zwc of another version).
+compile_zsh() {
+  have zsh || return 0
+  # shellcheck disable=SC2016  # $f is for zsh, not for this shell
+  zsh -fc 'for f; do [ -f "$f" ] && zcompile -- "$f" 2>/dev/null; done; :' zsh "$1"/lazyfleet.zsh "$1"/lib/*.zsh || true
+}
+
+# Say what was done, what is missing, and how to set up the shell
+report() {
   if [ -n "$old" ] && [ "$old" != "$version" ]; then say "Updated lazyfleet $old -> $version."
   else say "Installed lazyfleet $version."; fi
   say "  files:   $INSTALL_DIR"

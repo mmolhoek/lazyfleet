@@ -8,13 +8,14 @@ source ${0:A:h}/lib.zsh
 need_tools git tmux
 SANDBOX=${$(mktemp -d):A}
 export HOME=$SANDBOX/home XDG_CONFIG_HOME=$SANDBOX/cfg LAZYFLEET_WORKTREES=$SANDBOX/wt TMPDIR=$SANDBOX/tmp
-export TMUX_TMPDIR=$SANDBOX GIT_AUTHOR_NAME=t GIT_AUTHOR_EMAIL=t@t GIT_COMMITTER_NAME=t GIT_COMMITTER_EMAIL=t@t
+export GIT_AUTHOR_NAME=t GIT_AUTHOR_EMAIL=t@t GIT_COMMITTER_NAME=t GIT_COMMITTER_EMAIL=t@t
 mkdir -p $HOME $TMPDIR $SANDBOX/stub $SANDBOX/fix
 setopt extended_glob
 unset TMUX LAZYFLEET_PR_STATUS BROWSER VISUAL EDITOR
-export LAZYFLEET_TMUX="tmux -L lf-handoff-$$" SHELL=${commands[zsh]}
+export SHELL=${commands[zsh]}
+use_tmux handoff
 source $ROOT/lazyfleet.zsh
-cleanup() { _lazyfleet_tmux kill-server 2>/dev/null; rm -rf $SANDBOX }
+cleanup() { tmux_cleanup; rm -rf $SANDBOX }
 trap cleanup EXIT
 
 plain() { sed 's/\x1b\[[0-9;]*m//g' }
@@ -236,8 +237,16 @@ check 'the footer names the keys' eval '[[ $_LAZYFLEET_FOOTER_WT == *"(e)ditor"*
 check 'the windows footer is unchanged' eval '[[ $_LAZYFLEET_FOOTER_WIN != *lazygit* ]]'
 
 # --- the TUI loop starts the tools
-fn=${functions[_lazyfleet_ui]}
-check 'the TUI loop knows the edit action' eval '[[ $fn == *"(edit|lazygit)"*"_lazyfleet_handoff"* ]]'
-check 'and binds the keys' eval '[[ $fn == *"for k in / n d p e g o O r a c C R q"* ]]'
+acted() {   # what _lazyfleet_ui_act runs for fzf's output $1, with stubs
+  (
+    _lazyfleet_handoff() { print -r -- "handoff $*" }
+    _lazyfleet_pause() { print pause }
+    _lazyfleet_ui_act $1; print -r -- "rc=$? view=$reply[1] sel=$reply[2]"
+  )
+}
+assert_eq 'the TUI loop hands edit to the editor' $'handoff edit /wt/a\nrc=0 view= sel=/wt/a' "$(acted $'edit\n/wt/a')"
+assert_eq 'and lazygit to lazygit' $'handoff lazygit /wt/a\nrc=0 view= sel=/wt/a' "$(acted $'lazygit\n/wt/a')"
+_lazyfleet_ui_binds /bin/lf ''
+check 'and binds e and g' eval '[[ ${(j: :)reply} == *"--bind e:transform:/bin/lf _key {1} {2}"* && ${(j: :)reply} == *"--bind g:transform:/bin/lf _key {1} {2}"* ]]'
 
 finish

@@ -6,12 +6,13 @@ source ${0:A:h}/lib.zsh
 need_tools git tmux
 SANDBOX=${$(mktemp -d):A}
 export HOME=$SANDBOX/home XDG_CONFIG_HOME=$SANDBOX/cfg LAZYFLEET_WORKTREES=$SANDBOX/wt TMPDIR=$SANDBOX/tmp
-export TMUX_TMPDIR=$SANDBOX GIT_AUTHOR_NAME=t GIT_AUTHOR_EMAIL=t@t GIT_COMMITTER_NAME=t GIT_COMMITTER_EMAIL=t@t
+export GIT_AUTHOR_NAME=t GIT_AUTHOR_EMAIL=t@t GIT_COMMITTER_NAME=t GIT_COMMITTER_EMAIL=t@t
 mkdir -p $HOME $TMPDIR $SANDBOX/stub
 unset TMUX LAZYFLEET_AGENT_ICONS
-export LAZYFLEET_TMUX="tmux -L lazyfleet-agents-$$" SHELL=${commands[zsh]}
+export SHELL=${commands[zsh]}
+use_tmux agents
 source $ROOT/lazyfleet.zsh
-cleanup() { _lazyfleet_tmux kill-server 2>/dev/null; rm -rf $SANDBOX }
+cleanup() { tmux_cleanup; rm -rf $SANDBOX }
 trap cleanup EXIT
 
 plain() { sed 's/\x1b\[[0-9;]*m//g' }
@@ -183,7 +184,7 @@ check 'the window columns line up' test $? = 0
 rows=$(LAZYFLEET_AGENT_ICONS=off _lazyfleet_winrows | plain)
 check 'no marks when the icons are off' not eval 'print -r -- $rows | gq -E "✻|✦|π"'
 unset -f _lazyfleet_tmux; source $ROOT/lazyfleet.zsh
-export LAZYFLEET_TMUX="tmux -L lazyfleet-agents-$$"
+export LAZYFLEET_TMUX="tmux -L $_test_tmux"
 rm -f $SANDBOX/stub/ps; rehash
 
 # --- end to end: real tmux, real processes called claude and copilot
@@ -226,5 +227,35 @@ check 'all kinds together show in order' retry '_lazyfleet_rows -p | gq "✻ π"
 _lazyfleet_tmux kill-session -t '=app'
 _lazyfleet_tmux new-session -d -s app2 "zsh -fc 'exec -a claude sleep 120'"
 check 'a real window with Claude shows the mark' retry '_lazyfleet_winrows | plain | grep -E "app2" | gq "✻"'
+
+
+# --- the pane and process lists the agent scan starts from (stubbed tmux and ps)
+(
+  S='@@lf@@'
+  _lazyfleet_tmux() {
+    print -r -- "100${S}app${S}0${S}%1${S}/tmp/s${S}111"     # attached, active window, active pane
+    print -r -- "101${S}app${S}1${S}%2${S}/tmp/s${S}101"     # another window
+    print -r -- "102${S}api${S}0${S}%3${S}/tmp/s${S}011"     # nobody attached
+    print -r -- "103${S}big${S}0${S}%4${S}/tmp/s${S}211"     # two clients attached
+    print -r -- "xyz${S}bad${S}0${S}%5${S}/tmp/s${S}111"     # not a pid
+  }
+  _lazyfleet_agent_panes
+  T=$'\t'
+  assert_eq 'panes: one line per pane with a pid' 4 $#reply
+  assert_eq 'panes: the fields' "100${T}app${T}0${T}%1${T}/tmp/s${T}" $reply[1]
+  assert_eq 'panes: another window is not on screen' 0 ${reply[2]##*$T}
+  assert_eq 'panes: nobody attached is not on screen' 0 ${reply[3]##*$T}
+  assert_eq 'panes: two clients count as attached' '' ${reply[4]##*$T}
+  _lazyfleet_tmux() { return 1 }
+  check 'panes: no tmux server fails' not _lazyfleet_agent_panes
+)
+(
+  ps() { print '  1     0 /sbin/init'; print ' 50     1 node /usr/bin/claude --resume'; print 'junk'; print ' 51    50 grep claude' }
+  _lazyfleet_agent_procs
+  T=$'\t'
+  assert_eq 'procs: one line per process, junk left out' 3 $#reply
+  assert_eq 'procs: an agent has its kind' "50${T}1${T}claude" $reply[2]
+  assert_eq 'procs: anything else has none' "1${T}0${T}" $reply[1]
+)
 
 finish

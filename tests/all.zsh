@@ -42,6 +42,8 @@ for s in $suites; do
   secs=$(( EPOCHREALTIME - start ))
   plain=$(strip <$log)
   o=${#${(M)${(f)plain}:#ok *}} f=${#${(M)${(f)plain}:#FAIL *}} k=${#${(M)${(f)plain}:#skip *}}
+  # a FAIL line fails the suite, whatever its exit status says
+  (( rc == 0 && f )) && rc=1
   case $rc in
     (0) res=pass ;;
     (2) res=cannot-run ;;

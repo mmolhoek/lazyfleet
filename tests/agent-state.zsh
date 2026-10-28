@@ -8,12 +8,13 @@ need_tools git tmux
 HOOK=$ROOT/bin/lazyfleet-hook
 SANDBOX=${$(mktemp -d):A}
 export HOME=$SANDBOX/home XDG_CONFIG_HOME=$SANDBOX/cfg XDG_CACHE_HOME=$SANDBOX/cache TMPDIR=$SANDBOX/tmp
-export TMUX_TMPDIR=$SANDBOX GIT_AUTHOR_NAME=t GIT_AUTHOR_EMAIL=t@t GIT_COMMITTER_NAME=t GIT_COMMITTER_EMAIL=t@t
+export GIT_AUTHOR_NAME=t GIT_AUTHOR_EMAIL=t@t GIT_COMMITTER_NAME=t GIT_COMMITTER_EMAIL=t@t
 mkdir -p $HOME $TMPDIR $SANDBOX/stub
 unset TMUX TMUX_PANE LAZYFLEET_AGENT_DIR LAZYFLEET_AGENT_ICONS LAZYFLEET_AGENT_NOTIFY
-export LAZYFLEET_TMUX="tmux -L lazyfleet-state-$$" SHELL=${commands[zsh]}
+export SHELL=${commands[zsh]}
+use_tmux state
 AGENTS=$XDG_CACHE_HOME/lazyfleet/agents
-cleanup() { tmux -L lazyfleet-state-$$ kill-server 2>/dev/null; rm -rf $SANDBOX }
+cleanup() { tmux_cleanup; rm -rf $SANDBOX }
 trap cleanup EXIT
 
 plain() { sed 's/\x1b\[[0-9;]*m//g' }
@@ -297,7 +298,7 @@ check 'and does so without a tmux server' eval '_lazyfleet_agent_notify claude d
 
 # ======================================================= end to end, real tmux
 unset -f _lazyfleet_tmux; source $ROOT/lazyfleet.zsh
-export LAZYFLEET_TMUX="tmux -L lazyfleet-state-$$" LAZYFLEET_AGENT_DIR=$AGENTS
+export LAZYFLEET_TMUX="tmux -L $_test_tmux" LAZYFLEET_AGENT_DIR=$AGENTS
 rm -f $SANDBOX/stub/ps; rehash; rm -rf $AGENTS; mkdir -p $AGENTS
 _lazyfleet_tmux new-session -d -s keepalive
 _lazyfleet_tmux new-session -d -s e2e "zsh -fc 'exec -a claude sleep 120'"

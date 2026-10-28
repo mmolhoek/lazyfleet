@@ -46,7 +46,6 @@ _lazyfleet_ls() {
 # Common to both: REPLY=the repo's owner/name, after checking that the number
 # is a number and that gh is there. Args: repo dir, number.
 _lazyfleet_new_gh() {
-  emulate -L zsh
   [[ $2 == <1-999999999> ]] || { _lazyfleet_err "not a number: ${2//[[:cntrl:]]/ }"; return 1 }
   (( $+commands[gh] )) || { _lazyfleet_err "this needs gh (https://cli.github.com), logged in"; return 1 }
   _lazyfleet_ghslug $1 || { _lazyfleet_err "this needs a GitHub remote called origin"; return 1 }
@@ -55,7 +54,6 @@ _lazyfleet_new_gh() {
 # REPLY=the branch to work on for pull request $2 of repo $1, fetched. A
 # pull request from a fork has no branch here, so it gets a local branch pr-N.
 _lazyfleet_new_from_pr() {
-  emulate -L zsh
   local slug out ref head
   local -a f
   _lazyfleet_new_gh $1 $2 || return 1
@@ -265,7 +263,6 @@ _lazyfleet_locked() {
 # reply=("kind<TAB>window<TAB>state" ...): the agents running in tmux session
 # $1 (the state is empty when it is not known)
 _lazyfleet_session_agents() {
-  emulate -L zsh
   local line
   local -a f found
   _lazyfleet_agents -d
@@ -279,7 +276,6 @@ _lazyfleet_session_agents() {
 # Tell (on stdout) which agents $@ ("kind<TAB>window<TAB>state" entries) would
 # be ended by closing session $s
 _lazyfleet_agents_warning() {
-  emulate -L zsh
   local s=$1 e kind win state
   shift
   print -r -- $'\e[33mWarning:\e[0m '"$# agent(s) running in this worktree's tmux session ($s):"
@@ -292,41 +288,16 @@ _lazyfleet_agents_warning() {
 _lazyfleet_rm() {
   local -a o_f o_D rmf
   zparseopts -D -E -F f=o_f D=o_D || return 1
-  local p repo br s force locked rc=0
-  local -a busy
+  local p repo br s rc=0
   _lazyfleet_worktree_arg $1 'usage: lazyfleet rm <worktree>' || return 1
   p=$REPLY
   _lazyfleet_toplevel $p || { _lazyfleet_err "not a git worktree: $p"; return 1 }
   repo=$REPLY
   [[ ${p:A} == ${repo:A} ]] && { _lazyfleet_err "refusing to remove the main worktree: $p"; return 1 }
-  (( $#o_f )) && force=1
-  if _lazyfleet_locked $p; then
-    locked=1
-    if [[ -z $force ]]; then
-      _lazyfleet_confirm "${p/#$HOME/~} is $REPLY. Remove anyway?" "$p is $REPLY (use -f)" || return 1
-      force=1
-    fi
-  fi
-  # only an explicit -f skips this: accepting the lock prompt above doesn't
-  if (( ! $#o_f )) && [[ -n $(git -C $p status --porcelain 2>/dev/null) ]]; then
-    _lazyfleet_confirm "${p/#$HOME/~} has uncommitted changes. Remove anyway?" "$p has changes (use -f)" || return 1
-    force=1
-  fi
+  _lazyfleet_rm_confirm $p $repo ${o_f:+-f} || return 1
+  rmf=(${=REPLY})
   _lazyfleet_branch_of $p; br=$REPLY
   _lazyfleet_session $repo $p 0; s=$REPLY
-  # removing the worktree closes its session, and with it the agents in there;
-  # like the changes above, only an explicit -f skips the question
-  if (( ! $#o_f )); then
-    _lazyfleet_session_agents $s
-    if (( $#reply )); then
-      busy=("${reply[@]}")
-      [[ -t 0 ]] || { _lazyfleet_err "$p has $#busy agent(s) running in session $s (use -f)"; return 1 }
-      _lazyfleet_agents_warning $s "${busy[@]}"
-      _lazyfleet_ask "Removing the worktree ends them. Remove anyway?" || return 1
-    fi
-  fi
-  # git wants --force twice for a locked worktree
-  [[ -n $force ]] && rmf=(--force ${locked:+--force})
   _lazyfleet_step "Removing ${p/#$HOME/~} (this can take a while with node_modules)"
   git -C $repo worktree remove $rmf $p
   _lazyfleet_done || return 1
@@ -342,6 +313,45 @@ _lazyfleet_rm() {
     _lazyfleet_tmux kill-session -t "=$s"
   fi
   return rc
+}
+
+# Ask before removing worktree $1 of repo $2 when it is locked, has changes,
+# or has agents running in its session; -f as $3 skips the questions that
+# only -f may skip (all but the lock's, which -f answers). REPLY=the flags
+# git worktree remove then needs: --force once, or twice for a lock.
+# Fails when the answer is no, or when it would ask off a terminal.
+_lazyfleet_rm_confirm() {
+  local p=$1 repo=$2 explicit= force= locked= s
+  local -a busy
+  [[ $3 == -f ]] && explicit=1 force=1
+  if _lazyfleet_locked $p; then
+    locked=1
+    if [[ -z $force ]]; then
+      _lazyfleet_confirm "${p/#$HOME/~} is $REPLY. Remove anyway?" "$p is $REPLY (use -f)" || return 1
+      force=1
+    fi
+  fi
+  # only an explicit -f skips this: accepting the lock prompt above doesn't
+  if [[ -z $explicit && -n $(git -C $p status --porcelain 2>/dev/null) ]]; then
+    _lazyfleet_confirm "${p/#$HOME/~} has uncommitted changes. Remove anyway?" "$p has changes (use -f)" || return 1
+    force=1
+  fi
+  # removing the worktree closes its session, and with it the agents in there;
+  # like the changes above, only an explicit -f skips the question
+  if [[ -z $explicit ]]; then
+    _lazyfleet_session $repo $p 0; s=$REPLY
+    _lazyfleet_session_agents $s
+    if (( $#reply )); then
+      busy=("${reply[@]}")
+      [[ -t 0 ]] || { _lazyfleet_err "$p has $#busy agent(s) running in session $s (use -f)"; return 1 }
+      _lazyfleet_agents_warning $s "${busy[@]}"
+      _lazyfleet_ask "Removing the worktree ends them. Remove anyway?" || return 1
+    fi
+  fi
+  # git wants --force twice for a locked worktree
+  REPLY=
+  [[ -n $force ]] && REPLY="--force${locked:+ --force}"
+  return 0
 }
 
 # lazyfleet pull [worktree] — fast-forward it to its upstream (never merges)
@@ -367,7 +377,8 @@ _lazyfleet_pulldir() {
 
 # Send fzf action $1 to the TUI's fzf, through its --listen socket ($FZF_SOCK)
 _lazyfleet_fzfpost() {
-  setopt local_options no_multibyte  # Content-Length counts bytes
+  emulate -L zsh
+  setopt no_multibyte  # Content-Length counts bytes
   local fd r
   [[ -S $FZF_SOCK ]] || return 1
   zmodload zsh/net/socket || return 1
