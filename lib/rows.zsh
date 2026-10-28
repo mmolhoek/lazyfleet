@@ -193,12 +193,27 @@ _lazyfleet_names() {
   done
 }
 
+# Succeed when tmux pane $1 (an id like %3) is the pane lazyfleet itself runs
+# in (tmux hands that to its children as $TMUX_PANE)
+_lazyfleet_own_pane() { [[ -n $TMUX_PANE && $1 == $TMUX_PANE ]] }
+
 # REPLY=preview of tmux window $1: a header line, then the pane's last
-# screenful without its trailing blank lines; fails once the window is gone
+# screenful without its trailing blank lines; fails once the window is gone.
+# For the window whose active pane is the one lazyfleet draws in, a note
+# instead: a capture of it would contain this very preview, so every redraw
+# would change what the next capture shows, and never settle.
 _lazyfleet_winframe() {
-  local head
+  local head id
   local -a out
-  head=$(_lazyfleet_tmux display-message -p -t $1 '#{pane_current_command}  #{pane_current_path}' 2>/dev/null) || return 1
+  # a gone window does not make display-message fail: it prints blanks, which
+  # is why the pane id (never blank for a real pane) comes first
+  head=$(_lazyfleet_tmux display-message -p -t $1 '#{pane_id} #{pane_current_command}  #{pane_current_path}' 2>/dev/null) || return 1
+  id=${head%% *}; head=${head#* }
+  [[ $id == %* ]] || return 1
+  if _lazyfleet_own_pane $id; then
+    REPLY=$'\e[1m'${1#=}$'\e[0m  '$head$'\n\n\e[2mlazyfleet is running here, so there is nothing to preview:\nthis screen would show up inside itself, over and over.\e[0m'
+    return 0
+  fi
   out=("${(@f)$(_lazyfleet_tmux capture-pane -ep -t $1)}")
   local n=$(( ${FZF_PREVIEW_LINES:-40} - 2 ))
   (( $#out > n )) && out=(${out[-n,-1]})

@@ -12,7 +12,7 @@ export TMUX_TMPDIR=$SANDBOX GIT_AUTHOR_NAME=t GIT_AUTHOR_EMAIL=t@t GIT_COMMITTER
 mkdir -p $HOME $TMPDIR $SANDBOX/stub $SANDBOX/fix
 setopt extended_glob
 unset TMUX LAZYFLEET_PR_STATUS BROWSER VISUAL EDITOR
-export LAZYFLEET_TMUX="tmux -L lazyfleet-handoff-$$" SHELL=${commands[zsh]}
+export LAZYFLEET_TMUX="tmux -L lf-handoff-$$" SHELL=${commands[zsh]}
 source $ROOT/lazyfleet.zsh
 cleanup() { _lazyfleet_tmux kill-server 2>/dev/null; rm -rf $SANDBOX }
 trap cleanup EXIT
