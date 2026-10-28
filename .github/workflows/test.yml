@@ -76,12 +76,11 @@ jobs:
       - name: Test suites
         run: zsh tests/all.zsh
 
-  # lazyfleet is used on macOS too, but this job has not been seen green yet:
-  # it reports without blocking until it has
+  # lazyfleet is used on macOS too (a unix socket path is shorter there, and
+  # the tools are BSD's): this job blocks like the others
   test-macos:
     runs-on: macos-latest
     timeout-minutes: 30
-    continue-on-error: true
     steps:
       - uses: actions/checkout@v4
       - name: Install tmux and jq
