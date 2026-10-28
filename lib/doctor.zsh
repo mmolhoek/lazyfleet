@@ -9,7 +9,7 @@
 # minimums are conservative, so an older one only warns.
 
 typeset -g _LAZYFLEET_MIN_ZSH=5.1     # zmodload -F
-typeset -g _LAZYFLEET_MIN_GIT=2.17    # git worktree remove
+typeset -g _LAZYFLEET_MIN_GIT=2.31    # rev-parse --path-format (_lazyfleet_toplevel)
 typeset -g _LAZYFLEET_MIN_TMUX=3.0
 typeset -g _LAZYFLEET_MIN_FZF=0.58    # first fzf with --style (install.sh has the same number)
 typeset -gi _lazyfleet_doctor_fails=0 _lazyfleet_doctor_warns=0
@@ -97,6 +97,40 @@ _lazyfleet_doctor_optional() {
   fi
 }
 
+# The agent segment in tmux's status line (`#(lazyfleet status)`). tmux runs
+# #() through sh with the server's own environment, so a lazyfleet that only a
+# shell function or a PATH set in .zshrc provides prints nothing there,
+# silently. Checks the running server; without one there is nothing to check.
+_lazyfleet_doctor_statusline() {
+  emulate -L zsh
+  local sr cmd tpath d found=
+  if ! sr=$(_lazyfleet_tmux show -gv status-right 2>/dev/null); then
+    _lazyfleet_doctor_report ok "tmux is not running, so its status line was not checked"
+    return
+  fi
+  if [[ ! $sr =~ '#\(([^ )]*lazyfleet) +status' ]]; then
+    _lazyfleet_doctor_report ok "the status line has no agent segment (optional)" "set -g status-right '#(lazyfleet status) %H:%M'"
+    return
+  fi
+  cmd=${match[1]/#\~/$HOME}
+  if [[ $cmd == */* ]]; then
+    [[ -x $cmd ]] && found=$cmd
+  else
+    tpath=$(_lazyfleet_tmux show-environment -g PATH 2>/dev/null)
+    if [[ $tpath == PATH=* ]]; then
+      for d in ${(s.:.)tpath#PATH=}; do
+        [[ -x ${d:-.}/$cmd ]] && { found=${d:-.}/$cmd; break }
+      done
+    fi
+  fi
+  if [[ -n $found ]]; then
+    _lazyfleet_doctor_report ok "the status line's agent segment runs $found"
+  else
+    _lazyfleet_doctor_report warn "the status line runs '$match[1]', which tmux cannot find: the agent segment stays empty" \
+      "use the full path in status-right, e.g. #(${commands[lazyfleet]:-~/.local/bin/lazyfleet} status)"
+  fi
+}
+
 # the registry: repositories that have gone away
 _lazyfleet_doctor_repos() {
   emulate -L zsh
@@ -134,6 +168,9 @@ _lazyfleet_doctor() {
   _lazyfleet_doctor_install_hint tmux; _lazyfleet_doctor_need tmux $_LAZYFLEET_MIN_TMUX warn $REPLY ${=LAZYFLEET_TMUX:-tmux} -V
   _lazyfleet_doctor_install_hint fzf;  _lazyfleet_doctor_need fzf  $_LAZYFLEET_MIN_FZF  fail $REPLY fzf --version
   _lazyfleet_doctor_optional
+  # what the daily update check last found; nothing to say for a checkout
+  _lazyfleet_version && { _lazyfleet_update_status; _lazyfleet_doctor_report ok $REPLY "lazyfleet update" }
+  _lazyfleet_doctor_statusline
   _lazyfleet_doctor_repos
   print
   if (( _lazyfleet_doctor_fails )); then

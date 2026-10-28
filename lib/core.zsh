@@ -134,7 +134,8 @@ _lazyfleet_worktrees_raw() {
     for d in $g/worktrees/*(N/); do
       [[ -r $d/gitdir ]] || continue
       wt=$(<$d/gitdir); wt=${wt%/.git}
-      [[ $wt == /* ]] || wt=${${d}/$wt:A}
+      # git 2.48+ can write it relative to its own dir (worktree.useRelativePaths)
+      [[ $wt == /* ]] || wt=${${:-$d/$wt}:A}
       [[ -d $wt ]] || continue
       _lazyfleet_head $d/HEAD; reply+=("$wt"$'\t'"$REPLY"$'\t'0)
     done

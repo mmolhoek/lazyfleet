@@ -75,14 +75,39 @@ _lazyfleet_update_hint() {
   fi
 }
 
-# Tell (on stderr) that an update is available, and how to get it
+# Tell that an update is available, and how to get it. On stderr, except
+# inside tmux: there the TUI has usually switched the client to another
+# session, and the pane it would print in is out of sight, so it goes to the
+# status line instead (and to stderr only if tmux will not take it).
 _lazyfleet_update_notice() {
   emulate -L zsh
-  local tag cur
+  local tag cur msg
   _lazyfleet_update_available || return 0
   tag=$REPLY; _lazyfleet_version; cur=$REPLY
   _lazyfleet_update_hint
-  print -ru2 -- "lazyfleet $tag is available (you have v$cur). Update: $REPLY"
+  msg="lazyfleet $tag is available (you have v$cur). Update: $REPLY"
+  # display-message expands #{...} formats: a literal # is ##
+  [[ -n $TMUX ]] && _lazyfleet_tmux display-message -- "${msg//\#/##}" 2>/dev/null && return 0
+  print -ru2 -- $msg
+}
+
+# REPLY=what the daily update check last found, in words, for doctor.
+# Fails when this copy does not check (no version, no curl, or turned off).
+_lazyfleet_update_status() {
+  emulate -L zsh
+  local f stamp= tag= age ago
+  if ! _lazyfleet_version; then REPLY='no update check: this copy does not know its version'; return 1; fi
+  if (( ! $+commands[curl] )); then REPLY='no update check: curl is not installed'; return 1; fi
+  if ! _lazyfleet_flag update_check LAZYFLEET_UPDATE_CHECK on; then REPLY='the update check is off (update_check=off)'; return 1; fi
+  _lazyfleet_update_cache; f=$REPLY
+  [[ -r $f ]] && read -r stamp tag <$f
+  if [[ $stamp != <-> ]]; then REPLY='the update check has not looked yet (it runs when the TUI starts)'; return 0; fi
+  age=$(( EPOCHSECONDS - stamp ))
+  if (( age < 3600 )); then ago="$(( age / 60 )) min ago"
+  elif (( age < 2 * 86400 )); then ago="$(( age / 3600 )) h ago"
+  else ago="$(( age / 86400 )) days ago"; fi
+  if [[ -z $tag ]]; then REPLY="the update check could not reach GitHub ($ago)"
+  else REPLY="the update check last looked $ago: the latest release is $tag"; fi
 }
 
 # lazyfleet update [--install] — look for a newer release right now, in the
