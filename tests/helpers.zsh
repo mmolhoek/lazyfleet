@@ -230,4 +230,31 @@ typed=y; out=$(_lazyfleet_confirm 'Go on?' 'not on a terminal: use -y' </dev/nul
 assert_eq 'confirm with a message fails off a terminal, whatever the answer' 1 $rc
 assert_eq 'and only prints the message, it does not ask' 'lazyfleet: not on a terminal: use -y' "$out"
 
+
+# --- the questions before removing a worktree, and git's flags after them
+# (the keyboard is the stub above: it types $typed)
+# "status|flags|what it printed"; the flags (REPLY) only count when it succeeds
+rc_() { local rc; _lazyfleet_rm_confirm "$@" >$SANDBOX/rmc.out 2>&1 </dev/null; rc=$?; (( rc )) && REPLY=; print -r -- "$rc|$REPLY|$(<$SANDBOX/rmc.out)" }
+_lazyfleet_session_agents() { reply=() }
+typed=n
+assert_eq 'rm confirm: a clean worktree needs no force' '0||' "$(rc_ $fx $repo)"
+assert_eq 'rm confirm: -f forces it anyway' '0|--force|' "$(rc_ $fx $repo -f)"
+print x >$fx/dirty.txt
+assert_eq 'rm confirm: changes, off a terminal, fail and say why' "1||lazyfleet: $fx has changes (use -f)" "$(rc_ $fx $repo)"
+assert_eq 'rm confirm: changes with -f, no question' '0|--force|' "$(rc_ $fx $repo -f)"
+rm $fx/dirty.txt
+git -C $repo worktree lock --reason test $fx
+assert_eq 'rm confirm: a lock with -f is forced twice, no question' '0|--force --force|' "$(rc_ $fx $repo -f)"
+typed=y; _lazyfleet_confirm() { _lazyfleet_ask $1 }     # as on a terminal
+assert_eq 'rm confirm: a lock, answered yes, is forced twice' "0|--force --force|${fx/#$HOME/~} is locked (test). Remove anyway? [y/N] " "$(rc_ $fx $repo)"
+typed=n
+check 'rm confirm: a lock answered no stops' eval '[[ $(rc_ $fx $repo) == 1\|* ]]'
+git -C $repo worktree unlock $fx
+_lazyfleet_session_agents() { reply=("claude"$'\t'"0") }
+_lazyfleet_agents_warning() { print -r -- "warning about $1" }
+assert_eq 'rm confirm: agents running, off a terminal, fail' "1||lazyfleet: $fx has 1 agent(s) running in session app/feat-x (use -f)" "$(rc_ $fx $repo)"
+assert_eq 'rm confirm: agents with -f, no question' '0|--force|' "$(rc_ $fx $repo -f)"
+unfunction _lazyfleet_session_agents _lazyfleet_agents_warning _lazyfleet_confirm
+source $ROOT/lib/core.zsh       # the real _lazyfleet_confirm again
+
 finish
