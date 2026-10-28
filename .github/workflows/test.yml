@@ -10,7 +10,8 @@ permissions:
 
 env:
   TERM: xterm-256color
-  # the first fzf lazyfleet supports is 0.58; the suites are run with this one
+  # the suites run with this fzf; the oldest supported one (MIN_FZF in
+  # install.sh) has a job of its own
   FZF_VERSION: "0.74.0"
   FZF_LINUX_AMD64_SHA256: cf919f05b7581b4c744d764eaa704665d61dd6d3ca785f0df2351281dff60cda
   # macos-latest runs on Apple silicon
@@ -43,6 +44,33 @@ jobs:
         run: |
           curl -fsSL -o /tmp/fzf.tgz "https://github.com/junegunn/fzf/releases/download/v${FZF_VERSION}/fzf-${FZF_VERSION}-linux_amd64.tar.gz"
           echo "${FZF_LINUX_AMD64_SHA256}  /tmp/fzf.tgz" | sha256sum -c -
+          sudo tar -xzf /tmp/fzf.tgz -C /usr/local/bin fzf
+          fzf --version
+      - name: Test suites
+        run: zsh tests/all.zsh
+
+  # the oldest fzf lazyfleet supports (MIN_FZF in install.sh), and the newest
+  # git: it can link worktrees with relative paths (git 2.48+), which
+  # lazyfleet reads straight from .git
+  test-minimums:
+    runs-on: ubuntu-latest
+    timeout-minutes: 20
+    env:
+      FZF_MIN_VERSION: "0.66.0"
+      FZF_MIN_LINUX_AMD64_SHA256: 362d5f92187560a87338b427dbe573d1e1bf8b4fb4bab1f44aca6a8f7fe8070f
+    steps:
+      - uses: actions/checkout@v4
+      - name: Check that this job tests what install.sh calls the minimum
+        run: grep -q "^MIN_FZF=${FZF_MIN_VERSION%.0} " install.sh
+      - name: Install zsh, tmux, jq and the newest git
+        run: |
+          sudo add-apt-repository -y ppa:git-core/ppa
+          sudo apt-get update && sudo apt-get install -y zsh tmux jq git
+          git --version
+      - name: Install fzf ${{ env.FZF_MIN_VERSION }}
+        run: |
+          curl -fsSL -o /tmp/fzf.tgz "https://github.com/junegunn/fzf/releases/download/v${FZF_MIN_VERSION}/fzf-${FZF_MIN_VERSION}-linux_amd64.tar.gz"
+          echo "${FZF_MIN_LINUX_AMD64_SHA256}  /tmp/fzf.tgz" | sha256sum -c -
           sudo tar -xzf /tmp/fzf.tgz -C /usr/local/bin fzf
           fzf --version
       - name: Test suites

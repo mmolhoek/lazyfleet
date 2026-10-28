@@ -72,6 +72,17 @@ _lazyfleet_worktrees_raw $repo
 assert_eq 'relative: the same worktrees as with absolute paths' "$expected" "$(print -rl -- $reply | sort)"
 check 'relative: never git'"'"'s own metadata dir' eval '[[ ${(F)reply} != */.git/worktrees/* ]]'
 
+# and the real thing, when this git can make it (2.48+)
+if git -C $repo worktree add -h 2>&1 | gq -- --relative-paths; then
+  git -C $repo worktree add -q --relative-paths -b rel $SANDBOX/wt/rel
+  check 'git relative: git really wrote a relative link' eval '[[ $(<$repo/.git/worktrees/rel/gitdir) != /* ]]'
+  _lazyfleet_worktrees_raw $repo
+  assert_contains 'git relative: the worktree is where git put it' "$SANDBOX/wt/rel${T}rel${T}0" "$(print -rl -- $reply)"
+  _lazyfleet_toplevel $SANDBOX/wt/rel; assert_eq 'git relative: and leads back to its repo' $repo $REPLY
+else
+  skip 'worktrees git links with relative paths' "git $(git --version | cut -d' ' -f3) is older than 2.48"
+fi
+
 # --- the main worktree of a path
 _lazyfleet_toplevel $repo;            assert_eq 'toplevel: the main worktree is itself' $repo $REPLY
 _lazyfleet_toplevel $SANDBOX/wt/feat-x; assert_eq 'toplevel: a linked worktree leads to the main one' $repo $REPLY
