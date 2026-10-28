@@ -395,7 +395,21 @@ check 'and the new verdict shows' eval 'rowfor feat/open-fail | gq "#31 ✓$"'
 setage 200; : >$GH_LOG; mkdir $CACHE.lock
 _lazyfleet_rows -s -p >/dev/null; sleep 0.8
 check 'a refresh in progress is not started twice' test ! -s $GH_LOG
+# a refresh names itself in its lock while it runs
+rm -rf $CACHE.lock; setage 200
+GH_SLEEP=1 _lazyfleet_rows -s -p >/dev/null
+check 'a running refresh writes its job into the lock' retry '[[ $(<$CACHE.lock/pid) == <-> ]] && kill -0 $(<$CACHE.lock/pid)'
+idle
+setage 200; : >$GH_LOG; mkdir $CACHE.lock
+# a lock whose job still runs is kept, however long the job takes
+print -r -- $$ >$CACHE.lock/pid; touch -t "$(date -d '-5 minutes' +%Y%m%d%H%M 2>/dev/null || date -v-5M +%Y%m%d%H%M)" $CACHE.lock
+check 'a lock whose job still runs is not dead' not _lazyfleet_pr_lock_dead $CACHE.lock
+# one whose job has gone is dead at once
+zsh -fc 'print $$' >$CACHE.lock/pid
+check 'a lock whose job has gone is dead' _lazyfleet_pr_lock_dead $CACHE.lock
+print -r -- $$ >$CACHE.lock/pid
 touch -t 200001010000 $CACHE.lock
+check 'a lock older than 10 minutes is dead, whatever it says' _lazyfleet_pr_lock_dead $CACHE.lock
 _lazyfleet_rows -s -p >/dev/null; sleep 0.3
 check 'a dead lock is cleared' test ! -d $CACHE.lock
 _lazyfleet_rows -s -p >/dev/null

@@ -231,8 +231,8 @@ _lazyfleet_pr_mark() {
 _lazyfleet_pr_kick() {
   emulate -L zsh
   setopt extended_glob
-  local slug f age bin=${(q)LAZYFLEET_DIR}/bin/lazyfleet
-  local -a todo dead
+  local slug f age pid i bin=${(q)LAZYFLEET_DIR}/bin/lazyfleet
+  local -a todo
   local -A prs
   while (( $# >= 2 )); do
     slug=$1
@@ -240,12 +240,11 @@ _lazyfleet_pr_kick() {
     prs=()
     _lazyfleet_pr_read $slug; age=$REPLY
     if [[ -z $age ]] || (( age >= _LAZYFLEET_PR_TTL )); then
-      # one refresh per repo at a time; a lock older than two minutes is dead
+      # one refresh per repo at a time: whoever makes the lock dir does it
       if mkdir $f.lock 2>/dev/null; then
         todo+=($slug $f $2)
-      else
-        dead=($f.lock(N/mm+2))
-        (( $#dead )) && rmdir $f.lock 2>/dev/null
+      elif _lazyfleet_pr_lock_dead $f.lock; then
+        rm -rf $f.lock        # the next pass takes it
       fi
     fi
     shift 2
@@ -257,10 +256,27 @@ _lazyfleet_pr_kick() {
       s=$todo[1] file=$todo[2] brs=$todo[3]; shift 3 todo
       _lazyfleet_pr_fetch $s $file ${=brs}
       [[ $REPLY == changed ]] && changed=1
-      rmdir $file.lock 2>/dev/null
+      rm -rf $file.lock
     done
     [[ -n $changed ]] && _lazyfleet_fzfpost "transform($bin _prdone)"
   } </dev/null >/dev/null 2>&1 &!
+  # each lock names the job that holds it, so a lock whose job died is known
+  # to be dead. (A job that is already done has removed its lock: the write
+  # then fails, and that is fine.)
+  pid=$!
+  for (( i = 2; i <= $#todo; i += 3 )); do print -r -- $pid >|$todo[i].lock/pid 2>/dev/null; done
+}
+
+# Is pull request lock dir $1 dead? Yes when the job named in it no longer
+# runs, or when it is older than 10 minutes, whatever it says. A lock with
+# no job in it yet has only just been taken.
+_lazyfleet_pr_lock_dead() {
+  local pid
+  local -a old=($1(N/mm+10))
+  (( $#old )) && return 0
+  [[ -r $1/pid ]] || return 1
+  pid=$(<$1/pid)
+  [[ $pid == <-> ]] && ! kill -0 $pid 2>/dev/null
 }
 
 # fzf action once a refresh found something new: reload the worktrees (with
