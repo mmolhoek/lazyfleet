@@ -74,7 +74,10 @@ _lazyfleet_rows_gather() {
 }
 
 # reply=(the git status of each worktree in $@, in order, then each one's
-# Docker mark: "🐳2" or empty). The statuses are asked for all at once.
+# Docker mark: "🐳2" or empty). The statuses are asked for in parallel,
+# _LAZYFLEET_STATUS_JOBS at a time: with many worktrees (or a slow disk) all at
+# once would only make them fight over it.
+typeset -g _LAZYFLEET_STATUS_JOBS=16
 _lazyfleet_rows_status() {
   emulate -L zsh
   setopt no_monitor no_notify
@@ -84,8 +87,11 @@ _lazyfleet_rows_status() {
   _lazyfleet_tmpdir || return 1
   tmp=$REPLY/status.$$.$RANDOM
   mkdir -m 700 $tmp || return 1
-  for i in {1..$#}; do _lazyfleet_wtstatus ${@[i]} >$tmp/$i & done
   { _lazyfleet_containers; print -rl -- $reply >$tmp/docker } &
+  for i in {1..$#}; do
+    _lazyfleet_wtstatus ${@[i]} >$tmp/$i &
+    (( i % _LAZYFLEET_STATUS_JOBS )) || wait
+  done
   wait
   for i in {1..$#}; do stats+=("$(<$tmp/$i)"); done
   for line in ${(f)"$(<$tmp/docker)"}; do

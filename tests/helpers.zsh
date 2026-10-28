@@ -215,6 +215,26 @@ out=$(cd $SANDBOX/plain && _lazyfleet_prune_repos 2>&1); rc=$?
 assert_eq 'prune repos: outside a repo fails' 1 $rc
 assert_contains 'prune repos: and says what to do' 'pass -r <repo> or --all' $out
 
+# --- the status of many worktrees: in order, and only so many at a time
+(
+  runs=$SANDBOX/runs; mkdir -p $runs
+  # each stand-in status notes how many run along with it
+  _lazyfleet_wtstatus() {
+    local -a on
+    : >$runs/${1:t}.on; on=($runs/*.on(N)); print $#on >>$runs/peak
+    sleep 0.05; rm -f $runs/${1:t}.on; print -rn -- "st-${1:t}"
+  }
+  _lazyfleet_containers() { reply=($'/w/3\tweb\tUp\tid1' $'/w/3\tdb\tUp\tid2') }
+  _LAZYFLEET_STATUS_JOBS=4
+  _lazyfleet_rows_status /w/{1..10}
+  assert_eq 'status: one per worktree, in order' 'st-1 st-2 st-3 st-4 st-5 st-6 st-7 st-8 st-9 st-10' "${reply[1,10]}"
+  assert_eq 'status: then the Docker marks' '🐳2' "$reply[13]"
+  assert_eq 'status: a worktree without containers has no mark' '' "$reply[11]"
+  peak=${${(On)${(f)"$(<$runs/peak)"}}[1]}
+  check 'status: never more than the limit at once' eval '(( peak <= 4 ))'
+  check 'status: but in parallel' eval '(( peak > 1 ))'
+)
+
 # --- a line of the prune report
 entry="/wt/app/feat-x${T}feat/x${T}pull request #4 was merged"
 assert_eq 'a prune line names the branch and the reason' '  prune  feat/x  —  pull request #4 was merged' "$(_lazyfleet_prune_line prune $entry)"
