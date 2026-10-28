@@ -61,6 +61,8 @@ fresh; publish v1.0.0; LAZYFLEET_VERSION=v1.0.0 run
 check 'a pinned install succeeds' test $rc = 0
 check 'it installs the program files' test -f $INST/lazyfleet.zsh -a -x $INST/bin/lazyfleet -a -f $INST/_lazyfleet
 check 'it installs the parts in lib/' test -f $INST/lib/core.zsh -a -f $INST/lib/prune.zsh
+check 'it compiles the zsh code' eval '[[ -f $INST/lazyfleet.zsh.zwc && -f $INST/lib/core.zsh.zwc ]]'
+check 'and the compiled code is newer than the source, so zsh uses it' eval '[[ $INST/lib/core.zsh.zwc -nt $INST/lib/core.zsh ]]'
 check 'the installed copy runs from its own directory' eval '[[ $(env -i HOME=$HOME PATH=$PATH $INST/bin/lazyfleet version) == "lazyfleet v1.0.0" ]]'
 check 'it records the version' test "$(<$INST/VERSION)" = 1.0.0
 check 'it marks itself as the installer' test -f $INST/INSTALLER
