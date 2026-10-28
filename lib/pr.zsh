@@ -93,70 +93,96 @@ _lazyfleet_pr_ci() {
 # if the rows differ from before, else same.
 _lazyfleet_pr_fetch() {
   emulate -L zsh
-  setopt extended_glob no_monitor no_notify
-  local slug=$1 f=$2 out line ref st r i sha dir tmp old= new= ok=1 ci
+  local slug=$1 f=$2 out old= new= ok=1
   shift 2
-  local -a fl rows
-  local -A want best rank
-  for ref in "$@"; do want[$ref]=1; done
   [[ -r $f ]] && old=$(tail -n +2 $f 2>/dev/null)
   out=$(command gh api "repos/$slug/pulls?state=all&sort=updated&direction=desc&per_page=100" --jq $_LAZYFLEET_PR_JQ 2>/dev/null) || ok=
   if [[ -n $ok ]]; then
-    for line in ${(f)out}; do
-      fl=("${(@ps:\t:)line}")
-      (( $#fl >= 8 )) || continue
-      [[ ${fl[7]:l} == ${slug:l} ]] || continue          # not from a fork
-      if [[ $fl[3] == open ]]; then
-        [[ $fl[4] == true ]] && st=draft || st=open; r=4
-      elif [[ $fl[5] == merged ]]; then st=merged; r=3
-      else st=closed; r=2; fi
-      # an open pull request beats a merged one beats a closed one; among
-      # equals the most recently updated (the first) stays
-      (( r > ${rank[$fl[1]]:-0} )) || continue
-      rank[$fl[1]]=$r
-      best[$fl[1]]=$fl[2]$'\t'$st$'\t'-$'\t'$fl[8]$'\t'${fl[9]//\\\\/\\}$'\t'$fl[6]
-    done
-    # checks, for the open pull requests that have a worktree here (at most 25)
-    _lazyfleet_tmpdir 2>/dev/null && dir=$REPLY/ci.$$.$RANDOM && mkdir -m 700 $dir 2>/dev/null
-    if [[ -d $dir ]]; then
-      i=0
-      for ref in ${(k)best}; do
-        [[ -n $want[$ref] ]] || continue
-        st=${${best[$ref]#*$'\t'}%%$'\t'*}
-        [[ $st == (open|draft) ]] || continue
-        sha=${best[$ref]##*$'\t'}
-        [[ $sha == [0-9a-f](#c7,64) ]] || continue
-        (( i >= 25 )) && break
-        (( i++ ))
-        {
-          command gh api "repos/$slug/commits/$sha/check-runs?per_page=100" --jq $_LAZYFLEET_PR_JQ_CHECKS >$dir/$i.c 2>/dev/null || : >$dir/$i.c
-          command gh api "repos/$slug/commits/$sha/status" --jq $_LAZYFLEET_PR_JQ_STATUS >$dir/$i.s 2>/dev/null || : >$dir/$i.s
-        } &
-        print -r -- $ref >$dir/$i.r
-      done
-      wait
-      for (( r = 1; r <= i; r++ )); do
-        [[ -r $dir/$r.r ]] || continue
-        ref=$(<$dir/$r.r)
-        _lazyfleet_pr_ci "$(<$dir/$r.c)" "$(<$dir/$r.s)"; ci=$REPLY
-        best[$ref]=${best[$ref]%%$'\t'*}$'\t'${${best[$ref]#*$'\t'}%%$'\t'*}$'\t'$ci$'\t'${best[$ref]#*$'\t'*$'\t'*$'\t'}
-      done
-      rm -rf $dir
-    fi
-    # (the head commit stays in the cache: prune compares it with a branch)
-    for ref in ${(ok)best}; do rows+=($ref$'\t'$best[$ref]); done
-    new=${(F)rows}
+    _lazyfleet_pr_best $slug $out
+    _lazyfleet_pr_add_checks $slug "$*" $reply
+    new=${(F)reply}
   else
     new=$old
   fi
-  tmp=$f.$$
-  [[ -n $ok ]] && st=ok || st=fail
-  {
-    print -r -- "#lazyfleet-pr 1 $EPOCHSECONDS $st"
-    if [[ -n $new ]]; then print -r -- $new; fi
-  } >|$tmp && mv -f $tmp $f || { rm -f $tmp; return 1 }
+  _lazyfleet_pr_write $f "$ok" $new || return 1
   [[ $new == $old ]] && REPLY=same || REPLY=changed
   [[ -n $ok ]]
+}
+
+# reply=(cache lines "branch<TAB>number<TAB>state<TAB>-<TAB>url<TAB>title<TAB>head sha",
+# by branch) from $2, GitHub's pull requests of repo $1 as _LAZYFLEET_PR_JQ
+# prints them (most recently updated first). Per branch: an open pull request
+# beats a merged one beats a closed one; among equals the most recently
+# updated (the first) stays. Pull requests from forks are left out. The
+# checks (field 4) are filled in by _lazyfleet_pr_add_checks.
+_lazyfleet_pr_best() {
+  emulate -L zsh
+  local slug=$1 line st r ref
+  local -a fl
+  local -A best rank
+  for line in ${(f)2}; do
+    fl=("${(@ps:\t:)line}")
+    (( $#fl >= 8 )) || continue
+    [[ ${fl[7]:l} == ${slug:l} ]] || continue          # not from a fork
+    if [[ $fl[3] == open ]]; then
+      [[ $fl[4] == true ]] && st=draft || st=open; r=4
+    elif [[ $fl[5] == merged ]]; then st=merged; r=3
+    else st=closed; r=2; fi
+    (( r > ${rank[$fl[1]]:-0} )) || continue
+    rank[$fl[1]]=$r
+    best[$fl[1]]=$fl[2]$'\t'$st$'\t'-$'\t'$fl[8]$'\t'${fl[9]//\\\\/\\}$'\t'$fl[6]
+  done
+  reply=()
+  # (the head commit stays in the cache: prune compares it with a branch)
+  for ref in ${(ok)best}; do reply+=($ref$'\t'$best[$ref]); done
+}
+
+# reply=the cache lines $3... with the CI state (field 4) of the open pull
+# requests whose branch is in $2 (space separated: the branches that have a
+# worktree here), at most 25, asked for all at once. $1 is the repo.
+_lazyfleet_pr_add_checks() {
+  emulate -L zsh
+  setopt extended_glob no_monitor no_notify
+  local slug=$1 dir row ref st sha i=0 n
+  local -a rows=("${(@)argv[3,-1]}") fl
+  local -A want at
+  for ref in ${=2}; do want[$ref]=1; done
+  reply=("${(@)rows}")
+  _lazyfleet_tmpdir 2>/dev/null && dir=$REPLY/ci.$$.$RANDOM && mkdir -m 700 $dir 2>/dev/null || return 0
+  for (( n = 1; n <= $#rows; n++ )); do
+    fl=("${(@ps:\t:)rows[n]}")
+    ref=$fl[1] st=$fl[3] sha=$fl[7]
+    [[ -n $want[$ref] && $st == (open|draft) && $sha == [0-9a-f](#c7,64) ]] || continue
+    (( i >= 25 )) && break
+    (( i++ ))
+    at[$i]=$n
+    {
+      command gh api "repos/$slug/commits/$sha/check-runs?per_page=100" --jq $_LAZYFLEET_PR_JQ_CHECKS >$dir/$i.c 2>/dev/null || : >$dir/$i.c
+      command gh api "repos/$slug/commits/$sha/status" --jq $_LAZYFLEET_PR_JQ_STATUS >$dir/$i.s 2>/dev/null || : >$dir/$i.s
+    } &
+  done
+  wait
+  for i in ${(k)at}; do
+    n=$at[$i]
+    fl=("${(@ps:\t:)reply[n]}")
+    _lazyfleet_pr_ci "$(<$dir/$i.c)" "$(<$dir/$i.s)"
+    fl[4]=$REPLY
+    reply[n]=${(pj:\t:)fl}
+  done
+  rm -rf $dir
+}
+
+# Write cache file $1: a header (format 1, now, "ok" when $2 is set, else
+# "fail"), then the lines $3...; replaced at once, never half written
+_lazyfleet_pr_write() {
+  emulate -L zsh
+  local f=$1 st=fail tmp=$1.$$
+  [[ -n $2 ]] && st=ok
+  shift 2
+  {
+    print -r -- "#lazyfleet-pr 1 $EPOCHSECONDS $st"
+    if (( $# )) && [[ -n $1 ]]; then print -rl -- "$@"; fi
+  } >|$tmp && mv -f $tmp $f || { rm -f $tmp; return 1 }
 }
 
 # _lazyfleet_pr_read slug: put the cached pull requests of repo $1 into the

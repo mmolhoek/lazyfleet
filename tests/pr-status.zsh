@@ -117,6 +117,41 @@ check 'passing checks with a pending status are pending' test "$(ci 'completed/s
 check 'a passing status without checks passes' test "$(ci '' '1 success')" = pass
 check 'a garbled status is ignored' test "$(ci 'completed/success' 'x y')" = pass
 
+# ---------------------------------------------------------------- choosing per branch
+# input lines as _LAZYFLEET_PR_JQ prints them:
+# branch number state draft merged sha repo url title
+T=$'\t'
+pl() { print -r -- "${(pj:\t:)@}" }
+SHA=0123456789abcdef0123456789abcdef01234567
+best() { _lazyfleet_pr_best acme/widgets "$1"; print -rl -- $reply }
+in=$(pl feat/a 7 closed false - $SHA acme/widgets u7 'old try'; pl feat/a 9 open false - $SHA acme/widgets u9 'Second try')
+assert_eq 'best: open beats closed, whatever the order' "feat/a${T}9${T}open${T}-${T}u9${T}Second try${T}$SHA" "$(best $in)"
+in=$(pl feat/a 5 closed false merged $SHA acme/widgets u5 Merged; pl feat/a 6 closed false - $SHA acme/widgets u6 Closed)
+assert_eq 'best: merged beats closed' "feat/a${T}5${T}merged${T}-${T}u5${T}Merged${T}$SHA" "$(best $in)"
+in=$(pl feat/a 3 open false - $SHA acme/widgets u3 Newer; pl feat/a 2 open false - $SHA acme/widgets u2 Older)
+check 'best: among equals the first (most recently updated) stays' eval '[[ $(best $in) == feat/a${T}3${T}* ]]'
+in=$(pl feat/d 4 open true - $SHA acme/widgets u4 Draft)
+check 'best: an open draft is a draft' eval '[[ $(best $in) == feat/d${T}4${T}draft${T}* ]]'
+in=$(pl feat/f 8 open false - $SHA someone/widgets u8 Fork)
+assert_eq 'best: a pull request from a fork is left out' '' "$(best $in)"
+in=$(pl feat/f 8 open false - $SHA ACME/Widgets u8 Case)
+check 'best: the repo compares without case' eval '[[ -n $(best $in) ]]'
+in=$(pl feat/s 1 open false - $SHA)
+assert_eq 'best: a short line is skipped' '' "$(best $in)"
+in=$(pl feat/t 1 open false - $SHA acme/widgets u1 'a\\b')
+check 'best: an escaped backslash in a title is one backslash' eval '[[ $(best $in) == *"${T}a\\b${T}"* ]]'
+in=$(pl zeta 1 open false - $SHA acme/widgets u z; pl alpha 2 open false - $SHA acme/widgets u a)
+assert_eq 'best: lines come out by branch' $'alpha\nzeta' "$(best $in | cut -f1)"
+
+# ---------------------------------------------------------------- writing the cache
+wf=$SANDBOX/write.test
+_lazyfleet_pr_write $wf 1 "a${T}1" "b${T}2"
+check 'write: a header, ok, then the lines' eval '[[ $(head -1 $wf) == "#lazyfleet-pr 1 "<->" ok" && $(tail -n +2 $wf) == "a${T}1"$'"'"'\n'"'"'"b${T}2" ]]'
+_lazyfleet_pr_write $wf ''
+check 'write: no lines and failed is just the header' eval '[[ $(wc -l <$wf | tr -d " ") == 1 && $(<$wf) == *" fail" ]]'
+check 'write: leaves no temp file' eval '[[ -z $(print $wf.*(N)) ]]'
+check 'write: fails when it cannot write' not _lazyfleet_pr_write $SANDBOX/no/such/dir/f 1 x
+
 # ---------------------------------------------------------------- marks
 ESC=$'\e'
 mk() { _lazyfleet_pr_mark "$@"; print -r -- $REPLY }
