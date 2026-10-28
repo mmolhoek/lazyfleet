@@ -9,36 +9,24 @@ _lazyfleet_rows() {
   setopt local_options no_monitor no_notify
   local -a o_s o_p
   zparseopts -D -E s=o_s p=o_p
-  local only=$1 repo e p s i wn=0 wb=0 pslug pv prm br pull= pulling
-  local -A live agtally prs
-  local -a repos paths names branches lives stats docks sess pslugs rbr kicks fl
-  local pr_on=
-  for s in ${(f)"$(_lazyfleet_tmux list-sessions -F '#S' 2>/dev/null)"}; do live[$s]=1; done
-  _lazyfleet_pr_enabled && pr_on=1
-  _lazyfleet_repos; repos=($reply)
-  for repo in $repos; do
-    [[ -n $only && ${repo:t} != $only ]] && continue
-    _lazyfleet_worktrees $repo
-    pslug= rbr=()
-    if [[ -n $pr_on ]] && _lazyfleet_ghslug $repo; then
-      pslug=$REPLY
-      _lazyfleet_pr_read $pslug     # fills prs
-    fi
-    for e in $reply; do
-      _lazyfleet_wt_path $e; p=$REPLY
-      _lazyfleet_wt_branch $e; br=$REPLY
-      _lazyfleet_wt_ismain $e
-      _lazyfleet_session $repo $p $REPLY
-      paths+=($p); names+=(${repo:t}); branches+=($br)
-      lives+=("${live[$REPLY]:+●}"); sess+=($REPLY)
-      pslugs+=($pslug); rbr+=($br)
-      (( $#names[-1] > wn )) && wn=$#names[-1]
-      (( $#br > wb )) && wb=$#br
-    done
-    [[ -n $pslug ]] && kicks+=($pslug "${(j: :)rbr}")
+  local e i s wn=0 wb=0 slug pv prm pull= pulling
+  local -A live agtally prs bybranch
+  local -a f paths names branches sess pslugs stats docks kicks
+  _lazyfleet_rows_gather $1
+  for e in $reply; do
+    f=("${(@ps:\t:)e}")
+    paths+=($f[1]) names+=($f[2]) branches+=($f[3]) sess+=($f[4]) pslugs+=("$f[5]")
+    (( $#f[2] > wn )) && wn=$#f[2]
+    (( $#f[3] > wb )) && wb=$#f[3]
+    [[ -n $f[5] ]] && bybranch[$f[5]]+=" $f[3]"
+  done
+  for slug in ${(k)bybranch}; do
+    _lazyfleet_pr_read $slug      # fills prs
+    kicks+=($slug "${bybranch[$slug]# }")
   done
   # out of date pull request data is refreshed in the background
   (( $#o_s && $#kicks )) && _lazyfleet_pr_kick $kicks
+  for s in ${(f)"$(_lazyfleet_tmux list-sessions -F '#S' 2>/dev/null)"}; do live[$s]=1; done
   _lazyfleet_agent_icons_on && _lazyfleet_agent_tally      # fills agtally
   if (( $#o_s && $#paths )); then
     _lazyfleet_rows_status $paths || return 1
@@ -50,17 +38,38 @@ _lazyfleet_rows() {
     prm=
     if [[ -n $pslugs[i] ]]; then
       pv=${prs[${pslugs[i]:l}:${branches[i]}]}
-      if [[ -n $pv ]]; then
-        fl=("${(@ps:\t:)pv}")
-        _lazyfleet_pr_mark $fl[1] $fl[2] $fl[3] ${o_p:+-p} && prm=$REPLY
-      fi
+      [[ -n $pv ]] && f=("${(@ps:\t:)pv}") && _lazyfleet_pr_mark $f[1] $f[2] $f[3] ${o_p:+-p} && prm=$REPLY
     fi
     pulling=
     [[ -n $pull && -e $pull/${paths[i]//\//%} ]] && pulling=1
     _lazyfleet_agent_marks_at $sess[i] ${o_p:+-p}
     _lazyfleet_row_print ${o_p:+-p} -- $paths[i] $names[i] $wn $branches[i] $wb \
-      "$lives[i]" "$stats[i]" "$docks[i]" "$pulling" "$prm" "$REPLY"
+      "${live[$sess[i]]:+●}" "$stats[i]" "$docks[i]" "$pulling" "$prm" "$REPLY"
   done
+}
+
+# reply=("path<TAB>repo name<TAB>branch<TAB>session<TAB>GitHub owner/name" ...),
+# a line per worktree of each registered repo (or only of repo named $1); the
+# owner/name is empty when pull request marks are off or it is no GitHub repo
+_lazyfleet_rows_gather() {
+  local repo e p br slug pr_on=
+  local -a out
+  _lazyfleet_pr_enabled && pr_on=1
+  _lazyfleet_repos
+  for repo in $reply; do
+    [[ -n $1 && ${repo:t} != $1 ]] && continue
+    slug=
+    [[ -n $pr_on ]] && _lazyfleet_ghslug $repo && slug=$REPLY
+    _lazyfleet_worktrees $repo
+    for e in $reply; do
+      _lazyfleet_wt_path $e; p=$REPLY
+      _lazyfleet_wt_branch $e; br=$REPLY
+      _lazyfleet_wt_ismain $e
+      _lazyfleet_session $repo $p $REPLY
+      out+=("$p"$'\t'"${repo:t}"$'\t'"$br"$'\t'"$REPLY"$'\t'"$slug")
+    done
+  done
+  reply=("${(@)out}")
 }
 
 # reply=(the git status of each worktree in $@, in order, then each one's
@@ -288,34 +297,41 @@ _lazyfleet_pr_preview() {
 _lazyfleet_preview() {
   local -a o_f
   zparseopts -D -E f=o_f
-  local kind=$1 p=$2 e
-  if [[ -z $p ]]; then
+  if [[ -z $2 ]]; then
     [[ $FZF_LIST_LABEL == *Windows* ]] && print 'No tmux windows.' || print 'No repos yet — press a to add one.'
     return
   fi
-  if [[ $kind == t ]]; then
-    local last rc
-    _lazyfleet_winframe $p; rc=$?
-    (( rc == 1 )) && return 1
-    print -r -- $REPLY
-    # -f follows the pane, unless there is nothing to follow (our own pane)
-    (( $#o_f && rc == 0 )) || return 0
-    zmodload zsh/zselect
+  if [[ $1 == t ]]; then _lazyfleet_preview_window ${o_f:+-f} $2
+  else _lazyfleet_preview_worktree $2; fi
+}
+
+# The preview of tmux window $1 (=session:index): its pane. With -f first,
+# keep drawing it as it changes, until fzf stops this for another row.
+_lazyfleet_preview_window() {
+  local follow= last rc
+  [[ $1 == -f ]] && { follow=1; shift }
+  _lazyfleet_winframe $1; rc=$?
+  (( rc == 1 )) && return 1
+  print -r -- $REPLY
+  # nothing to follow when it is our own pane (rc 2)
+  [[ -n $follow ]] && (( rc == 0 )) || return 0
+  zmodload zsh/zselect
+  last=$REPLY
+  # no fork per tick: zselect -t sleeps (in 1/100 s) without a sleep process
+  while zselect -t 50 || :; _lazyfleet_winframe $1; do
+    [[ $REPLY == $last ]] && continue
     last=$REPLY
-    # no fork per tick: zselect -t sleeps (in 1/100 s) without a sleep process
-    while zselect -t 50 || :; _lazyfleet_winframe $p; do
-      [[ $REPLY == $last ]] && continue
-      last=$REPLY
-      print -rn -- $'\e[2J'; print -r -- $REPLY
-    done
-    return
-  fi
-  local s
-  local m=0
+    print -rn -- $'\e[2J'; print -r -- $REPLY
+  done
+}
+
+# The preview of worktree $1: its session and windows, containers, pull
+# request, git status and recent commits
+_lazyfleet_preview_worktree() {
+  local p=$1 s e wins m=0
   _lazyfleet_toplevel $p && { [[ $p == ${REPLY:A} ]] && m=1; _lazyfleet_session $REPLY $p $m }
   s=$REPLY
   print -r -- $'\e[1m'$s$'\e[0m  '${p/#$HOME/\~}
-  local wins
   if wins=$(_lazyfleet_tmux list-windows -t "=$s" -F '#I:#W' 2>/dev/null); then
     print -r -- $'\e[32m● session\e[0m  '${(j:  :)${(f)wins}}
   else
