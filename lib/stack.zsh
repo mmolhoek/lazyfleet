@@ -244,32 +244,52 @@ _lazyfleet_stack_wt() {
 
 # --- restack -----------------------------------------------------------------
 
-# _lazyfleet_stack_restack_one repo branch parent rev
+# _lazyfleet_stack_restack_one repo branch parent rev [-i]
 # Rebase the branch, in its own worktree, onto its parent: the commits after
 # rev (the parent's commit it was last based on) go on top of the parent's
 # tip. A parent that is gone is replaced by the default branch, for good. A
-# branch already on its parent's tip only has rev brought up to date.
+# rebase of the branch that stopped earlier is finished first. A branch
+# already on its parent's tip only has rev brought up to date. With -i, a
+# conflict is resolved here, file by file (_lazyfleet_stack_finish).
 _lazyfleet_stack_restack_one() {
-  local repo=$1 br=$2 par=$3 rev=$4 wt out
-  if ! _lazyfleet_stack_isbranch $repo $par; then
-    _lazyfleet_stack_trunk $repo ||
-      { _lazyfleet_err "$br: its parent $par is gone, and there is no main or master to move it onto"; return 1 }
-    print -ru2 -- "lazyfleet: $br: its parent $par is gone, so it moves onto $REPLY"
-    par=$REPLY
+  local repo=$1 br=$2 par=$3 rev=$4 i=$5 wt=
+  _lazyfleet_stack_onto $repo $br $par || return 1
+  par=$REPLY
+  _lazyfleet_stack_wt $repo $br 2>/dev/null && wt=$REPLY
+  if [[ -n $wt ]] && _lazyfleet_stack_rebasing $wt; then
+    _lazyfleet_stack_finish $br $wt "$i" || return 1
+  elif ! git -C $repo merge-base --is-ancestor refs/heads/$par refs/heads/$br; then
+    _lazyfleet_stack_rebase $repo $br $par "$rev" "$wt" "$i" || return 1
   fi
-  if git -C $repo merge-base --is-ancestor refs/heads/$par refs/heads/$br; then
-    _lazyfleet_stack_link $repo $br $par $(git -C $repo rev-parse refs/heads/$par)
-    return
-  fi
-  _lazyfleet_stack_wt $repo $br || return 1
-  wt=$REPLY
+  # (rev becomes where the two meet: the parent's tip, unless it moved on meanwhile)
+  _lazyfleet_stack_link $repo $br $par
+}
+
+# REPLY=what branch $2 of repo $1 goes onto: its parent $3, or the default
+# branch when the parent is gone (saying so)
+_lazyfleet_stack_onto() {
+  _lazyfleet_stack_isbranch $1 $3 && { REPLY=$3; return 0 }
+  _lazyfleet_stack_trunk $1 ||
+    { _lazyfleet_err "$2: its parent $3 is gone, and there is no main or master to move it onto"; return 1 }
+  print -ru2 -- "lazyfleet: $2: its parent $3 is gone, so it moves onto $REPLY"
+}
+
+# _lazyfleet_stack_rebase repo branch parent rev worktree [-i]
+# Start the rebase of the branch in its worktree (none: say how to make one);
+# when it stops on a conflict, go on with _lazyfleet_stack_finish
+_lazyfleet_stack_rebase() {
+  local repo=$1 br=$2 par=$3 rev=$4 wt=$5 i=$6 out
+  [[ -n $wt ]] || { _lazyfleet_stack_wt $repo $br; return 1 }
   [[ -z $(git -C $wt status --porcelain --untracked-files=no 2>/dev/null) ]] ||
     { _lazyfleet_err "$br has uncommitted changes in ${wt/#$HOME/~}: commit or stash them first"; return 1 }
   _lazyfleet_stack_upstream $repo $br $par "$rev"; rev=$REPLY
   _lazyfleet_step "Restacking $br onto $par"
-  out=$(git -C $wt rebase -q --onto refs/heads/$par $rev 2>&1)
-  _lazyfleet_done || { _lazyfleet_stack_stopped $br $wt "$out"; return 1 }
-  _lazyfleet_stack_link $repo $br $par $(git -C $repo rev-parse refs/heads/$par)
+  out=$(git -C $wt rebase -q --onto refs/heads/$par $rev 2>&1) && { print -u2 done; return 0 }
+  _lazyfleet_stack_rebasing $wt || { print -u2 failed; [[ -n $out ]] && print -ru2 -- $out; return 1 }
+  print -u2 conflict
+  # git's own words say what conflicts (on a terminal the list of files does)
+  [[ -n $out && -z $i ]] && print -ru2 -- $out
+  _lazyfleet_stack_finish $br $wt "$i"
 }
 
 # REPLY=the commit after which branch $2 of repo $1 has its own commits, the
@@ -287,14 +307,139 @@ _lazyfleet_stack_upstream() {
   fi
 }
 
-# Say how to go on after the rebase of branch $1 in worktree $2 stopped,
-# with git's output $3
+# Say how to go on after the rebase of branch $1 in worktree $2 stopped on a
+# conflict (when there is no terminal to resolve it on)
 _lazyfleet_stack_stopped() {
-  [[ -n $3 ]] && print -ru2 -- $3
-  if [[ -n $(git -C $2 rev-parse -q --verify REBASE_HEAD 2>/dev/null) ]]; then
-    print -ru2 -- "lazyfleet: the rebase of $1 stopped on a conflict in ${2/#$HOME/~}."
-    print -ru2 -- "  Resolve it there and run git rebase --continue (or --abort), then restack again."
+  print -ru2 -- "lazyfleet: the rebase of $1 stopped on a conflict in ${2/#$HOME/~}."
+  print -ru2 -- "  Resolve the files there and git add them, then restack again: it continues the rebase."
+  print -ru2 -- "  (In lazyfleet, S lists the files and opens each in your editor.)"
+}
+
+# --- resolving a conflict ------------------------------------------------------
+
+# Succeed when a rebase is under way in worktree $1 (stopped, since restack
+# never leaves one running)
+_lazyfleet_stack_rebasing() {
+  local -a d
+  d=(${(f)"$(git -C $1 rev-parse --path-format=absolute --git-path rebase-merge --git-path rebase-apply 2>/dev/null)"})
+  [[ -n $d[1] && -d $d[1] ]] || [[ -n $d[2] && -d $d[2] ]]
+}
+
+# reply=(the files of worktree $1 that are in conflict)
+_lazyfleet_stack_unmerged() {
+  reply=(${(0)"$(git -C $1 diff -z --name-only --diff-filter=U 2>/dev/null)"})
+}
+
+# Succeed when file $1 still has conflict markers
+_lazyfleet_stack_markers() {
+  [[ -f $1 ]] && grep -qE '^(<{7}|>{7}|[|]{7})( |$)|^={7}$' -- $1 2>/dev/null
+}
+
+# _lazyfleet_stack_finish branch worktree [-i]
+# Finish the stopped rebase of the branch: while files are in conflict, let
+# the person resolve them one at a time (-i), else say how and fail; once
+# none are, continue the rebase, which may stop on the next commit
+_lazyfleet_stack_finish() {
+  local br=$1 wt=$2 i=$3 note=
+  while _lazyfleet_stack_rebasing $wt; do
+    _lazyfleet_stack_unmerged $wt
+    if (( $#reply )); then
+      [[ -n $i ]] || { _lazyfleet_stack_stopped $br $wt; return 1 }
+      _lazyfleet_stack_resolve $br $wt "$note" $reply || return 1
+      note=$REPLY
+    else
+      _lazyfleet_stack_continue $br $wt "$i" || return 1
+      note=
+    fi
+  done
+  return 0
+}
+
+# Continue the rebase of branch $1 in worktree $2 (git's message for each
+# commit as it is), saying how it went. Fails only when it stopped for
+# another reason than a conflict (which the caller goes on with).
+_lazyfleet_stack_continue() {
+  local out
+  print -nu2 -- "Continuing the rebase of $1… "
+  if out=$(GIT_EDITOR=true git -C $2 rebase --continue 2>&1); then
+    print -u2 done; return 0
   fi
+  _lazyfleet_stack_unmerged $2
+  if (( $#reply )); then
+    print -u2 'next conflict'
+    [[ -n $3 ]] || print -ru2 -- $out
+    return 0
+  fi
+  print -u2 failed
+  print -ru2 -- $out
+  return 1
+}
+
+# _lazyfleet_stack_resolve branch worktree note file...
+# One round: pick a file in conflict and edit it (it is marked resolved once
+# it has no markers left), abort the rebase, or leave it for later (fails).
+# REPLY=a note for the next round.
+_lazyfleet_stack_resolve() {
+  local br=$1 wt=$2 note=$3
+  shift 3
+  _lazyfleet_stack_pickfile $br $wt "$note" "$@"
+  case $reply[1] in
+    (edit) _lazyfleet_stack_edit $wt "$reply[2]" ;;
+    (abort)
+      REPLY=
+      _lazyfleet_ask "Abort the rebase of $br? (it goes back to how it was)" || return 0
+      git -C $wt rebase --abort || return 1
+      print -ru2 -- "lazyfleet: the rebase of $br is aborted; the branch is as it was"
+      return 1 ;;
+    (*) print -ru2 -- "lazyfleet: the rebase of $br is left in ${wt/#$HOME/~}: press S (or restack) to go on with it"
+      return 1 ;;
+  esac
+}
+
+# Edit file $2 of worktree $1 in $VISUAL/$EDITOR, on the terminal; then
+# mark it resolved, unless it still has conflict markers. REPLY=a note
+# saying which happened.
+_lazyfleet_stack_edit() {
+  local wt=$1 f=$2 ed
+  REPLY=
+  [[ -n $f ]] || return 0
+  _lazyfleet_tool edit || return 1
+  ed=${REPLY% .}
+  # stdin is not the keyboard under fzf's execute: the editor gets the terminal
+  if { true </dev/tty } 2>/dev/null; then (cd $wt && ${=ed} $f) </dev/tty >/dev/tty
+  else (cd $wt && ${=ed} $f); fi
+  if _lazyfleet_stack_markers $wt/$f; then
+    REPLY="$f still has conflict markers"
+  elif [[ -e $wt/$f ]]; then
+    git -C $wt add -- $f && REPLY="$f resolved"
+  else
+    git -C $wt rm -q --cached -- $f && REPLY="$f resolved (deleted)"
+  fi
+  return 0
+}
+
+# _lazyfleet_stack_pickfile branch worktree note file...
+# reply=(edit, abort or later, then the file picked): the files in conflict
+# in fzf, each one's conflict in the preview, the note above them
+_lazyfleet_stack_pickfile() {
+  local br=$1 wt=$2 note=$3 head commit out rc
+  local -a lines
+  shift 3
+  commit=$(git -C $wt log -1 --format='%h %s' REBASE_HEAD 2>/dev/null)
+  (( $# == 1 )) && head='1 file in conflict' || head="$# files in conflict"
+  head+=$'\n\e[2mapplying '${commit//[[:cntrl:]]/ }$'\e[0m'
+  [[ -n $note ]] && head=$'\e[33m'${note//[[:cntrl:]]/ }$'\e[0m\n'$head
+  out=$(print -rl -- "$@" | LAZYFLEET_RWT=$wt fzf --ansi --layout reverse --style full --no-sort --no-input \
+    --list-label " Conflicts · $br " --preview-label ' Conflict ' --header $head \
+    --footer $'↵ / e  edit the file (saved without markers: resolved)\na  abort the rebase   esc  later (S goes on)' \
+    --with-shell "${commands[zsh]:-/bin/zsh} -c" \
+    --preview 'git -C "$LAZYFLEET_RWT" -c color.diff=always diff -- {}' --preview-window right,60% \
+    --pointer '▌' --gutter ' ' --expect a,e --bind 'j:down,k:up')
+  rc=$?
+  lines=("${(@f)out}")
+  if (( rc )); then reply=(later '')
+  elif [[ $lines[1] == a ]]; then reply=(abort '')
+  else reply=(edit "$lines[2]"); fi
 }
 
 # reply=(repo, branch) of worktree $1 (default: the one we are in)
@@ -304,8 +449,18 @@ _lazyfleet_stack_here() {
   p=$REPLY
   _lazyfleet_toplevel $p || { _lazyfleet_err "not a git worktree: $p"; return 1 }
   repo=$REPLY
-  _lazyfleet_need_branch $p || return 1
+  _lazyfleet_stack_branch $p || { _lazyfleet_err "${p/#$HOME/~} is not on a branch"; return 1 }
   reply=($repo $REPLY)
+}
+
+# REPLY=the branch of worktree $1, also while a rebase of it is stopped
+# (when HEAD is detached); fails when there is none
+_lazyfleet_stack_branch() {
+  local gd
+  _lazyfleet_branch_of $1 && return 0
+  gd=$(git -C $1 rev-parse --absolute-git-dir 2>/dev/null) || return 1
+  _lazyfleet_head_dir $gd
+  [[ $REPLY != '(detached)' ]]
 }
 
 # reply=(the branches to restack for branch $1, in order): its whole stack
@@ -324,11 +479,13 @@ _lazyfleet_stack_order() {
   (( $#reply ))
 }
 
-# lazyfleet stack restack [worktree]: rebase each branch of the worktree's
-# stack onto its parent, bottom up; stops at the first one that fails
+# lazyfleet stack restack [-i] [worktree]: rebase each branch of the
+# worktree's stack onto its parent, bottom up; stops at the first one that
+# fails. -i: resolve a conflict here, file by file, instead of stopping.
 _lazyfleet_stack_restack() {
-  local repo br b e t=$'\t'  # ($'\t' isn't expanded inside a subscript)
+  local repo br b e i= t=$'\t'  # ($'\t' isn't expanded inside a subscript)
   local -a entries f
+  [[ $1 == -i ]] && { i=-i; shift }
   _lazyfleet_stack_here "$1" || return 1
   repo=$reply[1] br=$reply[2]
   _lazyfleet_stack_load $repo; entries=($reply)
@@ -337,7 +494,7 @@ _lazyfleet_stack_restack() {
   for b in $reply; do
     e=${entries[(r)${(b)b}$t*]}
     f=("${(@ps:\t:)e}")
-    _lazyfleet_stack_restack_one $repo $b $f[2] "$f[3]" || return 1
+    _lazyfleet_stack_restack_one $repo $b $f[2] "$f[3]" $i || return 1
   done
 }
 
@@ -351,7 +508,9 @@ _lazyfleet_stack() {
     (show) _lazyfleet_stack_show "$@" ;;
     (on) _lazyfleet_stack_on "$@" ;;
     (off) _lazyfleet_stack_off "$@" ;;
-    (restack) _lazyfleet_stack_restack "$@" ;;
+    (restack)
+      # on a terminal, a conflict is resolved file by file
+      if [[ -t 0 && -t 1 ]]; then _lazyfleet_stack_restack -i "$@"; else _lazyfleet_stack_restack "$@"; fi ;;
     (*) _lazyfleet_err 'usage: lazyfleet stack [show | on <parent> | off | restack] [worktree]'; return 1 ;;
   esac
 }
@@ -404,10 +563,14 @@ _lazyfleet_stack_preview() {
   local repo out
   _lazyfleet_toplevel $1 || return 0
   repo=$REPLY
-  _lazyfleet_branch_of $1 || return 0
+  _lazyfleet_stack_branch $1 || return 0
   out=$(_lazyfleet_stack_print $repo $REPLY) || return 0
   print
   print -r -- $out
+  _lazyfleet_stack_rebasing $1 || return 0
+  _lazyfleet_stack_unmerged $1
+  (( $#reply )) && print -r -- $'   \e[33m'"$#reply file(s) in conflict: S resolves them"$'\e[0m'
+  return 0
 }
 
 # reply=("branch<TAB>mark" ...): the row mark of each stacked branch of repo

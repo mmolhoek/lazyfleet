@@ -119,6 +119,23 @@ _lazyfleet_head() {
   [[ $h == 'ref: refs/heads/'* ]] && REPLY=${h#ref: refs/heads/} || REPLY='(detached)'
 }
 
+# REPLY=the branch checked out in git dir $1 (a repo's .git, or a worktree's
+# .git/worktrees/<id>): its HEAD's, or while a rebase is stopped (HEAD is
+# detached then) the branch being rebased, as git status says too; else
+# "(detached)". No fork.
+_lazyfleet_head_dir() {
+  local f n
+  _lazyfleet_head $1/HEAD
+  [[ $REPLY == '(detached)' ]] || return 0
+  for f in $1/rebase-merge/head-name $1/rebase-apply/head-name; do
+    [[ -r $f ]] || continue
+    n=$(<$f)
+    [[ $n == refs/heads/?* ]] && REPLY=${n#refs/heads/}
+    return 0
+  done
+  return 0
+}
+
 # reply=("path<TAB>branch<TAB>ismain" ...) for repo $1, by branch
 _lazyfleet_worktrees() {
   _lazyfleet_worktrees_raw $1
@@ -130,14 +147,14 @@ _lazyfleet_worktrees_raw() {
   reply=()
   if [[ -d $g ]]; then
     # read .git directly: no fork
-    _lazyfleet_head $g/HEAD; reply+=("$1"$'\t'"$REPLY"$'\t'1)
+    _lazyfleet_head_dir $g; reply+=("$1"$'\t'"$REPLY"$'\t'1)
     for d in $g/worktrees/*(N/); do
       [[ -r $d/gitdir ]] || continue
       wt=$(<$d/gitdir); wt=${wt%/.git}
       # git 2.48+ can write it relative to its own dir (worktree.useRelativePaths)
       [[ $wt == /* ]] || wt=${${:-$d/$wt}:A}
       [[ -d $wt ]] || continue
-      _lazyfleet_head $d/HEAD; reply+=("$wt"$'\t'"$REPLY"$'\t'0)
+      _lazyfleet_head_dir $d; reply+=("$wt"$'\t'"$REPLY"$'\t'0)
     done
     return
   fi

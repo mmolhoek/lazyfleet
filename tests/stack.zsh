@@ -251,7 +251,8 @@ ctip=$(tip c)
 out=$(_lazyfleet_stack restack $W/a 2>&1); rc=$?
 assert_eq 'conflict: restack fails' 1 $rc
 assert_contains 'conflict: says where to resolve it' 'the rebase of b stopped on a conflict in' $out
-assert_contains 'conflict: and how to go on' 'git rebase --continue' $out
+assert_contains 'conflict: and how to go on' 'git add them, then restack again: it continues the rebase' $out
+assert_contains 'conflict: and that S does it file by file' 'S lists the files and opens each in your editor' $out
 check 'conflict: the rebase is left for the person' git -C $W/b rev-parse -q --verify REBASE_HEAD
 assert_eq 'conflict: c was not touched' $ctip "$(tip c)"
 print -r -- "resolved" >$W/b/a.txt
@@ -306,6 +307,133 @@ assert_contains 'gone: and says where c goes' 'its parent b is gone, so it moves
 assert_eq 'gone: c is stacked on main now' main "$(cfg c)"
 check 'gone: and sits on main' git -C $repo merge-base --is-ancestor refs/heads/main refs/heads/c
 assert_eq 'gone: with only its own commits on top' 'c.txt: two|c.txt: one' "$(git -C $repo log --format=%s main..c | paste -sd'|' -)"
+
+# ============================================================================
+# resolving a conflict
+# ============================================================================
+
+# a stack s1 ← s2 ← s3 where s2's two commits each change a file that s1
+# changes too, so a restack of s2 stops twice: once per commit
+_lazyfleet_new --no-open -q -r $repo s1 >/dev/null 2>&1
+commit $W/s1 f1 one; commit $W/s1 f2 one
+_lazyfleet_new --no-open -q -r $repo --on s1 s2 >/dev/null 2>&1
+commit $W/s2 f1 two; commit $W/s2 f2 two
+_lazyfleet_new --no-open -q -r $repo --on s2 s3 >/dev/null 2>&1
+commit $W/s3 g three
+commit $W/s1 f1 new; commit $W/s1 f2 new
+
+# --- markers
+print -l 'a' '<<<<<<< HEAD' 'x' '=======' 'y' '>>>>>>> 1234 msg' >$SANDBOX/m1
+print -l 'a' '<<<<<<<' 'x' >$SANDBOX/m2
+print -l 'a' '======= a heading underline is not a marker' '<<<<<<<< eight' >$SANDBOX/m3
+check 'markers: a conflict has them' _lazyfleet_stack_markers $SANDBOX/m1
+check 'markers: a bare one counts' _lazyfleet_stack_markers $SANDBOX/m2
+check 'markers: look-alikes do not' not _lazyfleet_stack_markers $SANDBOX/m3
+check 'markers: a file that is not there has none' not _lazyfleet_stack_markers $SANDBOX/nope
+
+# --- without a terminal: it stops, and restack continues once files are added
+out=$(_lazyfleet_stack restack $W/s1 2>&1); rc=$?
+assert_eq 'stopped: restack fails' 1 $rc
+assert_contains 'stopped: git says what conflicts' 'CONFLICT' $out
+assert_contains 'stopped: a conflict is not called a failure' 'Restacking s2 onto s1… conflict' $out
+check 'stopped: a rebase is under way' _lazyfleet_stack_rebasing $W/s2
+check 'stopped: and none elsewhere' not _lazyfleet_stack_rebasing $W/s3
+_lazyfleet_stack_unmerged $W/s2; assert_eq 'stopped: the file in conflict' f1 "$reply"
+_lazyfleet_worktrees $repo
+assert_contains 'stopped: the row still names the branch (HEAD is detached now)' "$W/s2${T}s2${T}0" "${(F)reply}"
+_lazyfleet_stack_here $W/s2; assert_eq 'stopped: S on that row finds the branch' s2 $reply[2]
+plain "$(_lazyfleet_stack_preview $W/s2)"
+assert_contains 'stopped: the preview says so' '1 file(s) in conflict: S resolves them' $REPLY
+out=$(_lazyfleet_stack restack $W/s1 2>&1); rc=$?
+assert_eq 'stopped: restack again, unresolved, fails again' 1 $rc
+assert_contains 'stopped: saying the same' 'the rebase of s2 stopped on a conflict' $out
+check 'stopped: and leaves the rebase alone' _lazyfleet_stack_rebasing $W/s2
+print -r -- two >$W/s2/f1 && git -C $W/s2 add f1
+out=$(_lazyfleet_stack restack $W/s1 2>&1); rc=$?
+assert_eq 'next conflict: restack stops on the next commit' 1 $rc
+assert_contains 'next conflict: after continuing the rebase' 'Continuing the rebase of s2… next conflict' $out
+_lazyfleet_stack_unmerged $W/s2; assert_eq 'next conflict: in the other file' f2 "$reply"
+print -r -- two >$W/s2/f2 && git -C $W/s2 add f2
+out=$(_lazyfleet_stack restack $W/s1 2>&1); rc=$?
+assert_eq 'resolved: restack works' 0 $rc
+assert_contains 'resolved: it finishes the rebase' 'Continuing the rebase of s2… done' $out
+assert_contains 'resolved: and goes on up the stack' 'Restacking s3 onto s2… done' $out
+check 'resolved: no rebase left' not _lazyfleet_stack_rebasing $W/s2
+assert_eq 'resolved: s2 is on s1, with its own two commits' 2 "$(git -C $repo rev-list --count s1..s2)"
+assert_eq 'resolved: s3 on s2, with its own one' 1 "$(git -C $repo rev-list --count s2..s3)"
+for b in s2 s3; do st $b; assert_eq "resolved: $b is up to date" 0 $REPLY; done
+
+# --- on a terminal (-i): file by file. A stand-in for the list of files
+# answers from $answers ("edit <file> [editor]", "abort", "later"; an editor
+# given becomes $EDITOR), and keeps what it showed in $offered and $notes.
+# It runs in this shell, so restack does too (output to a file).
+typeset -ga answers offered notes keys
+_lazyfleet_stack_pickfile() {
+  local -a a
+  offered+=("${(j:,:)@[4,-1]}") notes+=("$3")
+  a=(${=answers[1]}); answers=("${(@)answers[2,-1]}")
+  [[ -n $a[3] ]] && EDITOR=$a[3]
+  reply=("${a[1]:-later}" "$a[2]")
+}
+_lazyfleet_readkey() { local k=$keys[1]; keys=("${(@)keys[2,-1]}"); [[ $k == y ]] }
+print -l '#!/bin/sh' 'printf "merged\n" >"$1"' >$SANDBOX/ed && chmod +x $SANDBOX/ed
+irestack() { _lazyfleet_stack_restack -i $1 >$SANDBOX/out 2>&1; rc=$?; out=$(<$SANDBOX/out) }
+# both <worktree> <text>: one commit that writes the text to f3 and f4
+both() { print -r -- $2 >$1/f3; print -r -- $2 >$1/f4; git -C $1 add f3 f4; git -C $1 commit -q -m "f3 f4: $2" }
+both $W/s1 base
+_lazyfleet_stack restack $W/s1 >/dev/null 2>&1
+both $W/s2 mine
+both $W/s1 theirs
+
+offered=() notes=()
+answers=("edit f3 true" "edit f3 $SANDBOX/ed" "edit f4 $SANDBOX/ed")
+irestack $W/s1
+assert_eq 'resolve: works' 0 $rc
+assert_eq 'resolve: both files, again both (markers left), then the one left' 'f3,f4|f3,f4|f4' "${(j:|:)offered}"
+assert_eq 'resolve: each round says how the last edit went' '|f3 still has conflict markers|f3 resolved' "${(j:|:)notes}"
+assert_eq 'resolve: the edit is what was committed' merged "$(git -C $repo show s2:f3)"
+assert_eq 'resolve: for both files' merged "$(git -C $repo show s2:f4)"
+assert_contains 'resolve: the rebase is continued once none are left' 'Continuing the rebase of s2… done' $out
+assert_contains 'resolve: and the stack restacked' 'Restacking s3 onto s2… done' $out
+check 'resolve: git'"'"'s own conflict text is not printed over the list' eval '[[ $out != *CONFLICT* ]]'
+for b in s2 s3; do st $b; assert_eq "resolve: $b is up to date" 0 $REPLY; done
+
+# --- later: the rebase stays, and S goes on with it, from the stopped row
+both $W/s1 again
+offered=()
+answers=(later)
+irestack $W/s1
+assert_eq 'later: restack fails' 1 $rc
+assert_contains 'later: and says how to go on' 'the rebase of s2 is left in' $out
+check 'later: the rebase is still there' _lazyfleet_stack_rebasing $W/s2
+answers=("edit f3 $SANDBOX/ed" "edit f4 $SANDBOX/ed")
+irestack $W/s2
+assert_eq 'later: S on the stopped row finishes it' 0 $rc
+assert_eq 'later: offering what is still in conflict' 'f3,f4|f3,f4|f4' "${(j:|:)offered}"
+st s2; assert_eq 'later: s2 is up to date' 0 $REPLY
+
+# --- abort: asks first; yes puts the branch back as it was
+both $W/s1 once-more
+s2tip=$(tip s2)
+offered=()
+answers=(abort abort) keys=(n y)
+irestack $W/s1
+assert_eq 'abort: fails' 1 $rc
+assert_eq 'abort: a no to the question shows the list again' 2 $#offered
+assert_contains 'abort: says so' 'the rebase of s2 is aborted' $out
+check 'abort: no rebase left' not _lazyfleet_stack_rebasing $W/s2
+assert_eq 'abort: s2 is as it was' $s2tip "$(tip s2)"
+st s2; assert_eq 'abort: and still needs a restack' 1 $REPLY
+
+# --- an editor that is not there
+answers=("edit f3 /no/such/editor")
+irestack $W/s1
+assert_eq 'no editor: fails' 1 $rc
+assert_contains 'no editor: and says so' "editor '/no/such/editor' not found" $out
+git -C $W/s2 rebase --abort
+unset EDITOR
+unfunction _lazyfleet_stack_pickfile _lazyfleet_readkey
+source $ROOT/lib/stack.zsh; source $ROOT/lib/core.zsh
 
 # --- the default branch: origin/HEAD's, else main, else master
 _lazyfleet_stack_trunk $repo; assert_eq 'trunk: main' main $REPLY

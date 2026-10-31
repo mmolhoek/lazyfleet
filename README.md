@@ -124,9 +124,13 @@ no other tool is needed.
 - **See it:** stacked rows show `▲2/3`, and the Details pane draws the whole stack. `⟲` means the branch's parent
   has moved on since the branch was based on it (an amended commit, a review fix, a pull of `main`).
 - **Restack:** `S` (or `lazyfleet stack restack`) rebases every branch of the stack onto its parent, from the bottom
-  up, each in its own worktree. It stops at the first conflict and leaves the rebase in that worktree for you:
-  resolve it, `git rebase --continue`, and press `S` again to carry on. A worktree with uncommitted changes stops it
-  before anything is rebased.
+  up, each in its own worktree. A worktree with uncommitted changes stops it before anything is rebased.
+- **Conflicts:** when a rebase stops on a conflict, the files in conflict are listed, each one's conflict in the
+  preview. `e` (or `enter`) opens a file in `$VISUAL` / `$EDITOR`; once you save it without conflict markers it is
+  marked resolved, and the list shows the files still in conflict. When none are left the rebase continues (it may
+  stop again on a later commit) and so does the restack. `a` aborts the rebase (it asks), `esc` leaves it for later:
+  the row shows the branch and `⟲`, and `S` picks up where you left off. Without a terminal, `restack` stops
+  instead; resolve and `git add` the files, and `restack` continues the rebase.
 - **Merging:** when the bottom branch is merged and deleted (by `lazyfleet prune`, say), the branch above it shows
   `⟲` with "parent gone"; restack moves it onto the default branch, keeping only its own commits, so squash merges
   work too.

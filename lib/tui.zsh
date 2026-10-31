@@ -401,7 +401,7 @@ _lazyfleet_ui_stackon() {
   else _lazyfleet_stack_link $repo $br $REPLY || _lazyfleet_pause; fi
 }
 
-_lazyfleet_ui_restack() { _lazyfleet_stack_restack $1 || _lazyfleet_pause }
+_lazyfleet_ui_restack() { _lazyfleet_stack_restack -i $1 || _lazyfleet_pause }
 
 _lazyfleet_ui_add() {
   _lazyfleet_findrepos | _lazyfleet_pick 'Add repo' 'repo> ' || return 0
