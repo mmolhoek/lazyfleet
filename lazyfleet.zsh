@@ -13,6 +13,7 @@ autoload -Uz is-at-least
 #   sessions  a worktree's tmux session
 #   agents    Claude Code / Copilot CLI / omp in tmux panes, and their hooks
 #   pr        pull request and CI marks
+#   stack     stacked branches: parents, marks, restack
 #   rows      what the TUI lists and previews
 #   commands  add, forget, ls, new, open, rm, pull, config
 #   tui       the fzf driver, its keys and prompts
@@ -25,6 +26,7 @@ source $LAZYFLEET_DIR/lib/config.zsh
 source $LAZYFLEET_DIR/lib/sessions.zsh
 source $LAZYFLEET_DIR/lib/agents.zsh
 source $LAZYFLEET_DIR/lib/pr.zsh
+source $LAZYFLEET_DIR/lib/stack.zsh
 source $LAZYFLEET_DIR/lib/rows.zsh
 source $LAZYFLEET_DIR/lib/commands.zsh
 source $LAZYFLEET_DIR/lib/tui.zsh
@@ -43,7 +45,7 @@ _lazyfleet_main() {
   (( $# )) && shift
   case $cmd in
     ('') _lazyfleet_ui_checked ;;
-    (add|forget|new|open|rm|pull|prune|ls|config|update|status|hooks|doctor) _lazyfleet_$cmd "$@" ;;
+    (add|forget|new|open|rm|pull|prune|ls|config|update|status|hooks|doctor|stack) _lazyfleet_$cmd "$@" ;;
     (windows) _lazyfleet_ui_checked -w ;;
     (repos) _lazyfleet_repos; print -rl -- $reply ;;
     (help|-h|--help) _lazyfleet_help ;;

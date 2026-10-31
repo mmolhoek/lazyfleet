@@ -11,12 +11,12 @@ _lazyfleet_rows() {
   local -a o_s o_p
   zparseopts -D -E s=o_s p=o_p
   local e i s wn=0 wb=0 slug pv prm pull= pulling
-  local -A live agtally prs bybranch
-  local -a f paths names branches sess pslugs stats docks kicks
+  local -A live agtally prs bybranch stm
+  local -a f paths names branches sess pslugs repos stats docks kicks
   _lazyfleet_rows_gather $1
   for e in $reply; do
     f=("${(@ps:\t:)e}")
-    paths+=($f[1]) names+=($f[2]) branches+=($f[3]) sess+=($f[4]) pslugs+=("$f[5]")
+    paths+=($f[1]) names+=($f[2]) branches+=($f[3]) sess+=($f[4]) pslugs+=("$f[5]") repos+=($f[6])
     (( $#f[2] > wn )) && wn=$#f[2]
     (( $#f[3] > wb )) && wb=$#f[3]
     [[ -n $f[5] ]] && bybranch[$f[5]]+=" $f[3]"
@@ -32,6 +32,7 @@ _lazyfleet_rows() {
   if (( $#o_s && $#paths )); then
     _lazyfleet_rows_status $paths || return 1
     stats=("${(@)reply[1,$#paths]}") docks=("${(@)reply[$#paths+1,-1]}")
+    _lazyfleet_rows_stacks ${o_p:+-p} ${(u)repos}; for e in $reply; do stm[${e%%$'\t'*}]=${e#*$'\t'}; done
   fi
   # (in a local: the loop below overwrites REPLY)
   _lazyfleet_pulldir && pull=$REPLY
@@ -41,6 +42,7 @@ _lazyfleet_rows() {
       pv=${prs[${pslugs[i]:l}:${branches[i]}]}
       [[ -n $pv ]] && f=("${(@ps:\t:)pv}") && _lazyfleet_pr_mark $f[1] $f[2] $f[3] ${o_p:+-p} && prm=$REPLY
     fi
+    pv=$stm[$repos[i]:$branches[i]]; [[ -n $pv ]] && prm+=${prm:+ }$pv   # the stack mark
     pulling=
     [[ -n $pull && -e $pull/${paths[i]//\//%} ]] && pulling=1
     _lazyfleet_agent_marks_at $sess[i] ${o_p:+-p}
@@ -49,7 +51,7 @@ _lazyfleet_rows() {
   done
 }
 
-# reply=("path<TAB>repo name<TAB>branch<TAB>session<TAB>GitHub owner/name" ...),
+# reply=("path<TAB>repo name<TAB>branch<TAB>session<TAB>GitHub owner/name<TAB>repo" ...),
 # a line per worktree of each registered repo (or only of repo named $1); the
 # owner/name is empty when pull request marks are off or it is no GitHub repo
 _lazyfleet_rows_gather() {
@@ -67,10 +69,23 @@ _lazyfleet_rows_gather() {
       _lazyfleet_wt_branch $e; br=$REPLY
       _lazyfleet_wt_ismain $e
       _lazyfleet_session $repo $p $REPLY
-      out+=("$p"$'\t'"${repo:t}"$'\t'"$br"$'\t'"$REPLY"$'\t'"$slug")
+      out+=("$p"$'\t'"${repo:t}"$'\t'"$br"$'\t'"$REPLY"$'\t'"$slug"$'\t'"$repo")
     done
   done
   reply=("${(@)out}")
+}
+
+# reply=("repo:branch<TAB>mark" ...): the stack marks (lib/stack.zsh) of the
+# stacked branches of repos $@; -p first for plain marks
+_lazyfleet_rows_stacks() {
+  local plain= r e
+  local -a out
+  [[ $1 == -p ]] && { plain=-p; shift }
+  for r in "$@"; do
+    _lazyfleet_stack_rowmarks $plain $r
+    for e in $reply; do out+=("$r:$e"); done
+  done
+  reply=($out)
 }
 
 # reply=(the git status of each worktree in $@, in order, then each one's
@@ -351,6 +366,7 @@ _lazyfleet_preview_worktree() {
     (( $#reply > 10 )) && print -r -- "   … $(( $#reply - 10 )) more"
   fi
   _lazyfleet_pr_preview $p
+  _lazyfleet_stack_preview $p
   print
   git -C $p --no-optional-locks -c color.status=always status -sb | head -n 30
   print
