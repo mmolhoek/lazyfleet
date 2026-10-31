@@ -25,7 +25,7 @@ _lazyfleet_help() {
                                  stacked branches: show the stack, stack the branch on a parent
                                  (new --on does that for a new one), unstack it, or rebase the
                                  whole stack onto its parents, bottom up (on a terminal a conflict is
-                                 resolved file by file, in $EDITOR)
+                                 resolved in lazygit, or without it file by file in $EDITOR)
   lazyfleet prune [-n] [-y] [--keep-branches] [--no-fetch] [-r repo | --all]
                                  remove worktrees whose branch is merged (-n: only list them)
   lazyfleet windows              open the TUI on all tmux windows (enter switches)

@@ -363,11 +363,13 @@ assert_eq 'resolved: s2 is on s1, with its own two commits' 2 "$(git -C $repo re
 assert_eq 'resolved: s3 on s2, with its own one' 1 "$(git -C $repo rev-list --count s2..s3)"
 for b in s2 s3; do st $b; assert_eq "resolved: $b is up to date" 0 $REPLY; done
 
-# --- on a terminal (-i): file by file. A stand-in for the list of files
+# --- on a terminal (-i), without lazygit (the fallback; lazygit itself is
+# tested below): file by file. A stand-in for the list of files
 # answers from $answers ("edit <file> [editor]", "abort", "later"; an editor
 # given becomes $EDITOR), and keeps what it showed in $offered and $notes.
 # It runs in this shell, so restack does too (output to a file).
 typeset -ga answers offered notes keys
+_lazyfleet_stack_haslazygit() { false }
 _lazyfleet_stack_pickfile() {
   local -a a
   offered+=("${(j:,:)@[4,-1]}") notes+=("$3")
@@ -431,6 +433,69 @@ irestack $W/s1
 assert_eq 'no editor: fails' 1 $rc
 assert_contains 'no editor: and says so' "editor '/no/such/editor' not found" $out
 git -C $W/s2 rebase --abort
+
+# --- with lazygit: it runs in the worktree, and what it leaves decides what
+# comes next. A stand-in that does what $LG_MODE says: resolve (and continue
+# the rebase), stage (resolve, no continue), quit, or abort.
+check 'lazygit: the fallback is used when it is not installed' eval '( unset "commands[lazygit]"; ! _lazyfleet_stack_haslazygit )'
+unfunction _lazyfleet_stack_haslazygit
+source $ROOT/lib/stack.zsh
+_lazyfleet_stack_pickfile() { offered+=(called); reply=(later '') }
+mkdir -p $SANDBOX/lgbin
+cat >$SANDBOX/lgbin/lazygit <<'EOF'
+#!/bin/sh
+pwd >>"$LG_LOG"
+resolve() { git diff --name-only --diff-filter=U | while read -r f; do echo merged >"$f"; git add "$f"; done; }
+case $LG_MODE in
+  resolve) resolve; GIT_EDITOR=true git rebase --continue >/dev/null 2>&1 ;;
+  stage) resolve ;;
+  abort) git rebase --abort ;;
+esac
+EOF
+chmod +x $SANDBOX/lgbin/lazygit
+path=($SANDBOX/lgbin $path); rehash
+export LG_LOG=$SANDBOX/lg.log
+check 'lazygit: found when it is installed' _lazyfleet_stack_haslazygit
+
+both $W/s1 lg-one
+: >$LG_LOG; offered=()
+LG_MODE=resolve irestack $W/s1
+assert_eq 'lazygit: resolving in it works' 0 $rc
+lg=$(<$LG_LOG)
+assert_eq 'lazygit: it ran once, in the worktree of the branch' $W/s2 $lg
+assert_eq 'lazygit: instead of the list' 0 $#offered
+assert_eq 'lazygit: what it resolved was committed' merged "$(git -C $repo show s2:f3)"
+assert_contains 'lazygit: the restack goes on up the stack' 'Restacking s3 onto s2… done' $out
+for b in s2 s3; do st $b; assert_eq "lazygit: $b is up to date" 0 $REPLY; done
+
+both $W/s1 lg-two
+LG_MODE=stage irestack $W/s1
+assert_eq 'lazygit: resolved but not continued works too' 0 $rc
+assert_contains 'lazygit: lazyfleet continues the rebase' 'Continuing the rebase of s2… done' $out
+st s2; assert_eq 'lazygit: and s2 is up to date' 0 $REPLY
+
+both $W/s1 lg-three
+LG_MODE=quit irestack $W/s1
+assert_eq 'lazygit: quitting with conflicts left fails' 1 $rc
+assert_contains 'lazygit: leaves the rebase for later' 'the rebase of s2 is left in' $out
+check 'lazygit: it is still there' _lazyfleet_stack_rebasing $W/s2
+: >$LG_LOG
+LG_MODE=resolve irestack $W/s2
+assert_eq 'lazygit: S on the stopped row opens it again, and finishes' 0 $rc
+lg=$(<$LG_LOG)
+assert_eq 'lazygit: once' $W/s2 $lg
+st s2; assert_eq 'lazygit: s2 is up to date' 0 $REPLY
+
+both $W/s1 lg-four
+s2tip=$(tip s2) s3tip=$(tip s3)
+LG_MODE=abort irestack $W/s1
+assert_eq 'lazygit: aborting in it fails the restack' 1 $rc
+assert_contains 'lazygit: and says so' 'the rebase of s2 was aborted; the branch is as it was' $out
+check 'lazygit: no rebase left' not _lazyfleet_stack_rebasing $W/s2
+assert_eq 'lazygit: s2 is as it was' $s2tip "$(tip s2)"
+assert_eq 'lazygit: and s3 was left alone' $s3tip "$(tip s3)"
+st s2; assert_eq 'lazygit: s2 still needs a restack' 1 $REPLY
+path=(${path:#$SANDBOX/lgbin}); rehash
 unset EDITOR
 unfunction _lazyfleet_stack_pickfile _lazyfleet_readkey
 source $ROOT/lib/stack.zsh; source $ROOT/lib/core.zsh
