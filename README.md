@@ -51,6 +51,7 @@ quits. You need `zsh`, `git`, `tmux` and fzf 0.66 or newer; `lazyfleet doctor` c
 | `⟳ pulling` | a background pull is running (`p`) |
 | `#42 ✓` · `#42 ✗` · `#42 …` | its pull request, with CI passing, failing or running |
 | `#42 draft` · `merged` · `closed` | a pull request in another state |
+| `▲2/3` · `⟲` | second branch of a stack three high · it needs a restack (see [Stacked branches](#stacked-branches)) |
 | `✻` · `✦` · `π` | Claude Code · Copilot CLI · oh my pi running in its session (`✻2` for two) |
 | `✻!` · `✻✓` · `✻…` | an agent that waits for you · has finished · is working |
 
@@ -111,6 +112,37 @@ From the TUI, `o` opens a worktree's pull request in the browser, and `O` opens 
 pull request's branch, and `lazyfleet new --issue 45` one on a branch named after an issue
 (`issue-45-fix-the-login-page`). A pull request from a fork gets a local branch `pr-123`.
 
+## Stacked branches
+
+A big change reviews better as a chain of small branches, each built on the one below it: `fix/parser` on `main`,
+`refactor/ast` on `fix/parser`, `feat/macros` on `refactor/ast`. lazyfleet keeps track of that chain with plain git;
+no other tool is needed.
+
+- **Start one:** `N` on a row (or `lazyfleet new <branch> --on <parent>`) makes a worktree whose branch starts from
+  the row's branch and is stacked on it. `s` stacks an existing branch on another one, or unstacks it
+  (`lazyfleet stack on <parent>` / `off`).
+- **See it:** stacked rows show `▲2/3`, and the Details pane draws the whole stack. `⟲` means the branch's parent
+  has moved on since the branch was based on it (an amended commit, a review fix, a pull of `main`).
+- **Restack:** `S` (or `lazyfleet stack restack`) rebases every branch of the stack onto its parent, from the bottom
+  up, each in its own worktree. A worktree with uncommitted changes stops it before anything is rebased.
+- **Conflicts:** when a rebase stops on a conflict, lazyfleet opens [lazygit](https://github.com/jesseduffield/lazygit)
+  in that worktree, when it is installed: resolve the conflicts there (pick hunks, or `e` for your editor), let it
+  continue the rebase, and quit. lazyfleet then carries on with the rest of the stack. Quit with conflicts left and
+  the rebase waits for you: the row shows the branch and `⟲`, and `S` opens lazygit again. Resolved but not
+  continued, lazyfleet continues it; aborted in lazygit, the restack stops and the branch is as it was.
+- **Without lazygit**, lazyfleet lists the files in conflict itself, each one's conflict in the preview. `e` (or
+  `enter`) opens a file in `$VISUAL` / `$EDITOR`; once you save it without conflict markers it is marked resolved,
+  and the list shows the files still in conflict. When none are left the rebase continues (it may stop again on a
+  later commit). `a` aborts the rebase (it asks), `esc` leaves it for later.
+- **Without a terminal** (a script), `restack` stops instead; resolve and `git add` the files, and `restack`
+  continues the rebase.
+- **Merging:** when the bottom branch is merged and deleted (by `lazyfleet prune`, say), the branch above it shows
+  `⟲` with "parent gone"; restack moves it onto the default branch, keeping only its own commits, so squash merges
+  work too.
+
+lazyfleet only rebases when you ask (`S` or `restack`). The parent is kept in the repo's git config
+(`branch.<name>.lazyfleetParent`), which git renames along with the branch and deletes along with it.
+
 ## Commands
 
 ```sh
@@ -120,13 +152,15 @@ lazyfleet add [path]           register a repo
 lazyfleet forget [repo]        unregister a repo (its files are kept)
 lazyfleet repos                list registered repos
 lazyfleet ls                   list worktrees with their status
-lazyfleet new <branch> [-r repo] [-b base] [--no-open]
+lazyfleet new <branch> [-r repo] [-b base | --on parent] [--no-open]
 lazyfleet new --pr <number> | --issue <number> [-r repo] [-b base] [--no-open]
 lazyfleet open [worktree]      attach to (or, inside tmux, switch to) a worktree's session
 lazyfleet rm [worktree] [-f] [-D]
                                remove a worktree; -f: even if dirty, locked or with agents running,
                                -D: delete its local branch too
 lazyfleet pull [worktree]      fast-forward to its upstream (git pull --ff-only)
+lazyfleet stack [show | on <parent> | off | restack] [worktree]
+                               show a stack, stack a branch on a parent, unstack it, or restack
 lazyfleet prune [-n] [-y] [--keep-branches] [--no-fetch] [-r repo | --all]
                                remove the worktrees whose branch is merged
 lazyfleet config [repo]        edit the settings, or a repo's own config, in $VISUAL / $EDITOR
@@ -154,6 +188,8 @@ A worktree can be named by its path, its branch (`feat/x`), its session (`app/fe
 | `g`         | open lazygit in the worktree (a window named `lazygit`)            |                    |
 | `o`         | open the worktree's pull request in the browser                    |                    |
 | `O`         | open GitHub's page for a new pull request                          |                    |
+| `N`         | new worktree stacked on this row's branch                          |                    |
+| `s` · `S`   | pick the branch this one is stacked on (or none) · restack its stack |                  |
 | `a`         | add repo: pick one found under your project dirs, or type a path   | add repo           |
 | `tab` · `w` | switch between Worktrees and Windows · Windows view                | back to Worktrees  |
 | `c` · `C`   | edit the project config · the global settings                      | global settings    |

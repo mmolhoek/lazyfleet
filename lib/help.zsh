@@ -12,7 +12,7 @@ _lazyfleet_help() {
   lazyfleet forget [repo]        unregister a repo
   lazyfleet repos                list registered repos
   lazyfleet ls                   list worktrees with status
-  lazyfleet new <branch> [-r repo] [-b base] [--no-open]
+  lazyfleet new <branch> [-r repo] [-b base | --on parent] [--no-open]
   lazyfleet new --pr <number> | --issue <number> [-r repo] [-b base] [--no-open]
                                  the same, for a pull request's branch or a branch named after an issue (needs gh)
                                  create a worktree (+ .lazyfleet copy/setup) and open it
@@ -21,6 +21,11 @@ _lazyfleet_help() {
                                  remove a worktree (-f: even if dirty, locked or with agents running,
                                  -D: delete its local branch too)
   lazyfleet pull [worktree]      fast-forward a worktree to its upstream
+  lazyfleet stack [show | on <parent> | off | restack] [worktree]
+                                 stacked branches: show the stack, stack the branch on a parent
+                                 (new --on does that for a new one), unstack it, or rebase the
+                                 whole stack onto its parents, bottom up (on a terminal a conflict is
+                                 resolved in lazygit, or without it file by file in $EDITOR)
   lazyfleet prune [-n] [-y] [--keep-branches] [--no-fetch] [-r repo | --all]
                                  remove worktrees whose branch is merged (-n: only list them)
   lazyfleet windows              open the TUI on all tmux windows (enter switches)

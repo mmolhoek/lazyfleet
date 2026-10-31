@@ -190,22 +190,37 @@ _lazyfleet_new_setup() {
   fi
 }
 
-# lazyfleet new <branch> | --pr <n> | --issue <n> [-r repo] [-b base] [--no-open] [-q (summary only in the session)]
+# Check the arguments of new: $1 the branch (or empty), then how many of
+# --pr, --issue, -b and --on came (0 or 2 each, as zparseopts counts)
+_lazyfleet_new_args() {
+  local usage='usage: lazyfleet new <branch> | --pr <number> | --issue <number>  [-r repo] [-b base | --on parent] [--no-open]'
+  (( $2 + $3 > 2 )) && { _lazyfleet_err "give --pr or --issue, not both"; return 1 }
+  (( $4 + $5 > 2 )) && { _lazyfleet_err "give -b or --on, not both"; return 1 }
+  if (( $2 + $3 )); then
+    [[ -z $1 ]] || { _lazyfleet_err "give a branch, or --pr / --issue, not both"; return 1 }
+  elif [[ -z $1 ]]; then
+    _lazyfleet_err $usage; return 1
+  fi
+  return 0
+}
+
+# Succeed when repo $1 has a local branch $2 to stack a new one on
+_lazyfleet_new_on() {
+  _lazyfleet_stack_isbranch $1 $2 || { _lazyfleet_err "no local branch $2 to stack on"; return 1 }
+}
+
+# lazyfleet new <branch> | --pr <n> | --issue <n> [-r repo] [-b base | --on parent] [--no-open] [-q (summary only in the session)]
+# --on stacks the branch on a local branch (lib/stack.zsh), which is its base
 _lazyfleet_new() {
-  local -a o_r o_b o_n o_q o_pr o_is
-  zparseopts -D -E -F r:=o_r b:=o_b -no-open=o_n q=o_q -pr:=o_pr -issue:=o_is || return 1
+  local -a o_r o_b o_n o_q o_pr o_is o_on
+  zparseopts -D -E -F r:=o_r b:=o_b -no-open=o_n q=o_q -pr:=o_pr -issue:=o_is -on:=o_on || return 1
   local _lazyfleet_quiet=${o_q:+1}
   local br=$1 repo p src=
   # zparseopts leaves the = of --pr=7 on the value
   (( $#o_pr )) && o_pr[2]=${o_pr[2]#=}
   (( $#o_is )) && o_is[2]=${o_is[2]#=}
-  local usage='usage: lazyfleet new <branch> | --pr <number> | --issue <number>  [-r repo] [-b base] [--no-open]'
-  (( $#o_pr + $#o_is > 2 )) && { _lazyfleet_err "give --pr or --issue, not both"; return 1 }
-  if (( $#o_pr + $#o_is )); then
-    [[ -z $br ]] || { _lazyfleet_err "give a branch, or --pr / --issue, not both"; return 1 }
-  elif [[ -z $br ]]; then
-    _lazyfleet_err $usage; return 1
-  fi
+  (( $#o_on )) && o_on[2]=${o_on[2]#=}
+  _lazyfleet_new_args "$br" $#o_pr $#o_is $#o_b $#o_on || return 1
   if (( $#o_r )); then
     _lazyfleet_find_repo $o_r[2] || _lazyfleet_toplevel $o_r[2] || { _lazyfleet_err "unknown repo: $o_r[2]"; return 1 }
   else
@@ -219,6 +234,8 @@ _lazyfleet_new() {
     _lazyfleet_new_from_issue $repo $o_is[2] || return 1
     br=$REPLY src="issue #$o_is[2]"
   fi
+  # a stacked branch starts from its parent
+  (( $#o_on )) && { _lazyfleet_new_on $repo $o_on[2] || return 1; o_b=(-b $o_on[2]) }
   # unregistered (e.g. a name clash) means no worktree: it'd share that name's
   # sessions and dir, and be missing from the lists
   _lazyfleet_add $repo >/dev/null || return 1
@@ -227,6 +244,7 @@ _lazyfleet_new() {
   [[ -e $p ]] && { _lazyfleet_err "already exists: $p"; return 1 }
   # what we did goes to stderr (stdout is the path, for scripts and the TUI)
   _lazyfleet_new_checkout $repo $br $p "${o_b[2]}" $src || return 1
+  (( $#o_on )) && { _lazyfleet_stack_link $repo $br $o_on[2] && _lazyfleet_say "  stack   on $o_on[2]" || return 1 }
   _lazyfleet_new_copy $repo $p || return 1
   _lazyfleet_new_setup $repo $p || return 1
   print -r -- $p

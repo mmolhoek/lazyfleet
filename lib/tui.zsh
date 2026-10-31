@@ -2,10 +2,11 @@
 # Loaded by lazyfleet.zsh, in that order; not meant to be sourced on its own.
 
 # keys that type into the find input instead while it's shown
-typeset -g _LAZYFLEET_LETTERS='j,k,n,d,p,e,g,o,O,r,a,w,c,C,R,q,/'
+typeset -g _LAZYFLEET_LETTERS='j,k,n,N,d,p,e,g,o,O,s,S,r,a,w,c,C,R,q,/'
 typeset -g _LAZYFLEET_FOOTER_WT=$'↵ open  (n)ew worktree  (a)dd project
 (d)elete  (p)ull  (e)ditor  (g) lazygit
 (o)pen PR  (O) new PR
+(N)ew on this  (s)tack on  (S) restack
 (w)indows  ⇥ windows  / find
 (c) project config  (C) global settings
 (r)eload  (q)uit'
@@ -74,7 +75,7 @@ _lazyfleet_ui_binds() {
   # Query changes emitted by a transform are ignored by fzf, so the
   # view-switching keys reset the input with directly chained actions.
   local reset="+clear-query+hide-input+rebind($_LAZYFLEET_LETTERS)"
-  for k in / n d p e g o O r a c C R q; do reply+=(--bind "${k}:transform:$bin _key {1} {2}"); done
+  for k in / n N d p e g o O s S r a c C R q; do reply+=(--bind "${k}:transform:$bin _key {1} {2}"); done
   for k in enter tab esc w; do reply+=(--bind "${k}:transform($bin _key {1} {2})$reset"); done
   reply+=(--bind "load:transform:$bin _loaded")
 }
@@ -111,8 +112,8 @@ _lazyfleet_ui_act() {
   local what=$lines[1] it=$lines[2] view= sel=$lines[2]
   case $what in
     (open) _lazyfleet_open_path $it || _lazyfleet_pause ;;
-    (new)
-      _lazyfleet_ui_new $it || { reply=('' ''); return 2 }
+    (new|newon)
+      _lazyfleet_ui_$what $it || { reply=('' ''); return 2 }
       sel=$REPLY
       _lazyfleet_open_path $sel ;;
     (edit|lazygit) _lazyfleet_handoff $what $it || _lazyfleet_pause ;;
@@ -233,6 +234,10 @@ _lazyfleet_key_row() {
     (o) print -r -- "execute($bin _ui_openpr {2})" ;;
     # GitHub's page for a new pull request of the worktree's branch
     (O) print -r -- "execute($bin _ui_newpr {2})" ;;
+    # stacks (lib/stack.zsh): a new worktree on this one, its parent, restack
+    (N) print -r -- "become(printf '%s\\n' newon {2})" ;;
+    (s) print -r -- "execute($bin _ui_stackon {2})+$rl" ;;
+    (S) print -r -- "execute($bin _ui_restack {2})+$rl" ;;
     (p)
       # in the background when fzf listens: the row shows ⟳ until it's done
       if [[ -n $FZF_SOCK ]]; then print -r -- "execute-silent($bin _ui_pull {2})+$rl"
@@ -372,6 +377,31 @@ _lazyfleet_ui_new() {
   br=$REPLY
   REPLY=$(_lazyfleet_new -q --no-open -r $repo $br) || { _lazyfleet_pause; return 1 }
 }
+
+# Prompt for a branch and create its worktree, stacked on the branch of
+# worktree $1; REPLY=its path
+_lazyfleet_ui_newon() {
+  local repo par
+  _lazyfleet_stack_here $1 || { _lazyfleet_pause; return 1 }
+  repo=$reply[1] par=$reply[2]
+  _lazyfleet_branches $repo | _lazyfleet_pick "New worktree stacked on $par" 'branch> ' || return 1
+  REPLY=$(_lazyfleet_new -q --no-open -r $repo --on $par $REPLY) || { _lazyfleet_pause; return 1 }
+}
+
+# Pick what the branch of worktree $1 is stacked on: one of the repo's
+# other local branches, or "(not stacked)"
+_lazyfleet_ui_stackon() {
+  local repo br none='(not stacked)'
+  local -a heads
+  _lazyfleet_stack_here $1 || { _lazyfleet_pause; return 1 }
+  repo=$reply[1] br=$reply[2]
+  heads=(${${(f)"$(git -C $repo for-each-ref --sort=-committerdate --format='%(refname)' refs/heads)"}#refs/heads/})
+  print -rl -- $none ${heads:#$br} | _lazyfleet_pick "Stack $br on" 'parent> ' || return 0
+  if [[ $REPLY == $none ]]; then _lazyfleet_stack_unlink $repo $br || _lazyfleet_pause
+  else _lazyfleet_stack_link $repo $br $REPLY || _lazyfleet_pause; fi
+}
+
+_lazyfleet_ui_restack() { _lazyfleet_stack_restack -i $1 || _lazyfleet_pause }
 
 _lazyfleet_ui_add() {
   _lazyfleet_findrepos | _lazyfleet_pick 'Add repo' 'repo> ' || return 0
