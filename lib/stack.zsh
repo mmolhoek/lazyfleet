@@ -564,6 +564,82 @@ _lazyfleet_stack_restack() {
   done
 }
 
+# --- what a branch changes ------------------------------------------------------
+
+# REPLY=what branch $2 of repo $1 is compared with, to see its own changes:
+# its parent when it is stacked (and the parent is there), else the default
+# branch (origin's copy when there is one). Fails for the default branch.
+_lazyfleet_diffbase() {
+  local repo=$1 br=$2 par trunk
+  par=$(git -C $repo config --get branch.$br.lazyfleetParent 2>/dev/null)
+  if [[ -n $par ]] && _lazyfleet_stack_isbranch $repo $par; then REPLY=$par; return 0; fi
+  _lazyfleet_stack_trunk $repo || return 1
+  trunk=$REPLY
+  [[ $br != "$trunk" ]] || return 1
+  if git -C $repo show-ref -q --verify refs/remotes/origin/$trunk; then REPLY=origin/$trunk; else REPLY=$trunk; fi
+}
+
+# reply=(worktree $1, the branch's base: _lazyfleet_diffbase); says why not
+_lazyfleet_diff_target() {
+  local p repo br
+  _lazyfleet_worktree_arg "$1" 'not in a worktree; name one' || return 1
+  p=$REPLY
+  _lazyfleet_toplevel $p || { _lazyfleet_err "not a git worktree: $p"; return 1 }
+  repo=$REPLY
+  _lazyfleet_stack_branch $p || { _lazyfleet_err "${p/#$HOME/~} is not on a branch"; return 1 }
+  br=$REPLY
+  _lazyfleet_diffbase $repo $br ||
+    { _lazyfleet_err "$br is the default branch: there is nothing to compare it with"; return 1 }
+  reply=($p $REPLY)
+}
+
+# The Details pane's commits of worktree $1: only the branch's own, since its
+# base, and the files they change; fails when the branch has no base (the
+# default branch), for the caller's plain log. Commits only (base...HEAD):
+# a diff with the working tree can rewrite the index, which the preview, run
+# all the time, must never do (git status above it shows what is uncommitted).
+_lazyfleet_diff_preview() {
+  local p=$1 repo br base n
+  _lazyfleet_toplevel $p || return 1; repo=$REPLY
+  _lazyfleet_stack_branch $p || return 1; br=$REPLY
+  _lazyfleet_diffbase $repo $br || return 1; base=$REPLY
+  n=$(git -C $p rev-list --count $base..HEAD 2>/dev/null) || return 1
+  (( n == 1 )) && n='1 commit' || n="$n commits"
+  print -r -- $'\e[1m'"$n since $base"$'\e[0m  \e[2m(D shows the diff)\e[0m'
+  git -C $p log --oneline --color=always -n 15 $base..HEAD
+  git -C $p --no-optional-locks diff --color=always --stat=72 --stat-count=12 $base...HEAD 2>/dev/null
+  return 0
+}
+
+# lazyfleet diff [worktree]: what the worktree's branch changes, committed or
+# not: against its parent when it is stacked, else the default branch
+_lazyfleet_diff() {
+  _lazyfleet_diff_target "$1" || return 1
+  git -C $reply[1] --no-optional-locks diff --merge-base $reply[2]
+}
+
+# REPLY=$LESS (git's FRX when unset) without -F / --quit-if-one-screen, so
+# that less waits for q even when what it shows fits one screen
+_lazyfleet_less_waits() { REPLY=${${${LESS-FRX}//--quit-if-one-screen/}//F/} }
+
+# D in the TUI: the same in git's pager (delta, say), on the terminal. A diff
+# that fits one screen would make less quit at once (its -F, which git sets
+# by default): it is left out here, and a pager that does not wait (cat) gets
+# a key to press.
+_lazyfleet_ui_diff() {
+  local p base pager
+  _lazyfleet_diff_target "$1" || { _lazyfleet_pause; return 1 }
+  p=$reply[1] base=$reply[2]
+  if [[ -z $(git -C $p --no-optional-locks diff --merge-base $base --stat 2>/dev/null) ]]; then
+    print -r -- "No changes since $base."; _lazyfleet_pause; return 0
+  fi
+  pager=$(git -C $p var GIT_PAGER 2>/dev/null)
+  _lazyfleet_less_waits
+  LESS=$REPLY _lazyfleet_stack_onterm git -C $p --no-optional-locks --paginate diff --merge-base $base
+  [[ $pager == (|cat) ]] && _lazyfleet_pause
+  return 0
+}
+
 # --- the bases of pull requests --------------------------------------------------
 
 # _lazyfleet_stack_misbased want... -- pr...

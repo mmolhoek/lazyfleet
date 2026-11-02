@@ -512,6 +512,65 @@ git -C $other symbolic-ref refs/remotes/origin/HEAD refs/remotes/origin/dev
 _lazyfleet_stack_trunk $other; assert_eq 'trunk: origin/HEAD'"'"'s first' dev $REPLY
 
 # ============================================================================
+# what a branch changes: the Details pane, D and lazyfleet diff
+# ============================================================================
+
+_lazyfleet_new --no-open -q -r $repo d1 >/dev/null 2>&1; commit $W/d1 d1.txt "from d1"
+_lazyfleet_new --no-open -q -r $repo --on d1 d2 >/dev/null 2>&1; commit $W/d2 d2.txt "from d2"
+
+# --- what it is compared with
+_lazyfleet_diffbase $repo d2; assert_eq 'base: a stacked branch, its parent' d1 $REPLY
+_lazyfleet_diffbase $repo d1; assert_eq 'base: one outside a stack, the default branch' main $REPLY
+check 'base: the default branch has none' not _lazyfleet_diffbase $repo main
+git -C $repo branch d3 d1; git -C $repo config branch.d3.lazyfleetParent gone-branch
+_lazyfleet_diffbase $repo d3; assert_eq 'base: a parent that is gone, the default branch' main $REPLY
+git -C $repo update-ref refs/remotes/origin/main main
+_lazyfleet_diffbase $repo d1; assert_eq 'base: origin'"'"'s copy of the default branch, when there is one' origin/main $REPLY
+git -C $repo update-ref -d refs/remotes/origin/main
+git -C $repo branch -q -D d3
+
+# --- the Details pane: only the branch's own commits and files
+plain "$(_lazyfleet_diff_preview $W/d2)"
+assert_contains 'preview: says since what' '1 commit since d1' $REPLY
+assert_contains 'preview: with the branch'"'"'s own commit' 'd2.txt: from d2' $REPLY
+check 'preview: not its parent'"'"'s' eval '[[ $REPLY != *"d1.txt: from d1"* ]]'
+assert_contains 'preview: the files it changes' 'd2.txt' $REPLY
+check 'preview: none of the parent'"'"'s' eval '[[ $REPLY != *" d1.txt "* ]]'
+assert_contains 'preview: and points at D' '(D shows the diff)' $REPLY
+check 'preview: the default branch has none (the plain log instead)' not _lazyfleet_diff_preview $repo
+plain "$(_lazyfleet_preview_worktree $W/d2)"
+assert_contains 'preview: part of the worktree preview' '1 commit since d1' $REPLY
+
+# --- lazyfleet diff
+print uncommitted >>$W/d2/d2.txt
+out=$(_lazyfleet_diff $W/d2); rc=$?
+assert_eq 'diff: works' 0 $rc
+assert_contains 'diff: the branch'"'"'s own change' '+from d2' $out
+assert_contains 'diff: uncommitted changes too' '+uncommitted' $out
+check 'diff: not the parent'"'"'s' eval '[[ $out != *"from d1"* ]]'
+out=$(_lazyfleet_diff $repo 2>&1); rc=$?
+assert_eq 'diff: the default branch fails' 1 $rc
+assert_contains 'diff: and says why' 'main is the default branch: there is nothing to compare it with' $out
+git -C $W/d2 checkout -q -- d2.txt
+
+# --- D: in the pager; a pager that does not wait gets a key to press
+paused=0
+_lazyfleet_pause() { (( paused++ )) }
+out=$(GIT_PAGER=cat _lazyfleet_ui_diff $W/d2; print "paused=$paused"); rc=$?
+assert_contains 'D: shows the diff' '+from d2' $out
+assert_contains 'D: and waits after a pager that does not' 'paused=1' $out
+git -C $repo branch d4 d2; git -C $repo config branch.d4.lazyfleetParent d2
+git -C $repo worktree add -q $W/d4 d4
+out=$(_lazyfleet_ui_diff $W/d4; print "paused=$paused")
+assert_contains 'D: nothing to show says so' 'No changes since d2.' $out
+assert_contains 'D: and waits' 'paused=1' $out
+unfunction _lazyfleet_pause; source $ROOT/lib/core.zsh
+LESS=FRX _lazyfleet_less_waits; assert_eq 'less: git'"'"'s FRX loses its F' RX $REPLY
+( unset LESS; _lazyfleet_less_waits; print -r -- $REPLY ) | read -r r; assert_eq 'less: unset is git'"'"'s FRX, without F' RX $r
+LESS='-R --quit-if-one-screen' _lazyfleet_less_waits; assert_eq 'less: the long option goes too' '-R ' $REPLY
+LESS=-iR _lazyfleet_less_waits; assert_eq 'less: other options stay' -iR $REPLY
+
+# ============================================================================
 # a restack that loses a branch's work
 # ============================================================================
 
@@ -728,7 +787,10 @@ for key in s S P; do
 done
 check 's, S, r and P are typed into the filter, not run, while it is shown' \
   eval '[[ $_LAZYFLEET_LETTERS == *,S,* && $_LAZYFLEET_LETTERS == *,s,* && $_LAZYFLEET_LETTERS == *,r,* && $_LAZYFLEET_LETTERS == *,P,* ]]'
-check 'the footer names them' eval '[[ $_LAZYFLEET_FOOTER_WT == *"(s) new stacked on this"* && $_LAZYFLEET_FOOTER_WT == *"(S)tack on…"* && $_LAZYFLEET_FOOTER_WT == *"(r)estack"* && $_LAZYFLEET_FOOTER_WT == *"(P)ush"* ]]'
+check 'the footer names them' eval '[[ $_LAZYFLEET_FOOTER_WT == *"(s) new stacked on this"* && $_LAZYFLEET_FOOTER_WT == *"(S)tack on…"* && $_LAZYFLEET_FOOTER_WT == *"(r)estack"* && $_LAZYFLEET_FOOTER_WT == *"(P)ush"* && $_LAZYFLEET_FOOTER_WT == *"(D)iff"* ]]'
+check 'D shows the diff' eval 'k D | gq "^execute(.* _ui_diff {2})$"'
+check 'D does nothing in the windows view' test -z "$(FZF_LIST_LABEL=' Windows ' FZF_KEY=D _lazyfleet_key t '=a/b:1')"
+check 'help names lazyfleet diff' eval '_lazyfleet_help | gq "lazyfleet diff \[worktree\]"'
 check 'and reload under R' eval '[[ $_LAZYFLEET_FOOTER_WT == *"(R)eload"* && $_LAZYFLEET_FOOTER_WT != *"(r)eload"* ]]'
 check 'the windows footer keeps (r)eload' eval '[[ $_LAZYFLEET_FOOTER_WIN == *"(r)eload"* ]]'
 check 'the windows footer does not' eval '[[ $_LAZYFLEET_FOOTER_WIN != *restack* ]]'

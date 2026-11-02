@@ -2,10 +2,10 @@
 # Loaded by lazyfleet.zsh, in that order; not meant to be sourced on its own.
 
 # keys that type into the find input instead while it's shown
-typeset -g _LAZYFLEET_LETTERS='j,k,n,d,p,P,e,g,o,O,s,S,r,a,w,c,C,R,q,/,?'
+typeset -g _LAZYFLEET_LETTERS='j,k,n,d,D,p,P,e,g,o,O,s,S,r,a,w,c,C,R,q,/,?'
 typeset -g _LAZYFLEET_FOOTER_WT=$'↵ open  (n)ew worktree  (a)dd project
 (d)elete  (p)ull  (P)ush  (e)ditor  (g) lazygit
-(o)pen PR  (O) new PR
+(o)pen PR  (O) new PR  (D)iff
 (s) new stacked on this  (S)tack on…  (r)estack
 (w)indows  ⇥ windows  / find
 (c) project config  (C) global settings
@@ -76,7 +76,7 @@ _lazyfleet_ui_binds() {
   # Query changes emitted by a transform are ignored by fzf, so the
   # view-switching keys reset the input with directly chained actions.
   local reset="+clear-query+hide-input+rebind($_LAZYFLEET_LETTERS)"
-  for k in / n d p P e g o O s S r a c C R q '?'; do reply+=(--bind "${k}:transform:$bin _key {1} {2}"); done
+  for k in / n d D p P e g o O s S r a c C R q '?'; do reply+=(--bind "${k}:transform:$bin _key {1} {2}"); done
   for k in enter tab esc w; do reply+=(--bind "${k}:transform($bin _key {1} {2})$reset"); done
   reply+=(--bind "load:transform:$bin _loaded")
 }
@@ -241,6 +241,8 @@ _lazyfleet_key_row() {
     (o) print -r -- "execute($bin _ui_openpr {2})" ;;
     # GitHub's page for a new pull request of the worktree's branch
     (O) print -r -- "execute($bin _ui_newpr {2})" ;;
+    # the branch's own changes, against its parent (stacked) or the default branch
+    (D) print -r -- "execute($bin _ui_diff {2})" ;;
     # stacks (lib/stack.zsh): a new worktree on this one, its parent, restack
     (s) print -r -- "become(printf '%s\\n' newon {2})" ;;
     (S) print -r -- "execute($bin _ui_stackon {2})+$rl" ;;
