@@ -23,6 +23,8 @@ _lazyfleet_help() {
   lazyfleet pull [worktree]      fast-forward a worktree to its upstream
   lazyfleet push [worktree] [-f] push its branch to origin, with the rest of its stack
                                  (-f: force with lease, after a restack)
+  lazyfleet diff [worktree]      what its branch changes: against the branch below it when stacked,
+                                 else the default branch (uncommitted changes too)
   lazyfleet stack [show | on <parent> | off | restack] [worktree]
                                  stacked branches: show the stack, stack the branch on a parent
                                  (new --on does that for a new one), unstack it, or rebase the

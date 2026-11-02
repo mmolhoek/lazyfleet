@@ -10,6 +10,7 @@ local -a cmds=(
   'rm:remove a worktree'
   'pull:fast-forward a worktree to its upstream'
   'push:push a branch, or its whole stack, to origin'
+  'diff:what a branch changes (against its parent when stacked)'
   'stack:show, change or restack a stack of branches'
   'prune:remove worktrees whose branch is merged'
   'windows:switch between tmux windows'
@@ -27,7 +28,7 @@ if (( CURRENT == 2 )); then
   return
 fi
 case $words[2] in
-  (open|rm|pull) compadd -- ${(f)"$(lazyfleet _names)"} ;;
+  (open|rm|pull|diff) compadd -- ${(f)"$(lazyfleet _names)"} ;;
   (push) _arguments '-f[force with lease]' '--force[force with lease]' '1:worktree:(${(f)"$(lazyfleet _names)"})' ;;
   (forget|config) compadd -- ${${(f)"$(lazyfleet repos)"}:t} ;;
   (add) _directories ;;

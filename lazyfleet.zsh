@@ -47,7 +47,7 @@ _lazyfleet_main() {
   (( $# )) && shift
   case $cmd in
     ('') _lazyfleet_ui_checked ;;
-    (add|forget|new|open|rm|pull|push|prune|ls|config|update|status|hooks|doctor|stack|keys) _lazyfleet_$cmd "$@" ;;
+    (add|forget|new|open|rm|pull|push|diff|prune|ls|config|update|status|hooks|doctor|stack|keys) _lazyfleet_$cmd "$@" ;;
     (windows) _lazyfleet_ui_checked -w ;;
     (repos) _lazyfleet_repos; print -rl -- $reply ;;
     (help|-h|--help) _lazyfleet_help ;;

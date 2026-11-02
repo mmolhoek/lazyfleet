@@ -370,5 +370,6 @@ _lazyfleet_preview_worktree() {
   print
   git -C $p --no-optional-locks -c color.status=always status -sb | head -n 30
   print
-  git -C $p log --oneline --color=always -n 15
+  # a branch's own commits (since its parent or the default branch), else all
+  _lazyfleet_diff_preview $p || git -C $p log --oneline --color=always -n 15
 }

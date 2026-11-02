@@ -56,7 +56,8 @@ quits. You need `zsh`, `git`, `tmux` and fzf 0.66 or newer; `lazyfleet doctor` c
 | `✻!` · `✻✓` · `✻…` | an agent that waits for you · has finished · is working |
 
 The Details pane on the right shows the session's windows, the containers, the pull request with its title and
-checks, `git status` and the latest commits.
+checks, the stack, `git status`, and the branch's own commits with the files they change: since the branch below it
+when it is stacked, else since the default branch. `D` shows that diff in full, in git's pager.
 
 ## The Windows view
 
@@ -174,6 +175,7 @@ lazyfleet rm [worktree] [-f] [-D]
                                -D: delete its local branch too
 lazyfleet pull [worktree]      fast-forward to its upstream (git pull --ff-only)
 lazyfleet push [worktree] [-f] push its branch, with the rest of its stack (-f: force with lease)
+lazyfleet diff [worktree]      what its branch changes: against its parent when stacked, else the default branch
 lazyfleet stack [show | on <parent> | off | restack] [worktree]
                                show a stack, stack a branch on a parent, unstack it, or restack
 lazyfleet prune [-n] [-y] [--keep-branches] [--no-fetch] [-r repo | --all]
@@ -206,6 +208,7 @@ same in your terminal.
 | `g`         | open lazygit in the worktree (a window named `lazygit`)            |                    |
 | `o`         | open the worktree's pull request in the browser                    |                    |
 | `O`         | open GitHub's page for a new pull request (onto its parent when stacked) |              |
+| `D`         | the branch's own changes in git's pager: against its parent when stacked, else the default branch |  |
 | `s`         | new worktree stacked on this row's branch                          |                    |
 | `S` · `r`   | pick the branch this one is stacked on (or none) · restack its stack |                    |
 | `P`         | push the branch, with the rest of its stack; refused, asks to force with lease |          |
