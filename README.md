@@ -124,7 +124,10 @@ no other tool is needed.
 - **See it:** stacked rows show `▲2/3`, and the Details pane draws the whole stack. `⟲` means the branch's parent
   has moved on since the branch was based on it (an amended commit, a review fix, a pull of `main`).
 - **Restack:** `r` (or `lazyfleet stack restack`) rebases every branch of the stack onto its parent, from the bottom
-  up, each in its own worktree. A worktree with uncommitted changes stops it before anything is rebased.
+  up, each in its own worktree. A worktree with uncommitted changes stops it before anything is rebased. When a
+  branch comes out of it with none of its own commits left, it stops there and says how to undo it: that nearly
+  always means a conflict was resolved to the parent's side only, which drops the branch's change (in lazygit,
+  `space` picks one hunk; `b` keeps both). Restacking again goes on, for when it was meant.
 - **Conflicts:** when a rebase stops on a conflict, lazyfleet opens [lazygit](https://github.com/jesseduffield/lazygit)
   in that worktree, when it is installed: resolve the conflicts there (pick hunks, or `e` for your editor), let it
   continue the rebase, and quit. lazyfleet then carries on with the rest of the stack. Quit with conflicts left and

@@ -512,6 +512,53 @@ git -C $other symbolic-ref refs/remotes/origin/HEAD refs/remotes/origin/dev
 _lazyfleet_stack_trunk $other; assert_eq 'trunk: origin/HEAD'"'"'s first' dev $REPLY
 
 # ============================================================================
+# a restack that loses a branch's work
+# ============================================================================
+
+# the case met in use: each branch adds a section at the end of one file;
+# then the bottom one adds a line at its end. Restacking the middle one
+# conflicts, and resolving it to the parent's side only drops its change.
+lost() { git -C $repo rev-list --count refs/heads/$2..refs/heads/$1 }
+_lazyfleet_new --no-open -q -r $repo l1 >/dev/null 2>&1; commit $W/l1 doc.md "first"
+_lazyfleet_new --no-open -q -r $repo --on l1 l2 >/dev/null 2>&1; print second >>$W/l2/doc.md; git -C $W/l2 commit -q -am second
+_lazyfleet_new --no-open -q -r $repo --on l2 l3 >/dev/null 2>&1; print third >>$W/l3/doc.md; git -C $W/l3 commit -q -am third
+_lazyfleet_new --no-open -q -r $repo --on l3 l4 >/dev/null 2>&1
+print another >>$W/l1/doc.md; git -C $W/l1 commit -q -am another
+l2was=$(tip l2) l3was=$(tip l3)
+_lazyfleet_stack restack $W/l1 >/dev/null 2>&1
+check 'lost: the middle branch conflicts' _lazyfleet_stack_rebasing $W/l2
+git -C $W/l2 checkout -q --ours doc.md && git -C $W/l2 add doc.md
+out=$(_lazyfleet_stack restack $W/l1 2>&1); rc=$?
+assert_eq 'lost: the restack stops' 1 $rc
+assert_contains 'lost: and says the branch lost its work' 'l2 has no commits of its own any more (it had 1): their changes are gone.' $out
+assert_contains 'lost: says the likely cause' 'b picks both' $out
+assert_contains 'lost: and how to undo it' "reset --hard 'l2@{1}', then restack again" $out
+assert_eq 'lost: l2 really is empty now' 0 "$(lost l2 l1)"
+assert_eq 'lost: the branch above was not touched' $l3was "$(tip l3)"
+check 'lost: so it is not stopped on a conflict either' not _lazyfleet_stack_rebasing $W/l3
+# the undo it suggests, then the resolution that keeps both
+git -C $W/l2 reset -q --hard 'l2@{1}'
+assert_eq 'undo: l2 is back as it was' $l2was "$(tip l2)"
+_lazyfleet_stack restack $W/l1 >/dev/null 2>&1
+print -l first another second >$W/l2/doc.md && git -C $W/l2 add doc.md
+out=$(_lazyfleet_stack restack $W/l1 2>&1); rc=$?
+assert_eq 'undo: restacking with both sides kept works' 0 $rc
+assert_contains 'undo: and the branch above goes on top without a conflict' 'Restacking l3 onto l2… done' $out
+assert_eq 'undo: l2 kept its commit' 1 "$(lost l2 l1)"
+assert_eq 'undo: l3 kept its own' 1 "$(lost l3 l2)"
+check 'undo: an empty branch above (no commits yet) is no loss' eval '[[ $out != *"l4 has no commits"* ]]'
+
+# when it was meant: the branch's change is in its parent already
+commit $W/l3 meant.txt in-l3
+git -C $W/l2 cherry-pick -x l2..l3 >/dev/null  # (-x: copies, not the same commits)
+out=$(_lazyfleet_stack restack $W/l2 2>&1); rc=$?
+assert_eq 'meant: a branch whose change is in its parent already stops once' 1 $rc
+assert_contains 'meant: and says how to go on' 'If they were meant to go (they are in l2 already), restack again to go on.' $out
+out=$(_lazyfleet_stack restack $W/l2 2>&1); rc=$?
+assert_eq 'meant: restacking again goes on' 0 $rc
+st l3; assert_eq 'meant: l3 is up to date' 0 $REPLY
+
+# ============================================================================
 # push
 # ============================================================================
 

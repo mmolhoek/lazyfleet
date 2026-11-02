@@ -20,7 +20,7 @@ typeset -ga _LAZYFLEET_KEYS=(
   $'w\to\topen the pull request\tOpens the pull request of the worktree\'s branch in the browser (needs gh and a GitHub origin).'
   $'w\tO\tnew pull request\tOpens GitHub\'s page for a new pull request of the branch; nothing is created until you submit it there. For a stacked branch the pull request goes onto its parent, so it shows only its own commits.'
   $'w\ts\tstack on…\tPick the branch this one is stacked on, or (not stacked) to take it out of its stack. Only the link is recorded: r does the rebasing.'
-  $'w\tr\trestack\tRebases every branch of this row\'s stack onto its parent, bottom up, each in its own worktree, so each one has the latest of the branch below it. A conflict opens lazygit in that worktree (or, without lazygit, a list of the files to resolve in your editor). Nothing is rebased while a worktree has uncommitted changes.'
+  $'w\tr\trestack\tRebases every branch of this row\'s stack onto its parent, bottom up, each in its own worktree, so each one has the latest of the branch below it. A conflict opens lazygit in that worktree (or, without lazygit, a list of the files to resolve in your editor). Nothing is rebased while a worktree has uncommitted changes. It stops when a branch is left with none of its own commits (a conflict resolved to the parent\'s side only drops them; in lazygit, b keeps both sides) and says how to undo that.'
   $'w\ta\tadd a project\tPick a git repo found under your project directories (the search= setting), or type a path, and register it: its worktrees show up in the list.'
   $'w\tw\twindows\tShows every tmux window instead of the worktrees.'
   $'w\t⇥\twindows\tTab switches between the Worktrees and the Windows view.'
