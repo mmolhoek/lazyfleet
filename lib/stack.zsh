@@ -252,10 +252,15 @@ _lazyfleet_stack_wt() {
 # already on its parent's tip only has rev brought up to date. With -i, a
 # conflict is resolved here, file by file (_lazyfleet_stack_finish).
 _lazyfleet_stack_restack_one() {
-  local repo=$1 br=$2 par=$3 rev=$4 i=$5 wt= tip
+  local repo=$1 br=$2 par=$3 rev=$4 i=$5 wt= tip own
   _lazyfleet_stack_onto $repo $br $par || return 1
   par=$REPLY
   _lazyfleet_stack_wt $repo $br 2>/dev/null && wt=$REPLY
+  # its own commits, the ones a rebase replays (after the base it was last on,
+  # not the parent's tip, which may be restacked already); the branch ref only
+  # moves once a rebase is done, so this counts what it had
+  _lazyfleet_stack_upstream $repo $br $par "$rev"
+  own=$(git -C $repo rev-list --count $REPLY..refs/heads/$br)
   if [[ -n $wt ]] && _lazyfleet_stack_rebasing $wt; then
     tip=$(git -C $repo rev-parse refs/heads/$br)
     _lazyfleet_stack_finish $br $wt "$i" && _lazyfleet_stack_landed $repo $br $tip || return 1
@@ -263,7 +268,25 @@ _lazyfleet_stack_restack_one() {
     _lazyfleet_stack_rebase $repo $br $par "$rev" "$wt" "$i" || return 1
   fi
   # (rev becomes where the two meet: the parent's tip, unless it moved on meanwhile)
-  _lazyfleet_stack_link $repo $br $par
+  _lazyfleet_stack_link $repo $br $par || return 1
+  _lazyfleet_stack_kept $repo $br $par $own "$wt"
+}
+
+# _lazyfleet_stack_kept repo branch parent own worktree
+# Fail, saying what to do, when the branch had commits of its own (own: how
+# many) before it was restacked and has none now. Their changes are gone:
+# nearly always a conflict resolved to the parent's side only. Restacking the
+# branches above it now would only bring the loss up to them as conflicts,
+# so the restack stops here; a restack again goes on (when it was meant).
+_lazyfleet_stack_kept() {
+  local repo=$1 br=$2 par=$3 own=$4 wt=$5
+  (( own )) || return 0
+  (( $(git -C $repo rev-list --count refs/heads/$par..refs/heads/$br) )) && return 0
+  print -ru2 -- "lazyfleet: $br has no commits of its own any more (it had $own): their changes are gone."
+  print -ru2 -- "  Most likely a conflict was resolved to one side only (in lazygit, space picks one hunk; b picks both)."
+  print -ru2 -- "  To undo it: git -C ${${wt:-$repo}/#$HOME/~} reset --hard '$br@{1}', then restack again."
+  print -ru2 -- "  If they were meant to go (they are in $par already), restack again to go on."
+  return 1
 }
 
 # _lazyfleet_stack_landed repo branch tip
