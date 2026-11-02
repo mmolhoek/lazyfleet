@@ -764,6 +764,42 @@ assert_eq 's: REPLY is its path' $W/e $REPLY
 assert_eq 's: stacked on the row'"'"'s branch' c "$(cfg e)"
 check 's: starting from it' git -C $repo merge-base --is-ancestor refs/heads/c refs/heads/e
 
+# --- the bottom of a new stack: asked to stack it on the default branch too
+_lazyfleet_readkey() { local k=$keys[1]; keys=("${(@)keys[2,-1]}"); [[ $k == y ]] }
+git -C $repo branch root1 main
+keys=(y); out=$(_lazyfleet_stack_offer_root $repo root1; print "parent=$(cfg root1)")
+assert_contains 'root: asks' 'root1 is stacked on nothing itself. Stack it on main too' $out
+assert_contains 'root: yes stacks it on the default branch' 'parent=main' $out
+git -C $repo branch root2 main
+keys=(n); out=$(_lazyfleet_stack_offer_root $repo root2; print "parent=$(cfg root2)")
+assert_contains 'root: no leaves it' 'parent=' $out
+check 'root: really' not cfg root2
+out=$(_lazyfleet_stack_offer_root $repo main)
+assert_eq 'root: never for the default branch itself' '' $out
+out=$(_lazyfleet_stack_offer_root $repo root1)
+assert_eq 'root: never for a branch that is stacked already' '' $out
+# through s: on a row whose branch is stacked on nothing
+_lazyfleet_new --no-open -q -r $repo root3 >/dev/null 2>&1
+keys=(y); pick=root4
+_lazyfleet_ui_newon $W/root3 >/dev/null 2>&1
+assert_eq 's: the new branch is stacked on the row'"'"'s' root3 "$(cfg root4)"
+assert_eq 's: and the row'"'"'s on the default branch, when asked to' main "$(cfg root3)"
+_lazyfleet_stack_load $repo; _lazyfleet_stack_pos root3 main $reply
+assert_eq 's: so the bottom row gets its mark' 1/2 $REPLY
+# through S: picking a parent that is stacked on nothing
+git -C $repo branch root5 main; git -C $repo branch root6 root5
+git -C $repo worktree add -q $W/root6 root6
+keys=(n); pick=root5
+_lazyfleet_ui_stackon $W/root6 >/dev/null 2>&1
+assert_eq 'S: no stacks the branch, and leaves the one picked' root5 "$(cfg root6)"
+check 'S: unstacked' not cfg root5
+git -C $repo config --unset branch.root6.lazyfleetParent; git -C $repo config --unset branch.root6.lazyfleetParentRev
+keys=(y); pick=root5
+_lazyfleet_ui_stackon $W/root6 >/dev/null 2>&1
+assert_eq 'S: the branch is stacked on the one picked' root5 "$(cfg root6)"
+assert_eq 'S: and that one on the default branch, when asked to' main "$(cfg root5)"
+unfunction _lazyfleet_readkey; source $ROOT/lib/core.zsh
+
 check 'help names the command' eval '_lazyfleet_help | gq "lazyfleet stack \[show | on <parent> | off | restack\]"'
 check 'help names new --on' eval '_lazyfleet_help | gq -- "--on parent"'
 check 'help names push' eval '_lazyfleet_help | gq "lazyfleet push \[worktree\] \[-f\]"'

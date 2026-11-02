@@ -221,6 +221,22 @@ _lazyfleet_stack_link() {
     git -C $repo config branch.$br.lazyfleetParentRev $rev
 }
 
+# Offer to stack branch $2 of repo $1 on the default branch, when a stack is
+# being built on it and it is stacked on nothing itself: then r keeps the
+# whole stack on the latest default branch, and its row shows ▲1/n too.
+# Asked, never done unasked: a long-lived branch (develop, a release branch)
+# must not be rebased onto the default branch.
+_lazyfleet_stack_offer_root() {
+  local repo=$1 br=$2 trunk
+  _lazyfleet_stack_trunk $repo || return 0
+  trunk=$REPLY
+  [[ $br != "$trunk" ]] || return 0
+  git -C $repo config --get branch.$br.lazyfleetParent >/dev/null && return 0
+  _lazyfleet_ask "$br is stacked on nothing itself. Stack it on $trunk too, so r keeps the stack on the latest $trunk?" || return 0
+  _lazyfleet_stack_link $repo $br $trunk || _lazyfleet_pause
+  return 0
+}
+
 # Forget what branch $2 of repo $1 is stacked on; fails when it was not
 _lazyfleet_stack_unlink() {
   git -C $1 config --get branch.$2.lazyfleetParent >/dev/null ||
