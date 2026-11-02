@@ -57,6 +57,52 @@ done
 check 'rejects a repo without an origin' rejects
 check 'a token in the remote url never reaches the slug' not eval 'slug_of https://user:ghp_secret@github.com/acme/widgets.git | gq secret'
 
+# --- ssh host aliases (Host github-work, HostName github.com in ~/.ssh/config):
+# a stand-in ssh answers -G from a made-up config, and logs what it was asked
+mkdir -p $SANDBOX/sshstub
+cat >$SANDBOX/sshstub/ssh <<'STUB'
+#!/bin/sh
+[ "$1" = -G ] || exit 2
+echo "$2" >>"$SSH_LOG"
+case $2 in
+  github-work|github-dpgmedia) h=github.com ;;
+  gh443) h=ssh.github.com ;;
+  gitlab-work) h=gitlab.com ;;
+  *) h=$2 ;;
+esac
+printf 'user git\nhostname %s\nport 22\n' "$h"
+STUB
+chmod +x $SANDBOX/sshstub/ssh
+export SSH_LOG=$SANDBOX/ssh.log
+path=($SANDBOX/sshstub $path); rehash
+for pair in 'git@github-dpgmedia:DPG-Media-NUnl/nunl-bff.git|DPG-Media-NUnl/nunl-bff' \
+            'git@github-work:acme/widgets.git|acme/widgets' \
+            'github-work:acme/widgets|acme/widgets' \
+            'ssh://git@github-work/acme/widgets.git|acme/widgets' \
+            'ssh://git@github-work:2222/acme/widgets|acme/widgets' \
+            'git@gh443:acme/widgets|acme/widgets' \
+            'git@ssh.github.com:acme/widgets.git|acme/widgets' \
+            'ssh://git@ssh.github.com:443/acme/widgets|acme/widgets'; do
+  check "ssh alias: ${pair%%|*}" accepts "${pair%%|*}" "${pair##*|}"
+done
+for url in git@gitlab-work:acme/widgets.git git@unknown-alias:acme/widgets \
+           https://github-work/acme/widgets git://github-work/acme/widgets.git; do
+  check "ssh alias: rejects $url" rejects "$url"
+done
+: >$SSH_LOG
+slug_of https://github-work/acme/widgets >/dev/null; slug_of git@github.com:acme/widgets >/dev/null
+check 'ssh alias: ssh is not asked about https remotes, nor about github.com itself' test ! -s $SSH_LOG
+: >$SSH_LOG
+check 'ssh alias: a host that could be an ssh option is refused' rejects '-oProxyCommand=touch$IFS/tmp/x:acme/widgets'
+check 'ssh alias: without asking ssh' test ! -s $SSH_LOG
+: >$SSH_LOG
+_lazyfleet_sshhost github-work; _lazyfleet_sshhost github-work
+assert_eq 'ssh alias: asked once per process' 1 "$(wc -l <$SSH_LOG | tr -d ' ')"
+assert_eq 'ssh alias: the real host' github.com $REPLY
+check 'ssh alias: an alias of no real host fails' eval '_lazyfleet_sshhost "" ; (( $? ))'
+check 'ssh alias: without ssh, an alias is no GitHub' eval '( unset "commands[ssh]"; _LAZYFLEET_SSHHOST=(); ! _lazyfleet_sshhost github-dpgmedia )'
+path=(${path:#$SANDBOX/sshstub}); rehash
+
 # ---------------------------------------------------------------- setting
 check 'disabled without gh' eval '( path=(); unhash gh 2>/dev/null; ! _lazyfleet_pr_enabled )'
 cat >$SANDBOX/stub/gh <<'STUB'

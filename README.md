@@ -104,7 +104,8 @@ checks this for you.
 ## Pull requests and CI
 
 With [`gh`](https://cli.github.com) logged in and a GitHub `origin`, each branch that has a pull request shows it on
-its row. lazyfleet asks GitHub in the background, at most every 90 seconds and backing off when GitHub or the network
+its row. An `origin` through an ssh alias of github.com (`git@github-work:owner/repo` with `Host github-work` and
+`HostName github.com` in `~/.ssh/config`) counts too: lazyfleet asks `ssh -G`, which only reads the config. lazyfleet asks GitHub in the background, at most every 90 seconds and backing off when GitHub or the network
 fails, so the list never waits for it. Checks are fetched for open pull requests only, at most 25 per repository.
 
 From the TUI, `o` opens a worktree's pull request in the browser, and `O` opens GitHub's page for a new one
