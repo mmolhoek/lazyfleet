@@ -174,7 +174,7 @@ check 'git branch -D: the link goes with the branch' not cfg older
 # --- show, off, on
 out=$(_lazyfleet_stack show $W/b); plain $out
 assert_eq 'show: the stack, from any of its worktrees' \
-'Stack  2/3  (S or lazyfleet stack restack)
+'Stack  2/3  (r or lazyfleet stack restack)
    main
    └ a
      └ b ← ⟲ restack
@@ -252,7 +252,7 @@ out=$(_lazyfleet_stack restack $W/a 2>&1); rc=$?
 assert_eq 'conflict: restack fails' 1 $rc
 assert_contains 'conflict: says where to resolve it' 'the rebase of b stopped on a conflict in' $out
 assert_contains 'conflict: and how to go on' 'git add them, then restack again: it continues the rebase' $out
-assert_contains 'conflict: and that S does it file by file' 'S lists the files and opens each in your editor' $out
+assert_contains 'conflict: and that S does it file by file' 'r opens them for you to resolve' $out
 check 'conflict: the rebase is left for the person' git -C $W/b rev-parse -q --verify REBASE_HEAD
 assert_eq 'conflict: c was not touched' $ctip "$(tip c)"
 print -r -- "resolved" >$W/b/a.txt
@@ -343,7 +343,7 @@ _lazyfleet_worktrees $repo
 assert_contains 'stopped: the row still names the branch (HEAD is detached now)' "$W/s2${T}s2${T}0" "${(F)reply}"
 _lazyfleet_stack_here $W/s2; assert_eq 'stopped: S on that row finds the branch' s2 $reply[2]
 plain "$(_lazyfleet_stack_preview $W/s2)"
-assert_contains 'stopped: the preview says so' '1 file(s) in conflict: S resolves them' $REPLY
+assert_contains 'stopped: the preview says so' '1 file(s) in conflict: r resolves them' $REPLY
 out=$(_lazyfleet_stack restack $W/s1 2>&1); rc=$?
 assert_eq 'stopped: restack again, unresolved, fails again' 1 $rc
 assert_contains 'stopped: saying the same' 'the rebase of s2 stopped on a conflict' $out
@@ -512,20 +512,178 @@ git -C $other symbolic-ref refs/remotes/origin/HEAD refs/remotes/origin/dev
 _lazyfleet_stack_trunk $other; assert_eq 'trunk: origin/HEAD'"'"'s first' dev $REPLY
 
 # ============================================================================
+# push
+# ============================================================================
+
+git init -q --bare $SANDBOX/origin.git
+git -C $repo remote add origin $SANDBOX/origin.git
+# remote <branch>: its commit on origin (nothing when it is not there)
+remote() { git --git-dir=$SANDBOX/origin.git rev-parse -q --verify refs/heads/$1 }
+_lazyfleet_new --no-open -q -r $repo p1 >/dev/null 2>&1; commit $W/p1 p1.txt one
+_lazyfleet_new --no-open -q -r $repo --on p1 p2 >/dev/null 2>&1; commit $W/p2 p2.txt one
+_lazyfleet_new --no-open -q -r $repo --on p2 p3 >/dev/null 2>&1; commit $W/p3 p3.txt one
+git -C $repo branch lone main
+git -C $repo branch plain main
+git -C $repo push -q origin main 2>/dev/null
+_lazyfleet_new --no-open -q -r $repo --on lone q >/dev/null 2>&1; commit $W/q q.txt one
+
+# --- what is pushed
+_lazyfleet_push_branches $repo p1; assert_eq 'what: a branch with a stack on it takes the stack along' 'p1 p2 p3' "$reply"
+_lazyfleet_push_branches $repo p3; assert_eq 'what: from the top, the whole stack, bottom up' 'p1 p2 p3' "$reply"
+_lazyfleet_push_branches $repo q;  assert_eq 'what: with the branch it sits on, when that is no default branch' 'lone q' "$reply"
+_lazyfleet_push_branches $repo main; assert_eq 'what: the default branch never takes stacks along' main "$reply"
+_lazyfleet_push_branches $repo plain; assert_eq 'what: a branch without a stack is just itself' plain "$reply"
+_lazyfleet_stack_link $repo p1 main
+_lazyfleet_push_branches $repo p2; assert_eq 'what: a stack on the default branch leaves that out' 'p1 p2 p3' "$reply"
+
+# --- a first push
+out=$(_lazyfleet_push $W/p2 2>&1); rc=$?
+assert_eq 'push: works' 0 $rc
+assert_contains 'push: says what it pushes' 'Pushing p1, p2, p3… done' $out
+for b in p1 p2 p3; do assert_eq "push: $b is on origin" "$(tip $b)" "$(remote $b)"; done
+assert_eq 'push: and tracks it' origin/p2 "$(git -C $repo rev-parse --abbrev-ref p2@{u})"
+
+# --- a stack that needs a restack is not pushed
+commit $W/p1 p1.txt two
+p2on=$(remote p2)
+out=$(_lazyfleet_push $W/p3 2>&1); rc=$?
+assert_eq 'stale: push fails' 1 $rc
+assert_contains 'stale: and says what to do' 'p2 needs a restack first (r, or lazyfleet stack restack)' $out
+assert_eq 'stale: before pushing anything' $p2on "$(remote p2)"
+
+# --- after a restack: refused, and without a terminal it says how
+_lazyfleet_stack restack $W/p1 >/dev/null 2>&1
+out=$(_lazyfleet_push $W/p1 2>&1); rc=$?
+assert_eq 'refused: push fails' 1 $rc
+assert_contains 'refused: says origin refused it' 'Pushing p1, p2, p3… refused' $out
+assert_contains 'refused: with git'"'"'s reason' 'non-fast-forward' $out
+assert_contains 'refused: and how to go on' 'use --force to push with lease' $out
+check 'refused: without git'"'"'s advice to pull' eval '[[ $out != *"git pull"* && $out != *hint:* ]]'
+assert_eq 'refused: atomic, so p1 (a fast-forward) was not pushed either' "$(git -C $repo rev-parse 'p1~1')" "$(remote p1)"
+out=$(_lazyfleet_push --force $W/p1 2>&1); rc=$?
+assert_eq 'force: works' 0 $rc
+assert_contains 'force: says so' 'Pushing p1, p2, p3 (force with lease)… done' $out
+for b in p1 p2 p3; do assert_eq "force: $b is on origin" "$(tip $b)" "$(remote $b)"; done
+
+# --- on a terminal (-i, as in the TUI) a refused push asks
+_lazyfleet_readkey() { [[ $key == y ]] }
+commit $W/p1 p1.txt three; _lazyfleet_stack restack $W/p1 >/dev/null 2>&1
+out=$(key=n _lazyfleet_push -i $W/p3 2>&1); rc=$?
+assert_eq 'ask: no keeps it refused' 1 $rc
+assert_contains 'ask: it asked' 'Force-push with lease?' $out
+check 'ask: nothing forced' eval '[[ $(remote p2) != $(tip p2) ]]'
+out=$(key=y _lazyfleet_push -i $W/p3 2>&1); rc=$?
+assert_eq 'ask: yes forces it' 0 $rc
+assert_contains 'ask: with lease' '(force with lease)… done' $out
+assert_eq 'ask: p3 is on origin' "$(tip p3)" "$(remote p3)"
+out=$(key=y _lazyfleet_push -i $W/p3 2>&1); rc=$?
+assert_eq 'ask: nothing new pushes fine, without asking' 0 $rc
+check 'ask: no question' eval '[[ $out != *Force-push* ]]'
+
+# --- the lease: commits on origin that were not fetched are never dropped
+git clone -q $SANDBOX/origin.git $SANDBOX/other-clone 2>/dev/null
+git -C $SANDBOX/other-clone checkout -q p3 && commit $SANDBOX/other-clone theirs.txt x && git -C $SANDBOX/other-clone push -q origin p3 2>/dev/null
+theirs=$(remote p3)
+commit $W/p1 p1.txt four; _lazyfleet_stack restack $W/p1 >/dev/null 2>&1
+out=$(key=y _lazyfleet_push -i $W/p1 2>&1); rc=$?
+assert_eq 'lease: the forced push fails' 1 $rc
+assert_contains 'lease: git says why' 'stale info' $out
+assert_eq 'lease: their commit is still on origin' $theirs "$(remote p3)"
+_lazyfleet_push_run $repo plain >/dev/null 2>&1
+check 'run: a branch on its own' eval '[[ $(remote plain) == $(tip plain) ]]'
+
+# --- O: the pull request of a stacked branch goes onto its parent
+_lazyfleet_newpr_base $repo p2; assert_eq 'O: onto its parent' 'p1...p2' $REPLY
+_lazyfleet_newpr_base $repo p1; assert_eq 'O: one on the default branch names it' 'main...p1' $REPLY
+_lazyfleet_newpr_base $repo plain; assert_eq 'O: one that is not stacked: just the branch' plain $REPLY
+git -C $repo branch r1 main
+git -C $repo branch r2 r1; _lazyfleet_stack_link $repo r2 r1
+out=$(_lazyfleet_newpr_base $repo r2 2>&1); rc=$?
+assert_eq 'O: a parent that is not on origin fails' 1 $rc
+assert_contains 'O: and says to push the stack' 'r1, which r2 is stacked on, is not on origin yet: push the stack first (P)' $out
+git -C $repo branch feat/x-y main; git -C $repo branch 'feat/z' feat/x-y; _lazyfleet_stack_link $repo feat/z feat/x-y
+git -C $repo update-ref refs/remotes/origin/feat/x-y feat/x-y
+_lazyfleet_newpr_base $repo feat/z; assert_eq 'O: names with a slash' 'feat/x-y...feat/z' $REPLY
+
+# --- the bases of pull requests
+_lazyfleet_stack_misbased "p2${T}p1" "p3${T}p2" -- "p2${T}12${T}main" "p3${T}13${T}p2" "zz${T}14${T}main" "p2${T}x${T}main"
+assert_eq 'misbased: only one onto the wrong branch (a bad number is no pull request)' "12${T}p2${T}main${T}p1" "${(j:|:)reply}"
+_lazyfleet_stack_misbased --; assert_eq 'misbased: nothing to check' 0 $#reply
+# a stand-in gh: answers $GH_PRS (as the --jq gives it), logs every call
+gh() {
+  print -r -- "$*" >>$SANDBOX/gh.log
+  [[ $1 == api && $2 == -X ]] && return 0
+  [[ -n $GH_FAIL ]] && return 1
+  print -r -- $GH_PRS
+}
+GH_PRS="p2${T}me/app${T}12${T}main"$'\n'"p3${T}me/app${T}13${T}p2"$'\n'"p1${T}fork/app${T}14${T}dev"$'\n'"odd${T}ME/APP${T}15${T}ma"$'\e'"in"
+_lazyfleet_stack_prbases me/app
+assert_eq 'prbases: the repo'"'"'s own, any case; no forks; no control characters' "p2${T}12${T}main|p3${T}13${T}p2|odd${T}15${T}main" "${(j:|:)reply}"
+: >$SANDBOX/gh.log
+out=$(_lazyfleet_stack_fixbases $repo me/app '' p1 p2 p3 2>&1); rc=$?
+assert_eq 'bases: works' 0 $rc
+assert_contains 'bases: names the one that is off' '#12 p2: onto main, should be onto p1' $out
+check 'bases: not the ones that are right' eval '[[ $out != *"#13"* ]]'
+assert_contains 'bases: without a terminal, how to fix it' 'gh pr edit 12 --base p1' $out
+check 'bases: and changes nothing' not gq -- '-X PATCH' $SANDBOX/gh.log
+: >$SANDBOX/gh.log
+out=$(key=y _lazyfleet_stack_fixbases $repo me/app 1 p1 p2 p3 2>&1)
+assert_contains 'bases: on a terminal, it asks' 'Change their base?' $out
+assert_contains 'bases: yes moves it' 'Moving #12 onto p1… done' $out
+check 'bases: through the API' gq -F 'api -X PATCH repos/me/app/pulls/12 -f base=p1' $SANDBOX/gh.log
+: >$SANDBOX/gh.log
+out=$(key=n _lazyfleet_stack_fixbases $repo me/app 1 p1 p2 p3 2>&1)
+check 'bases: no changes nothing' not gq -- '-X PATCH' $SANDBOX/gh.log
+out=$(GH_FAIL=1 _lazyfleet_stack_fixbases $repo me/app 1 p1 p2 p3 2>&1); rc=$?
+assert_eq 'bases: gh failing does not fail it' 0 $rc
+assert_contains 'bases: but says so' 'could not check the bases of the pull requests (gh)' $out
+out=$(GH_PRS="p2${T}me/app${T}12${T}p1" _lazyfleet_stack_fixbases $repo me/app 1 p1 p2 p3 2>&1)
+assert_eq 'bases: all right, nothing said' '' $out
+: >$SANDBOX/gh.log
+out=$(_lazyfleet_stack_fixbases $repo me/app 1 plain 2>&1)
+check 'bases: a branch outside a stack does not ask GitHub' eval '[[ ! -s $SANDBOX/gh.log ]]'
+
+# --- after P: a GitHub origin (that pushes to the local one), pull request marks on
+git -C $repo fetch -q origin
+git -C $repo remote set-url origin https://github.com/me/app.git
+git -C $repo remote set-url --push origin $SANDBOX/origin.git
+mkdir -p $SANDBOX/ghbin && print '#!/bin/sh' >$SANDBOX/ghbin/gh && chmod +x $SANDBOX/ghbin/gh
+path=($SANDBOX/ghbin $path); rehash
+: >$SANDBOX/gh.log
+out=$(LAZYFLEET_PR_STATUS=on _lazyfleet_push -f $W/p2 2>&1); rc=$?
+assert_eq 'push: works' 0 $rc
+assert_contains 'push: then lists the pull request that is off' '#12 p2: onto main, should be onto p1' $out
+assert_contains 'push: with how to fix it' 'gh pr edit 12 --base p1' $out
+: >$SANDBOX/gh.log
+out=$(LAZYFLEET_PR_STATUS=off _lazyfleet_push $W/p2 2>&1)
+check 'push: with pull request marks off, it does not ask GitHub' eval '[[ ! -s $SANDBOX/gh.log ]]'
+git -C $repo config --unset remote.origin.pushurl
+git -C $repo remote set-url origin $SANDBOX/origin.git
+path=(${path:#$SANDBOX/ghbin}); rehash
+unfunction gh
+unfunction _lazyfleet_readkey; source $ROOT/lib/core.zsh
+
+# ============================================================================
 # the keys
 # ============================================================================
 
 k() { FZF_KEY=$1 FZF_LIST_LABEL=" Worktrees " _lazyfleet_key ${2:-w} ${3-/some/path} }
 check 'N makes a new worktree on this one' eval 'k N | gq "^become(printf .* newon {2})$"'
 check 's picks the parent' eval 'k s | gq "^execute(.* _ui_stackon {2})+change-list-label"'
-check 'S restacks' eval 'k S | gq "^execute(.* _ui_restack {2})+change-list-label"'
-for key in N s S; do
+check 'r restacks' eval 'k r | gq "^execute(.* _ui_restack {2})+change-list-label"'
+check 'P pushes' eval 'k P | gq "^execute(.* _ui_push {2})+change-list-label"'
+check 'R still reloads' eval 'k R | gq "^change-list-label( Worktrees · loading… )+reload(.* _rows)"'
+check 'r reloads in the windows view' eval 'FZF_KEY=r FZF_LIST_LABEL=" Windows " _lazyfleet_key t "=a/b:1" | gq "^reload(.*_winrows)"'
+check 'S does nothing any more' test -z "$(k S)"
+for key in N s P; do
   check "$key does nothing in the windows view" test -z "$(FZF_LIST_LABEL=' Windows ' FZF_KEY=$key _lazyfleet_key t '=a/b:1')"
   check "$key keeps the path out of the action text" eval '! k $key w /x/PWNED | gq PWNED'
 done
-check 'N, s and S are typed into the filter, not run, while it is shown' \
-  eval '[[ $_LAZYFLEET_LETTERS == *,N,* && $_LAZYFLEET_LETTERS == *,s,* && $_LAZYFLEET_LETTERS == *,S,* ]]'
-check 'the footer names them' eval '[[ $_LAZYFLEET_FOOTER_WT == *"(N)ew on this"* && $_LAZYFLEET_FOOTER_WT == *"(s)tack on"* && $_LAZYFLEET_FOOTER_WT == *"(S) restack"* ]]'
+check 'N, s, r and P are typed into the filter, not run, while it is shown' \
+  eval '[[ $_LAZYFLEET_LETTERS == *,N,* && $_LAZYFLEET_LETTERS == *,s,* && $_LAZYFLEET_LETTERS == *,r,* && $_LAZYFLEET_LETTERS == *,P,* ]]'
+check 'the footer names them' eval '[[ $_LAZYFLEET_FOOTER_WT == *"(N)ew on this"* && $_LAZYFLEET_FOOTER_WT == *"(s)tack on"* && $_LAZYFLEET_FOOTER_WT == *"(r)estack"* && $_LAZYFLEET_FOOTER_WT == *"(P)ush"* ]]'
+check 'and reload under R' eval '[[ $_LAZYFLEET_FOOTER_WT == *"(R)eload"* && $_LAZYFLEET_FOOTER_WT != *"(r)eload"* ]]'
+check 'the windows footer keeps (r)eload' eval '[[ $_LAZYFLEET_FOOTER_WIN == *"(r)eload"* ]]'
 check 'the windows footer does not' eval '[[ $_LAZYFLEET_FOOTER_WIN != *restack* ]]'
 # --- the prompts behind N and s, with a stand-in for the picker: it answers
 # $pick, and keeps what it was offered in $offered
@@ -561,5 +719,6 @@ check 'N: starting from it' git -C $repo merge-base --is-ancestor refs/heads/c r
 
 check 'help names the command' eval '_lazyfleet_help | gq "lazyfleet stack \[show | on <parent> | off | restack\]"'
 check 'help names new --on' eval '_lazyfleet_help | gq -- "--on parent"'
+check 'help names push' eval '_lazyfleet_help | gq "lazyfleet push \[worktree\] \[-f\]"'
 
 finish

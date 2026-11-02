@@ -21,6 +21,8 @@ _lazyfleet_help() {
                                  remove a worktree (-f: even if dirty, locked or with agents running,
                                  -D: delete its local branch too)
   lazyfleet pull [worktree]      fast-forward a worktree to its upstream
+  lazyfleet push [worktree] [-f] push its branch to origin, with the rest of its stack
+                                 (-f: force with lease, after a restack)
   lazyfleet stack [show | on <parent> | off | restack] [worktree]
                                  stacked branches: show the stack, stack the branch on a parent
                                  (new --on does that for a new one), unstack it, or rebase the
@@ -29,6 +31,7 @@ _lazyfleet_help() {
   lazyfleet prune [-n] [-y] [--keep-branches] [--no-fetch] [-r repo | --all]
                                  remove worktrees whose branch is merged (-n: only list them)
   lazyfleet windows              open the TUI on all tmux windows (enter switches)
+  lazyfleet keys                 every key of the TUI and every mark on a row, explained (? in the TUI)
   lazyfleet config [repo]        edit the settings, or a repo's copy=/setup= file, in $EDITOR
   lazyfleet status               tmux status segment: sessions whose agent waits (!) or is done (✓)
   lazyfleet hooks [install|uninstall|status]

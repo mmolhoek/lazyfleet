@@ -324,7 +324,7 @@ _lazyfleet_stack_upstream() {
 _lazyfleet_stack_stopped() {
   print -ru2 -- "lazyfleet: the rebase of $1 stopped on a conflict in ${2/#$HOME/~}."
   print -ru2 -- "  Resolve the files there and git add them, then restack again: it continues the rebase."
-  print -ru2 -- "  (In lazyfleet, S lists the files and opens each in your editor.)"
+  print -ru2 -- "  (In lazyfleet, r opens them for you to resolve.)"
 }
 
 # --- resolving a conflict ------------------------------------------------------
@@ -398,7 +398,7 @@ _lazyfleet_stack_onterm() {
 
 # Say that the rebase of branch $1 is left in worktree $2, and how to go on
 _lazyfleet_stack_left() {
-  print -ru2 -- "lazyfleet: the rebase of $1 is left in ${2/#$HOME/~}: press S (or restack) to go on with it"
+  print -ru2 -- "lazyfleet: the rebase of $1 is left in ${2/#$HOME/~}: press r (or restack) to go on with it"
 }
 
 # Continue the rebase of branch $1 in worktree $2 (git's message for each
@@ -474,7 +474,7 @@ _lazyfleet_stack_pickfile() {
   [[ -n $note ]] && head=$'\e[33m'${note//[[:cntrl:]]/ }$'\e[0m\n'$head
   out=$(print -rl -- "$@" | LAZYFLEET_RWT=$wt fzf --ansi --layout reverse --style full --no-sort --no-input \
     --list-label " Conflicts · $br " --preview-label ' Conflict ' --header $head \
-    --footer $'↵ / e  edit the file (saved without markers: resolved)\na  abort the rebase   esc  later (S goes on)' \
+    --footer $'↵ / e  edit the file (saved without markers: resolved)\na  abort the rebase   esc  later (r goes on)' \
     --with-shell "${commands[zsh]:-/bin/zsh} -c" \
     --preview 'git -C "$LAZYFLEET_RWT" -c color.diff=always diff -- {}' --preview-window right,60% \
     --pointer '▌' --gutter ' ' --expect a,e --bind 'j:down,k:up')
@@ -541,6 +541,76 @@ _lazyfleet_stack_restack() {
   done
 }
 
+# --- the bases of pull requests --------------------------------------------------
+
+# _lazyfleet_stack_misbased want... -- pr...
+# want: "branch<TAB>parent", pr: "branch<TAB>number<TAB>base" (open pull
+# requests). reply=("number<TAB>branch<TAB>base<TAB>parent" ...): each pull
+# request of a stacked branch whose base is not the branch's parent.
+_lazyfleet_stack_misbased() {
+  local e b n base
+  local -A want
+  while (( $# )) && [[ $1 != -- ]]; do want[${1%%$'\t'*}]=${1#*$'\t'}; shift; done
+  (( $# )) && shift
+  reply=()
+  for e in "$@"; do
+    b=${e%%$'\t'*}; e=${e#*$'\t'}; n=${e%%$'\t'*}; base=${e#*$'\t'}
+    [[ -n $want[$b] && $want[$b] != "$base" && $n == <1-> ]] &&
+      reply+=("$n"$'\t'"$b"$'\t'"$base"$'\t'"$want[$b]")
+  done
+  return 0
+}
+
+# reply=("branch<TAB>number<TAB>base" ...): the open pull requests of GitHub
+# repo $1 (owner/name) from its own branches, at most 100. What GitHub says is
+# data: control characters go.
+_lazyfleet_stack_prbases() {
+  local out line
+  local -a f
+  out=$(gh api "repos/$1/pulls?state=open&per_page=100" \
+    --jq '.[] | [.head.ref, (.head.repo.full_name // ""), (.number|tostring), .base.ref] | @tsv' 2>/dev/null) || return 1
+  reply=()
+  for line in ${(f)out}; do
+    f=("${(@ps:\t:)line}")
+    (( $#f == 4 )) && [[ ${f[2]:l} == ${1:l} ]] || continue
+    reply+=("${f[1]//[[:cntrl:]]/}"$'\t'"${f[3]//[^0-9]/}"$'\t'"${f[4]//[[:cntrl:]]/}")
+  done
+  return 0
+}
+
+# _lazyfleet_stack_fixbases repo owner/name ask branch...
+# Line the open pull requests of the branches up with their stack: list the
+# ones whose base is not the branch's parent, then (ask non-empty) offer to
+# change their base, or else say how. Never fails: the push is done.
+_lazyfleet_stack_fixbases() {
+  local repo=$1 slug=$2 ask=$3 b e t=$'\t'  # ($'\t' isn't expanded inside a subscript)
+  local -a want entries bad f
+  shift 3
+  _lazyfleet_stack_load $repo; entries=($reply)
+  for b in "$@"; do
+    e=${entries[(r)${(b)b}$t*]}
+    [[ -n $e ]] && want+=("$b$t${${e#*$t}%%$t*}")
+  done
+  (( $#want )) || return 0
+  _lazyfleet_stack_prbases $slug || { print -ru2 -- "lazyfleet: could not check the bases of the pull requests (gh)"; return 0 }
+  _lazyfleet_stack_misbased $want -- $reply; bad=($reply)
+  (( $#bad )) || return 0
+  print -ru2 -- "lazyfleet: these pull requests are not onto the branch below them in the stack:"
+  for e in $bad; do f=("${(@ps:\t:)e}"); print -ru2 -- "   #$f[1] $f[2]: onto $f[3], should be onto $f[4]"; done
+  if [[ -z $ask ]]; then
+    for e in $bad; do f=("${(@ps:\t:)e}"); print -ru2 -- "   gh pr edit $f[1] --base $f[4]"; done
+    return 0
+  fi
+  _lazyfleet_ask "Change their base?" || return 0
+  for e in $bad; do
+    f=("${(@ps:\t:)e}")
+    _lazyfleet_step "Moving #$f[1] onto $f[4]"
+    gh api -X PATCH "repos/$slug/pulls/$f[1]" -f base=$f[4] >/dev/null 2>&1
+    _lazyfleet_done
+  done
+  return 0
+}
+
 # --- the stack command --------------------------------------------------------
 
 # lazyfleet stack [show|on <parent>|off|restack] [worktree]
@@ -596,7 +666,7 @@ _lazyfleet_stack_print() {
   head=$'\e[1mStack\e[0m'
   _lazyfleet_stack_pos $br "$trunk" $entries && head+="  $REPLY"
   _lazyfleet_stack_tree $br $entries || return 1
-  [[ ${(F)reply} == *⟲* ]] && head+=$'  \e[2m(S or lazyfleet stack restack)\e[0m'
+  [[ ${(F)reply} == *⟲* ]] && head+=$'  \e[2m(r or lazyfleet stack restack)\e[0m'
   print -r -- $head
   print -rl -- $reply
 }
@@ -612,7 +682,7 @@ _lazyfleet_stack_preview() {
   print -r -- $out
   _lazyfleet_stack_rebasing $1 || return 0
   _lazyfleet_stack_unmerged $1
-  (( $#reply )) && print -r -- $'   \e[33m'"$#reply file(s) in conflict: S resolves them"$'\e[0m'
+  (( $#reply )) && print -r -- $'   \e[33m'"$#reply file(s) in conflict: r resolves them"$'\e[0m'
   return 0
 }
 

@@ -24,6 +24,7 @@ agents call.
 | `lib/rows.zsh`     | the TUI's rows and previews, repo discovery, the picker                 |
 | `lib/commands.zsh` | add, forget, ls, new, open, rm, pull, config                            |
 | `lib/tui.zsh`      | the fzf driver, its keys and the prompts behind them                    |
+| `lib/keys.zsh`     | the reference of the TUI's keys and marks: `?` and `lazyfleet keys`     |
 | `lib/update.zsh`   | the version of this copy and the daily check for a new release          |
 | `lib/doctor.zsh`   | `lazyfleet doctor`                                                      |
 | `lib/prune.zsh`    | `lazyfleet prune`                                                       |
@@ -74,6 +75,7 @@ fzf 0.66 or newer and says so, instead of failing check by check, when yours is 
 | `prune`           | `lazyfleet prune` (local "GitHub", stub `gh`)                                       |
 | `handoff`         | the `e`, `g` and `o` keys (stub tools, real tmux)                                   |
 | `new-pr`          | the `O` key (stub browser, no network)                                              |
+| `keys`            | the key reference: every bound key explained, every explained key bound, every mark |
 | `stack`           | stacked branches: helpers, `new --on`, `stack`, restack, marks, the `N` `s` `S` keys |
 | `busy-rm`         | the warning before removing a worktree with agents running                          |
 | `helpers`         | the small helpers the commands share (worktree entries, settings, prompts)          |

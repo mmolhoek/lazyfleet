@@ -18,6 +18,7 @@ autoload -Uz is-at-least
 #   commands  add, forget, ls, new, open, rm, pull, config
 #   tui       the fzf driver, its keys and prompts
 #   help      help and version
+#   keys      the reference of the TUI's keys and marks (? and lazyfleet keys)
 #   update    the check for a newer release
 #   doctor    lazyfleet doctor
 #   prune     lazyfleet prune
@@ -32,6 +33,7 @@ source $LAZYFLEET_DIR/lib/commands.zsh
 source $LAZYFLEET_DIR/lib/tui.zsh
 source $LAZYFLEET_DIR/lib/update.zsh
 source $LAZYFLEET_DIR/lib/help.zsh
+source $LAZYFLEET_DIR/lib/keys.zsh
 source $LAZYFLEET_DIR/lib/doctor.zsh
 source $LAZYFLEET_DIR/lib/prune.zsh
 
@@ -45,7 +47,7 @@ _lazyfleet_main() {
   (( $# )) && shift
   case $cmd in
     ('') _lazyfleet_ui_checked ;;
-    (add|forget|new|open|rm|pull|prune|ls|config|update|status|hooks|doctor|stack) _lazyfleet_$cmd "$@" ;;
+    (add|forget|new|open|rm|pull|push|prune|ls|config|update|status|hooks|doctor|stack|keys) _lazyfleet_$cmd "$@" ;;
     (windows) _lazyfleet_ui_checked -w ;;
     (repos) _lazyfleet_repos; print -rl -- $reply ;;
     (help|-h|--help) _lazyfleet_help ;;
