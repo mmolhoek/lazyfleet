@@ -2,7 +2,7 @@
 # Tests for stacked branches (lib/stack.zsh): the helpers that only look at
 # stack entries, then the parent links in a real repo, lazyfleet new --on,
 # lazyfleet stack (show, on, off, restack), the row marks, the preview and the
-# N, s and S keys.
+# s, S, r and P keys.
 
 ROOT=${0:A:h:h}
 source ${0:A:h}/lib.zsh
@@ -252,7 +252,7 @@ out=$(_lazyfleet_stack restack $W/a 2>&1); rc=$?
 assert_eq 'conflict: restack fails' 1 $rc
 assert_contains 'conflict: says where to resolve it' 'the rebase of b stopped on a conflict in' $out
 assert_contains 'conflict: and how to go on' 'git add them, then restack again: it continues the rebase' $out
-assert_contains 'conflict: and that S does it file by file' 'r opens them for you to resolve' $out
+assert_contains 'conflict: and that r does it file by file' 'r opens them for you to resolve' $out
 check 'conflict: the rebase is left for the person' git -C $W/b rev-parse -q --verify REBASE_HEAD
 assert_eq 'conflict: c was not touched' $ctip "$(tip c)"
 print -r -- "resolved" >$W/b/a.txt
@@ -341,7 +341,7 @@ check 'stopped: and none elsewhere' not _lazyfleet_stack_rebasing $W/s3
 _lazyfleet_stack_unmerged $W/s2; assert_eq 'stopped: the file in conflict' f1 "$reply"
 _lazyfleet_worktrees $repo
 assert_contains 'stopped: the row still names the branch (HEAD is detached now)' "$W/s2${T}s2${T}0" "${(F)reply}"
-_lazyfleet_stack_here $W/s2; assert_eq 'stopped: S on that row finds the branch' s2 $reply[2]
+_lazyfleet_stack_here $W/s2; assert_eq 'stopped: r on that row finds the branch' s2 $reply[2]
 plain "$(_lazyfleet_stack_preview $W/s2)"
 assert_contains 'stopped: the preview says so' '1 file(s) in conflict: r resolves them' $REPLY
 out=$(_lazyfleet_stack restack $W/s1 2>&1); rc=$?
@@ -410,7 +410,7 @@ assert_contains 'later: and says how to go on' 'the rebase of s2 is left in' $ou
 check 'later: the rebase is still there' _lazyfleet_stack_rebasing $W/s2
 answers=("edit f3 $SANDBOX/ed" "edit f4 $SANDBOX/ed")
 irestack $W/s2
-assert_eq 'later: S on the stopped row finishes it' 0 $rc
+assert_eq 'later: r on the stopped row finishes it' 0 $rc
 assert_eq 'later: offering what is still in conflict' 'f3,f4|f3,f4|f4' "${(j:|:)offered}"
 st s2; assert_eq 'later: s2 is up to date' 0 $REPLY
 
@@ -481,7 +481,7 @@ assert_contains 'lazygit: leaves the rebase for later' 'the rebase of s2 is left
 check 'lazygit: it is still there' _lazyfleet_stack_rebasing $W/s2
 : >$LG_LOG
 LG_MODE=resolve irestack $W/s2
-assert_eq 'lazygit: S on the stopped row opens it again, and finishes' 0 $rc
+assert_eq 'lazygit: r on the stopped row opens it again, and finishes' 0 $rc
 lg=$(<$LG_LOG)
 assert_eq 'lazygit: once' $W/s2 $lg
 st s2; assert_eq 'lazygit: s2 is up to date' 0 $REPLY
@@ -715,20 +715,20 @@ unfunction _lazyfleet_readkey; source $ROOT/lib/core.zsh
 # ============================================================================
 
 k() { FZF_KEY=$1 FZF_LIST_LABEL=" Worktrees " _lazyfleet_key ${2:-w} ${3-/some/path} }
-check 'N makes a new worktree on this one' eval 'k N | gq "^become(printf .* newon {2})$"'
-check 's picks the parent' eval 'k s | gq "^execute(.* _ui_stackon {2})+change-list-label"'
+check 's makes a new worktree stacked on this one' eval 'k s | gq "^become(printf .* newon {2})$"'
+check 'S picks the parent' eval 'k S | gq "^execute(.* _ui_stackon {2})+change-list-label"'
 check 'r restacks' eval 'k r | gq "^execute(.* _ui_restack {2})+change-list-label"'
 check 'P pushes' eval 'k P | gq "^execute(.* _ui_push {2})+change-list-label"'
 check 'R still reloads' eval 'k R | gq "^change-list-label( Worktrees · loading… )+reload(.* _rows)"'
 check 'r reloads in the windows view' eval 'FZF_KEY=r FZF_LIST_LABEL=" Windows " _lazyfleet_key t "=a/b:1" | gq "^reload(.*_winrows)"'
-check 'S does nothing any more' test -z "$(k S)"
-for key in N s P; do
+check 'N does nothing any more' test -z "$(k N)"
+for key in s S P; do
   check "$key does nothing in the windows view" test -z "$(FZF_LIST_LABEL=' Windows ' FZF_KEY=$key _lazyfleet_key t '=a/b:1')"
   check "$key keeps the path out of the action text" eval '! k $key w /x/PWNED | gq PWNED'
 done
-check 'N, s, r and P are typed into the filter, not run, while it is shown' \
-  eval '[[ $_LAZYFLEET_LETTERS == *,N,* && $_LAZYFLEET_LETTERS == *,s,* && $_LAZYFLEET_LETTERS == *,r,* && $_LAZYFLEET_LETTERS == *,P,* ]]'
-check 'the footer names them' eval '[[ $_LAZYFLEET_FOOTER_WT == *"(N)ew stacked on this"* && $_LAZYFLEET_FOOTER_WT == *"(s)tack on"* && $_LAZYFLEET_FOOTER_WT == *"(r)estack"* && $_LAZYFLEET_FOOTER_WT == *"(P)ush"* ]]'
+check 's, S, r and P are typed into the filter, not run, while it is shown' \
+  eval '[[ $_LAZYFLEET_LETTERS == *,S,* && $_LAZYFLEET_LETTERS == *,s,* && $_LAZYFLEET_LETTERS == *,r,* && $_LAZYFLEET_LETTERS == *,P,* ]]'
+check 'the footer names them' eval '[[ $_LAZYFLEET_FOOTER_WT == *"(s) new stacked on this"* && $_LAZYFLEET_FOOTER_WT == *"(S)tack on…"* && $_LAZYFLEET_FOOTER_WT == *"(r)estack"* && $_LAZYFLEET_FOOTER_WT == *"(P)ush"* ]]'
 check 'and reload under R' eval '[[ $_LAZYFLEET_FOOTER_WT == *"(R)eload"* && $_LAZYFLEET_FOOTER_WT != *"(r)eload"* ]]'
 check 'the windows footer keeps (r)eload' eval '[[ $_LAZYFLEET_FOOTER_WIN == *"(r)eload"* ]]'
 check 'the windows footer does not' eval '[[ $_LAZYFLEET_FOOTER_WIN != *restack* ]]'
@@ -739,30 +739,30 @@ _lazyfleet_pick() { offered=$(cat); [[ -n $pick ]] && REPLY=$pick }
 _lazyfleet_pause() { : }
 pick=c
 _lazyfleet_ui_stackon $W/a
-check 's: offers the other local branches' eval '(( ${${(f)offered}[(Ie)c]} && ${${(f)offered}[(Ie)main]} ))'
-check 's: but not the branch itself' eval '(( ! ${${(f)offered}[(Ie)a]} ))'
-assert_eq 's: and "(not stacked)" first' '(not stacked)' "${${(f)offered}[1]}"
-assert_eq 's: picking a branch stacks on it' c "$(cfg a)"
+check 'S: offers the other local branches' eval '(( ${${(f)offered}[(Ie)c]} && ${${(f)offered}[(Ie)main]} ))'
+check 'S: but not the branch itself' eval '(( ! ${${(f)offered}[(Ie)a]} ))'
+assert_eq 'S: and "(not stacked)" first' '(not stacked)' "${${(f)offered}[1]}"
+assert_eq 'S: picking a branch stacks on it' c "$(cfg a)"
 pick=a
 _lazyfleet_ui_stackon $W/c 2>/dev/null
-assert_eq 's: a loop is refused there too' main "$(cfg c)"
+assert_eq 'S: a loop is refused there too' main "$(cfg c)"
 git -C $repo branch spare main
 pick=spare
 _lazyfleet_ui_stackon $W/a 2>/dev/null
-assert_eq 's: picking another moves it there' spare "$(cfg a)"
+assert_eq 'S: picking another moves it there' spare "$(cfg a)"
 pick='(not stacked)'
 _lazyfleet_ui_stackon $W/a
-check 's: "(not stacked)" unstacks' not cfg a
+check 'S: "(not stacked)" unstacks' not cfg a
 pick=
 _lazyfleet_ui_stackon $W/a; rc=$?
-assert_eq 's: escape changes nothing, fine' 0 $rc
-check 's: nothing' not cfg a
+assert_eq 'S: escape changes nothing, fine' 0 $rc
+check 'S: nothing' not cfg a
 pick=e
 _lazyfleet_ui_newon $W/c 2>/dev/null; rc=$?
-assert_eq 'N: makes the worktree' 0 $rc
-assert_eq 'N: REPLY is its path' $W/e $REPLY
-assert_eq 'N: stacked on the row'"'"'s branch' c "$(cfg e)"
-check 'N: starting from it' git -C $repo merge-base --is-ancestor refs/heads/c refs/heads/e
+assert_eq 's: makes the worktree' 0 $rc
+assert_eq 's: REPLY is its path' $W/e $REPLY
+assert_eq 's: stacked on the row'"'"'s branch' c "$(cfg e)"
+check 's: starting from it' git -C $repo merge-base --is-ancestor refs/heads/c refs/heads/e
 
 check 'help names the command' eval '_lazyfleet_help | gq "lazyfleet stack \[show | on <parent> | off | restack\]"'
 check 'help names new --on' eval '_lazyfleet_help | gq -- "--on parent"'

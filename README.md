@@ -118,8 +118,8 @@ A big change reviews better as a chain of small branches, each built on the one 
 `refactor/ast` on `fix/parser`, `feat/macros` on `refactor/ast`. lazyfleet keeps track of that chain with plain git;
 no other tool is needed.
 
-- **Start one:** `N` on a row (or `lazyfleet new <branch> --on <parent>`) makes a worktree whose branch starts from
-  the row's branch and is stacked on it. `s` stacks an existing branch on another one, or unstacks it
+- **Start one:** `s` on a row (or `lazyfleet new <branch> --on <parent>`) makes a worktree whose branch starts from
+  the row's branch and is stacked on it. `S` stacks an existing branch on another one, or unstacks it
   (`lazyfleet stack on <parent>` / `off`).
 - **See it:** stacked rows show `▲2/3`, and the Details pane draws the whole stack. `⟲` means the branch's parent
   has moved on since the branch was based on it (an amended commit, a review fix, a pull of `main`).
@@ -205,8 +205,8 @@ same in your terminal.
 | `g`         | open lazygit in the worktree (a window named `lazygit`)            |                    |
 | `o`         | open the worktree's pull request in the browser                    |                    |
 | `O`         | open GitHub's page for a new pull request (onto its parent when stacked) |              |
-| `N`         | new worktree stacked on this row's branch                          |                    |
-| `s` · `r`   | pick the branch this one is stacked on (or none) · restack its stack |                    |
+| `s`         | new worktree stacked on this row's branch                          |                    |
+| `S` · `r`   | pick the branch this one is stacked on (or none) · restack its stack |                    |
 | `P`         | push the branch, with the rest of its stack; refused, asks to force with lease |          |
 | `a`         | add repo: pick one found under your project dirs, or type a path   | add repo           |
 | `tab` · `w` | switch between Worktrees and Windows · Windows view                | back to Worktrees  |
