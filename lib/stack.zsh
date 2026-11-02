@@ -610,8 +610,9 @@ _lazyfleet_diff_target() {
 }
 
 # The Details pane's commits of worktree $1: only the branch's own, since its
-# base, and the files they change; fails when the branch has no base (the
-# default branch), for the caller's plain log. Commits only (base...HEAD):
+# base, the files they change, and their diff (the first
+# _LAZYFLEET_DIFF_LINES lines: D shows all of it); fails when the branch has
+# no base (the default branch), for the caller's plain log. Commits only (base...HEAD):
 # a diff with the working tree can rewrite the index, which the preview, run
 # all the time, must never do (git status above it shows what is uncommitted).
 _lazyfleet_diff_preview() {
@@ -621,9 +622,23 @@ _lazyfleet_diff_preview() {
   _lazyfleet_diffbase $repo $br || return 1; base=$REPLY
   n=$(git -C $p rev-list --count $base..HEAD 2>/dev/null) || return 1
   (( n == 1 )) && n='1 commit' || n="$n commits"
-  print -r -- $'\e[1m'"$n since $base"$'\e[0m  \e[2m(D shows the diff)\e[0m'
+  print -r -- $'\e[1m'"$n since $base"$'\e[0m  \e[2m(D: the diff in your pager)\e[0m'
   git -C $p log --oneline --color=always -n 15 $base..HEAD
   git -C $p --no-optional-locks diff --color=always --stat=72 --stat-count=12 $base...HEAD 2>/dev/null
+  _lazyfleet_diff_head $p $base
+  return 0
+}
+
+# Print the first _LAZYFLEET_DIFF_LINES lines of the diff of worktree $1's
+# commits since $2, and say when there is more
+typeset -g _LAZYFLEET_DIFF_LINES=400
+_lazyfleet_diff_head() {
+  local -a lines
+  lines=("${(@f)$(git -C $1 --no-optional-locks diff --color=always $2...HEAD 2>/dev/null | head -n $(( _LAZYFLEET_DIFF_LINES + 1 )))}")
+  [[ -n $lines[1] ]] || return 0
+  print
+  print -rl -- "${(@)lines[1,_LAZYFLEET_DIFF_LINES]}"
+  (( $#lines > _LAZYFLEET_DIFF_LINES )) && print -r -- $'\e[2m… more: D shows all of it\e[0m'
   return 0
 }
 

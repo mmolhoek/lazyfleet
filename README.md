@@ -56,8 +56,9 @@ quits. You need `zsh`, `git`, `tmux` and fzf 0.66 or newer; `lazyfleet doctor` c
 | `✻!` · `✻✓` · `✻…` | an agent that waits for you · has finished · is working |
 
 The Details pane on the right shows the session's windows, the containers, the pull request with its title and
-checks, the stack, `git status`, and the branch's own commits with the files they change: since the branch below it
-when it is stacked, else since the default branch. `D` shows that diff in full, in git's pager.
+checks, the stack, `git status`, and the branch's own commits with the files they change and their diff: since the
+branch below it when it is stacked, else since the default branch (scroll it with the mouse or shift-↑/↓). `D`
+shows the whole diff, uncommitted changes too, in git's pager.
 
 ## The Windows view
 

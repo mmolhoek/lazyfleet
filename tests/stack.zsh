@@ -536,7 +536,13 @@ assert_contains 'preview: with the branch'"'"'s own commit' 'd2.txt: from d2' $R
 check 'preview: not its parent'"'"'s' eval '[[ $REPLY != *"d1.txt: from d1"* ]]'
 assert_contains 'preview: the files it changes' 'd2.txt' $REPLY
 check 'preview: none of the parent'"'"'s' eval '[[ $REPLY != *" d1.txt "* ]]'
-assert_contains 'preview: and points at D' '(D shows the diff)' $REPLY
+assert_contains 'preview: and points at D' '(D: the diff in your pager)' $REPLY
+assert_contains 'preview: with the diff under it' '+from d2' $REPLY
+check 'preview: the diff is the branch'"'"'s own' eval '[[ $REPLY != *"+from d1"* ]]'
+check 'preview: a diff that fits says no more' eval '[[ $REPLY != *"… more"* ]]'
+plain "$(_LAZYFLEET_DIFF_LINES=3 _lazyfleet_diff_preview $W/d2)"
+assert_contains 'preview: a longer diff is cut, and says so' '… more: D shows all of it' $REPLY
+check 'preview: after that many lines' eval '[[ $REPLY != *"+from d2"* ]]'
 check 'preview: the default branch has none (the plain log instead)' not _lazyfleet_diff_preview $repo
 plain "$(_lazyfleet_preview_worktree $W/d2)"
 assert_contains 'preview: part of the worktree preview' '1 commit since d1' $REPLY
