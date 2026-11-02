@@ -20,25 +20,48 @@ typeset -g _LAZYFLEET_PR_JQ='.[] | [.head.ref, (.number|tostring), .state, ((.dr
 typeset -g _LAZYFLEET_PR_JQ_CHECKS='[.check_runs[] | .status + "/" + (.conclusion // "-")] | join(" ")'
 typeset -g _LAZYFLEET_PR_JQ_STATUS='"\(.total_count) \(.state)"'
 
-# REPLY=owner/name of repo $1's GitHub origin; fails for any other host
+# REPLY=the host that ssh really connects to for host $1, as the ssh config
+# says (Host github-work, HostName github.com): asked of ssh -G, which reads
+# the config and connects to nothing. Remembered for the rest of the process.
+# Fails without ssh, and for a host that is no plain name (never an option).
+typeset -gA _LAZYFLEET_SSHHOST
+_lazyfleet_sshhost() {
+  local out
+  [[ $1 == [A-Za-z0-9_]* && $1 != *[^A-Za-z0-9._-]* ]] || return 1
+  if (( ! ${+_LAZYFLEET_SSHHOST[$1]} )); then
+    (( $+commands[ssh] )) || return 1
+    out=$(command ssh -G $1 </dev/null 2>/dev/null)
+    _LAZYFLEET_SSHHOST[$1]=${${(M)${(f)out}:#hostname *}#hostname }
+  fi
+  REPLY=$_LAZYFLEET_SSHHOST[$1]
+  [[ -n $REPLY ]]
+}
+
+# REPLY=owner/name of repo $1's GitHub origin (an ssh alias of github.com
+# too); fails for any other host
 _lazyfleet_ghslug() {
   emulate -L zsh
   setopt extended_glob
-  local u h rest
+  local u h rest ssh=
   u=$(git -C $1 remote get-url origin 2>/dev/null) || return 1
   u=${u%/}; u=${u%.git}
   if [[ $u == *://* ]]; then
+    [[ $u == ssh://* ]] && ssh=1
     u=${u#*://}                  # scheme://[user[:pass]@]host[:port]/owner/name
     h=${u%%/*}; rest=${u#*/}
     [[ $u == */* ]] || return 1
     h=${h##*@}; h=${h%%:*}
   elif [[ $u == *:* && $u != /* ]]; then
     h=${u%%:*}; rest=${u#*:}     # [user@]host:owner/name
-    h=${h##*@}
+    h=${h##*@}; ssh=1
   else
     return 1
   fi
-  [[ ${h:l} == (www.|)github.com ]] || return 1
+  # an ssh host can be an alias (Host github-work, HostName github.com)
+  if [[ ${h:l} != (www.|ssh.|)github.com ]]; then
+    [[ -n $ssh ]] && _lazyfleet_sshhost $h || return 1
+    [[ ${REPLY:l} == (ssh.|)github.com ]] || return 1
+  fi
   [[ $rest == [A-Za-z0-9_.-]##/[A-Za-z0-9_.-]## ]] || return 1
   [[ ${rest%%/*} != (.|..) && ${rest##*/} != (.|..) ]] || return 1
   REPLY=$rest
