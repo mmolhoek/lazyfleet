@@ -2,18 +2,19 @@
 # Loaded by lazyfleet.zsh, in that order; not meant to be sourced on its own.
 
 # keys that type into the find input instead while it's shown
-typeset -g _LAZYFLEET_LETTERS='j,k,n,N,d,p,P,e,g,o,O,s,r,a,w,c,C,R,q,/'
+typeset -g _LAZYFLEET_LETTERS='j,k,n,N,d,p,P,e,g,o,O,s,r,a,w,c,C,R,q,/,?'
 typeset -g _LAZYFLEET_FOOTER_WT=$'↵ open  (n)ew worktree  (a)dd project
 (d)elete  (p)ull  (P)ush  (e)ditor  (g) lazygit
 (o)pen PR  (O) new PR
 (N)ew on this  (s)tack on  (r)estack
 (w)indows  ⇥ windows  / find
 (c) project config  (C) global settings
-(R)eload  (q)uit'
+(R)eload  (q)uit  (?) all keys and marks'
 typeset -g _LAZYFLEET_FOOTER_WIN=$'↵ switch  (d) kill
 ⇥ worktrees  / find
 (r)eload  (q)uit
-(C) global settings'
+(C) global settings
+(?) all keys and marks'
 # list/Details split: the Windows view is mostly preview
 typeset -g _LAZYFLEET_PW='right,50%' _LAZYFLEET_PW_WIN='right,70%'
 
@@ -75,7 +76,7 @@ _lazyfleet_ui_binds() {
   # Query changes emitted by a transform are ignored by fzf, so the
   # view-switching keys reset the input with directly chained actions.
   local reset="+clear-query+hide-input+rebind($_LAZYFLEET_LETTERS)"
-  for k in / n N d p P e g o O s r a c C R q; do reply+=(--bind "${k}:transform:$bin _key {1} {2}"); done
+  for k in / n N d p P e g o O s r a c C R q '?'; do reply+=(--bind "${k}:transform:$bin _key {1} {2}"); done
   for k in enter tab esc w; do reply+=(--bind "${k}:transform($bin _key {1} {2})$reset"); done
   reply+=(--bind "load:transform:$bin _loaded")
 }
@@ -166,7 +167,7 @@ _lazyfleet_key() {
     # r restacks a worktree's stack; in the Windows view it reloads, like R
     (r) _lazyfleet_key_label
         if [[ $REPLY == Windows ]]; then _lazyfleet_key_view $1 $2; else _lazyfleet_key_row $1 $2; fi ;;
-    (/|esc|q|tab|w|a|c|C|R) _lazyfleet_key_view $1 $2 ;;
+    (/|esc|q|tab|w|a|c|C|R|'?') _lazyfleet_key_view $1 $2 ;;
     (*) _lazyfleet_key_row $1 $2 ;;
   esac
 }
@@ -201,6 +202,9 @@ _lazyfleet_key_view() {
       if [[ $kind == w && -n $p ]]; then print -r -- "execute($bin config {2})+$rl"
       else print -r -- "execute($bin config)+$rl"; fi ;;
     (C) print -r -- "execute($bin config)+$rl" ;;
+    # every key and mark, explained, starting with this view's
+    ('?') if [[ $lbl == Windows ]]; then print -r -- "execute($bin _ui_keys t)"
+          else print -r -- "execute($bin _ui_keys w)"; fi ;;
     (r|R) print -r -- "$rl+change-footer($foot)" ;;
     (tab)
       case $lbl in

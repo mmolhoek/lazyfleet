@@ -31,6 +31,7 @@ _lazyfleet_help() {
   lazyfleet prune [-n] [-y] [--keep-branches] [--no-fetch] [-r repo | --all]
                                  remove worktrees whose branch is merged (-n: only list them)
   lazyfleet windows              open the TUI on all tmux windows (enter switches)
+  lazyfleet keys                 every key of the TUI and every mark on a row, explained (? in the TUI)
   lazyfleet config [repo]        edit the settings, or a repo's copy=/setup= file, in $EDITOR
   lazyfleet status               tmux status segment: sessions whose agent waits (!) or is done (✓)
   lazyfleet hooks [install|uninstall|status]

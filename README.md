@@ -139,7 +139,9 @@ no other tool is needed.
 - **Push:** `P` (or `lazyfleet push`) pushes the whole stack to `origin` in one go, bottom up, and sets each
   branch's upstream. It refuses while a branch needs a restack. After a restack origin refuses the rewritten
   branches; `P` then asks to force-push with lease (`lazyfleet push --force`), which still refuses to drop commits
-  on origin that you have not fetched.
+  on origin that you have not fetched. Afterwards it checks the stack's open pull requests (with `gh`, when the pull
+  request marks are on) and offers to move any whose base is not the branch below it; without a terminal it
+  prints the `gh pr edit` commands instead. So `P` on a stack that is already pushed lines its pull requests up.
 - **Pull requests:** `O` on a stacked branch opens GitHub's page for a pull request onto its parent, so each one
   shows only its own commits. When the bottom one is merged and its branch deleted, GitHub moves the next pull
   request onto `main`; `r` then moves the branch there too, and `P` pushes it.
@@ -155,6 +157,7 @@ lazyfleet only rebases when you ask (`r` or `restack`). The parent is kept in th
 ```sh
 lazyfleet                      the TUI
 lazyfleet windows              the TUI on all tmux windows
+lazyfleet keys                 every key and mark of the TUI, explained (? in the TUI)
 lazyfleet add [path]           register a repo
 lazyfleet forget [repo]        unregister a repo (its files are kept)
 lazyfleet repos                list registered repos
@@ -183,6 +186,9 @@ A worktree can be named by its path, its branch (`feat/x`), its session (`app/fe
 `new` reuses a local branch first, then `origin/<branch>`, and otherwise creates the branch from `-b base` (default
 `origin/HEAD`, then `HEAD`). New worktrees go to `~/.lazyfleet/worktrees/<repo>/<branch, with / as ->` (see [Settings](#settings)).
 
+In the TUI, `?` lists every key and every mark with what it does (type to search); `lazyfleet keys` prints the
+same in your terminal.
+
 <details>
 <summary><b>Keys in the TUI</b></summary>
 
@@ -204,6 +210,7 @@ A worktree can be named by its path, its branch (`feat/x`), its session (`app/fe
 | `c` · `C`   | edit the project config · the global settings                      | global settings    |
 | `/` · `esc` | fuzzy filter (type a repo name to narrow the list) · leave filter  |                    |
 | `R` · `q`   | reload · quit                                                      | `r` · `R` reload   |
+| `?`         | every key and mark, explained                                      | the same           |
 
 `e` and `g` start the tool in a window of the worktree's own session (creating the session when needed) and switch
 to it; pressing the key again shows that window instead of starting a second one. `o` uses the pull request data

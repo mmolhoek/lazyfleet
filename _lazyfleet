@@ -13,6 +13,7 @@ local -a cmds=(
   'stack:show, change or restack a stack of branches'
   'prune:remove worktrees whose branch is merged'
   'windows:switch between tmux windows'
+  'keys:explain every key and mark of the TUI'
   'config:edit settings, or a repo'"'"'s config file'
   'update:look for a newer release now'
   'status:tmux status segment for agents that need you'

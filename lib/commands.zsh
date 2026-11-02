@@ -389,6 +389,8 @@ _lazyfleet_pull() {
 # with it the rest of its stack (lib/stack.zsh), in one atomic push; -f (or
 # --force): with lease, as needed after a restack. A push origin refuses
 # asks to force on a terminal (-i: it is one, as in the TUI), else fails.
+# Then the stack's open pull requests whose base is off are listed (and on a
+# terminal fixed, if you say so).
 _lazyfleet_push() {
   local -a o_f o_i brs
   zparseopts -D -E -F f=o_f -force=o_f i=o_i || return 1
@@ -398,13 +400,15 @@ _lazyfleet_push() {
   repo=$reply[1]
   _lazyfleet_push_branches $repo $reply[2] || return 1
   brs=($reply)
-  _lazyfleet_push_run $repo ${o_f:+-f} $brs && return 0
-  [[ -z $o_f && $REPLY == refused ]] || return 1
-  if [[ -z $ask ]]; then
-    _lazyfleet_err "use --force to push with lease (after a restack, say)"; return 1
+  if ! _lazyfleet_push_run $repo ${o_f:+-f} $brs; then
+    [[ -z $o_f && $REPLY == refused ]] || return 1
+    [[ -n $ask ]] || { _lazyfleet_err "use --force to push with lease (after a restack, say)"; return 1 }
+    _lazyfleet_ask "Force-push with lease? (it refuses to drop commits on origin you have not fetched)" || return 1
+    _lazyfleet_push_run $repo -f $brs || return 1
   fi
-  _lazyfleet_ask "Force-push with lease? (it refuses to drop commits on origin you have not fetched)" || return 1
-  _lazyfleet_push_run $repo -f $brs
+  # with pull request marks on: the pull requests' bases follow the stack
+  _lazyfleet_pr_enabled && _lazyfleet_ghslug $repo && _lazyfleet_stack_fixbases $repo $REPLY "$ask" $brs
+  return 0
 }
 
 # reply=(the branches to push for branch $2 of repo $1, bottom up): its

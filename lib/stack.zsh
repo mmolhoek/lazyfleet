@@ -541,6 +541,76 @@ _lazyfleet_stack_restack() {
   done
 }
 
+# --- the bases of pull requests --------------------------------------------------
+
+# _lazyfleet_stack_misbased want... -- pr...
+# want: "branch<TAB>parent", pr: "branch<TAB>number<TAB>base" (open pull
+# requests). reply=("number<TAB>branch<TAB>base<TAB>parent" ...): each pull
+# request of a stacked branch whose base is not the branch's parent.
+_lazyfleet_stack_misbased() {
+  local e b n base
+  local -A want
+  while (( $# )) && [[ $1 != -- ]]; do want[${1%%$'\t'*}]=${1#*$'\t'}; shift; done
+  (( $# )) && shift
+  reply=()
+  for e in "$@"; do
+    b=${e%%$'\t'*}; e=${e#*$'\t'}; n=${e%%$'\t'*}; base=${e#*$'\t'}
+    [[ -n $want[$b] && $want[$b] != "$base" && $n == <1-> ]] &&
+      reply+=("$n"$'\t'"$b"$'\t'"$base"$'\t'"$want[$b]")
+  done
+  return 0
+}
+
+# reply=("branch<TAB>number<TAB>base" ...): the open pull requests of GitHub
+# repo $1 (owner/name) from its own branches, at most 100. What GitHub says is
+# data: control characters go.
+_lazyfleet_stack_prbases() {
+  local out line
+  local -a f
+  out=$(gh api "repos/$1/pulls?state=open&per_page=100" \
+    --jq '.[] | [.head.ref, (.head.repo.full_name // ""), (.number|tostring), .base.ref] | @tsv' 2>/dev/null) || return 1
+  reply=()
+  for line in ${(f)out}; do
+    f=("${(@ps:\t:)line}")
+    (( $#f == 4 )) && [[ ${f[2]:l} == ${1:l} ]] || continue
+    reply+=("${f[1]//[[:cntrl:]]/}"$'\t'"${f[3]//[^0-9]/}"$'\t'"${f[4]//[[:cntrl:]]/}")
+  done
+  return 0
+}
+
+# _lazyfleet_stack_fixbases repo owner/name ask branch...
+# Line the open pull requests of the branches up with their stack: list the
+# ones whose base is not the branch's parent, then (ask non-empty) offer to
+# change their base, or else say how. Never fails: the push is done.
+_lazyfleet_stack_fixbases() {
+  local repo=$1 slug=$2 ask=$3 b e t=$'\t'  # ($'\t' isn't expanded inside a subscript)
+  local -a want entries bad f
+  shift 3
+  _lazyfleet_stack_load $repo; entries=($reply)
+  for b in "$@"; do
+    e=${entries[(r)${(b)b}$t*]}
+    [[ -n $e ]] && want+=("$b$t${${e#*$t}%%$t*}")
+  done
+  (( $#want )) || return 0
+  _lazyfleet_stack_prbases $slug || { print -ru2 -- "lazyfleet: could not check the bases of the pull requests (gh)"; return 0 }
+  _lazyfleet_stack_misbased $want -- $reply; bad=($reply)
+  (( $#bad )) || return 0
+  print -ru2 -- "lazyfleet: these pull requests are not onto the branch below them in the stack:"
+  for e in $bad; do f=("${(@ps:\t:)e}"); print -ru2 -- "   #$f[1] $f[2]: onto $f[3], should be onto $f[4]"; done
+  if [[ -z $ask ]]; then
+    for e in $bad; do f=("${(@ps:\t:)e}"); print -ru2 -- "   gh pr edit $f[1] --base $f[4]"; done
+    return 0
+  fi
+  _lazyfleet_ask "Change their base?" || return 0
+  for e in $bad; do
+    f=("${(@ps:\t:)e}")
+    _lazyfleet_step "Moving #$f[1] onto $f[4]"
+    gh api -X PATCH "repos/$slug/pulls/$f[1]" -f base=$f[4] >/dev/null 2>&1
+    _lazyfleet_done
+  done
+  return 0
+}
+
 # --- the stack command --------------------------------------------------------
 
 # lazyfleet stack [show|on <parent>|off|restack] [worktree]

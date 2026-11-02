@@ -604,6 +604,63 @@ assert_contains 'O: and says to push the stack' 'r1, which r2 is stacked on, is 
 git -C $repo branch feat/x-y main; git -C $repo branch 'feat/z' feat/x-y; _lazyfleet_stack_link $repo feat/z feat/x-y
 git -C $repo update-ref refs/remotes/origin/feat/x-y feat/x-y
 _lazyfleet_newpr_base $repo feat/z; assert_eq 'O: names with a slash' 'feat/x-y...feat/z' $REPLY
+
+# --- the bases of pull requests
+_lazyfleet_stack_misbased "p2${T}p1" "p3${T}p2" -- "p2${T}12${T}main" "p3${T}13${T}p2" "zz${T}14${T}main" "p2${T}x${T}main"
+assert_eq 'misbased: only one onto the wrong branch (a bad number is no pull request)' "12${T}p2${T}main${T}p1" "${(j:|:)reply}"
+_lazyfleet_stack_misbased --; assert_eq 'misbased: nothing to check' 0 $#reply
+# a stand-in gh: answers $GH_PRS (as the --jq gives it), logs every call
+gh() {
+  print -r -- "$*" >>$SANDBOX/gh.log
+  [[ $1 == api && $2 == -X ]] && return 0
+  [[ -n $GH_FAIL ]] && return 1
+  print -r -- $GH_PRS
+}
+GH_PRS="p2${T}me/app${T}12${T}main"$'\n'"p3${T}me/app${T}13${T}p2"$'\n'"p1${T}fork/app${T}14${T}dev"$'\n'"odd${T}ME/APP${T}15${T}ma"$'\e'"in"
+_lazyfleet_stack_prbases me/app
+assert_eq 'prbases: the repo'"'"'s own, any case; no forks; no control characters' "p2${T}12${T}main|p3${T}13${T}p2|odd${T}15${T}main" "${(j:|:)reply}"
+: >$SANDBOX/gh.log
+out=$(_lazyfleet_stack_fixbases $repo me/app '' p1 p2 p3 2>&1); rc=$?
+assert_eq 'bases: works' 0 $rc
+assert_contains 'bases: names the one that is off' '#12 p2: onto main, should be onto p1' $out
+check 'bases: not the ones that are right' eval '[[ $out != *"#13"* ]]'
+assert_contains 'bases: without a terminal, how to fix it' 'gh pr edit 12 --base p1' $out
+check 'bases: and changes nothing' not gq -- '-X PATCH' $SANDBOX/gh.log
+: >$SANDBOX/gh.log
+out=$(key=y _lazyfleet_stack_fixbases $repo me/app 1 p1 p2 p3 2>&1)
+assert_contains 'bases: on a terminal, it asks' 'Change their base?' $out
+assert_contains 'bases: yes moves it' 'Moving #12 onto p1… done' $out
+check 'bases: through the API' gq -F 'api -X PATCH repos/me/app/pulls/12 -f base=p1' $SANDBOX/gh.log
+: >$SANDBOX/gh.log
+out=$(key=n _lazyfleet_stack_fixbases $repo me/app 1 p1 p2 p3 2>&1)
+check 'bases: no changes nothing' not gq -- '-X PATCH' $SANDBOX/gh.log
+out=$(GH_FAIL=1 _lazyfleet_stack_fixbases $repo me/app 1 p1 p2 p3 2>&1); rc=$?
+assert_eq 'bases: gh failing does not fail it' 0 $rc
+assert_contains 'bases: but says so' 'could not check the bases of the pull requests (gh)' $out
+out=$(GH_PRS="p2${T}me/app${T}12${T}p1" _lazyfleet_stack_fixbases $repo me/app 1 p1 p2 p3 2>&1)
+assert_eq 'bases: all right, nothing said' '' $out
+: >$SANDBOX/gh.log
+out=$(_lazyfleet_stack_fixbases $repo me/app 1 plain 2>&1)
+check 'bases: a branch outside a stack does not ask GitHub' eval '[[ ! -s $SANDBOX/gh.log ]]'
+
+# --- after P: a GitHub origin (that pushes to the local one), pull request marks on
+git -C $repo fetch -q origin
+git -C $repo remote set-url origin https://github.com/me/app.git
+git -C $repo remote set-url --push origin $SANDBOX/origin.git
+mkdir -p $SANDBOX/ghbin && print '#!/bin/sh' >$SANDBOX/ghbin/gh && chmod +x $SANDBOX/ghbin/gh
+path=($SANDBOX/ghbin $path); rehash
+: >$SANDBOX/gh.log
+out=$(LAZYFLEET_PR_STATUS=on _lazyfleet_push -f $W/p2 2>&1); rc=$?
+assert_eq 'push: works' 0 $rc
+assert_contains 'push: then lists the pull request that is off' '#12 p2: onto main, should be onto p1' $out
+assert_contains 'push: with how to fix it' 'gh pr edit 12 --base p1' $out
+: >$SANDBOX/gh.log
+out=$(LAZYFLEET_PR_STATUS=off _lazyfleet_push $W/p2 2>&1)
+check 'push: with pull request marks off, it does not ask GitHub' eval '[[ ! -s $SANDBOX/gh.log ]]'
+git -C $repo config --unset remote.origin.pushurl
+git -C $repo remote set-url origin $SANDBOX/origin.git
+path=(${path:#$SANDBOX/ghbin}); rehash
+unfunction gh
 unfunction _lazyfleet_readkey; source $ROOT/lib/core.zsh
 
 # ============================================================================
