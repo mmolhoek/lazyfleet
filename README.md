@@ -121,7 +121,10 @@ A big change reviews better as a chain of small branches, each built on the one 
 no other tool is needed.
 
 - **Start one:** `s` on a row (or `lazyfleet new <branch> --on <parent>`) makes a worktree whose branch starts from
-  the row's branch and is stacked on it. `S` stacks an existing branch on another one, or unstacks it
+  the row's branch and is stacked on it. When the row's branch is stacked on nothing itself (the bottom of a new
+  stack), `s` asks whether to stack that one on the default branch too: yes for a feature branch, so `r` keeps the
+  whole stack on the latest `main`; no for `develop` or a release branch, which must not be rebased onto it.
+  `S` stacks an existing branch on another one, or unstacks it
   (`lazyfleet stack on <parent>` / `off`).
 - **See it:** stacked rows show `▲2/3`, and the Details pane draws the whole stack. `⟲` means the branch's parent
   has moved on since the branch was based on it (an amended commit, a review fix, a pull of `main`).

@@ -410,7 +410,9 @@ _lazyfleet_ui_newon() {
   _lazyfleet_stack_here $1 || { _lazyfleet_pause; return 1 }
   repo=$reply[1] par=$reply[2]
   _lazyfleet_branches $repo | _lazyfleet_pick "New worktree stacked on $par" 'branch> ' || return 1
-  REPLY=$(_lazyfleet_new -q --no-open -r $repo --on $par $REPLY) || { _lazyfleet_pause; return 1 }
+  local br=$REPLY
+  _lazyfleet_stack_offer_root $repo $par
+  REPLY=$(_lazyfleet_new -q --no-open -r $repo --on $par $br) || { _lazyfleet_pause; return 1 }
 }
 
 # Pick what the branch of worktree $1 is stacked on: one of the repo's
@@ -422,8 +424,12 @@ _lazyfleet_ui_stackon() {
   repo=$reply[1] br=$reply[2]
   heads=(${${(f)"$(git -C $repo for-each-ref --sort=-committerdate --format='%(refname)' refs/heads)"}#refs/heads/})
   print -rl -- $none ${heads:#$br} | _lazyfleet_pick "Stack $br on" 'parent> ' || return 0
-  if [[ $REPLY == $none ]]; then _lazyfleet_stack_unlink $repo $br || _lazyfleet_pause
-  else _lazyfleet_stack_link $repo $br $REPLY || _lazyfleet_pause; fi
+  local par=$REPLY
+  if [[ $par == $none ]]; then _lazyfleet_stack_unlink $repo $br || _lazyfleet_pause
+  else
+    _lazyfleet_stack_link $repo $br $par || { _lazyfleet_pause; return 0 }
+    _lazyfleet_stack_offer_root $repo $par
+  fi
 }
 
 _lazyfleet_ui_restack() { _lazyfleet_stack_restack -i $1 || _lazyfleet_pause }
