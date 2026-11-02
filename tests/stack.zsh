@@ -728,7 +728,7 @@ for key in N s P; do
 done
 check 'N, s, r and P are typed into the filter, not run, while it is shown' \
   eval '[[ $_LAZYFLEET_LETTERS == *,N,* && $_LAZYFLEET_LETTERS == *,s,* && $_LAZYFLEET_LETTERS == *,r,* && $_LAZYFLEET_LETTERS == *,P,* ]]'
-check 'the footer names them' eval '[[ $_LAZYFLEET_FOOTER_WT == *"(N)ew on this"* && $_LAZYFLEET_FOOTER_WT == *"(s)tack on"* && $_LAZYFLEET_FOOTER_WT == *"(r)estack"* && $_LAZYFLEET_FOOTER_WT == *"(P)ush"* ]]'
+check 'the footer names them' eval '[[ $_LAZYFLEET_FOOTER_WT == *"(N)ew stacked on this"* && $_LAZYFLEET_FOOTER_WT == *"(s)tack on"* && $_LAZYFLEET_FOOTER_WT == *"(r)estack"* && $_LAZYFLEET_FOOTER_WT == *"(P)ush"* ]]'
 check 'and reload under R' eval '[[ $_LAZYFLEET_FOOTER_WT == *"(R)eload"* && $_LAZYFLEET_FOOTER_WT != *"(r)eload"* ]]'
 check 'the windows footer keeps (r)eload' eval '[[ $_LAZYFLEET_FOOTER_WIN == *"(r)eload"* ]]'
 check 'the windows footer does not' eval '[[ $_LAZYFLEET_FOOTER_WIN != *restack* ]]'

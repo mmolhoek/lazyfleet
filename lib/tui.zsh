@@ -6,7 +6,7 @@ typeset -g _LAZYFLEET_LETTERS='j,k,n,N,d,p,P,e,g,o,O,s,r,a,w,c,C,R,q,/,?'
 typeset -g _LAZYFLEET_FOOTER_WT=$'↵ open  (n)ew worktree  (a)dd project
 (d)elete  (p)ull  (P)ush  (e)ditor  (g) lazygit
 (o)pen PR  (O) new PR
-(N)ew on this  (s)tack on  (r)estack
+(N)ew stacked on this  (s)tack on  (r)estack
 (w)indows  ⇥ windows  / find
 (c) project config  (C) global settings
 (R)eload  (q)uit  (?) all keys and marks'
