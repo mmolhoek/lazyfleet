@@ -385,6 +385,73 @@ _lazyfleet_pull() {
   _lazyfleet_done || { print -ru2 -- $out; return 1 }
 }
 
+# lazyfleet push [worktree] [-f] — push the worktree's branch to origin, and
+# with it the rest of its stack (lib/stack.zsh), in one atomic push; -f (or
+# --force): with lease, as needed after a restack. A push origin refuses
+# asks to force on a terminal (-i: it is one, as in the TUI), else fails.
+_lazyfleet_push() {
+  local -a o_f o_i brs
+  zparseopts -D -E -F f=o_f -force=o_f i=o_i || return 1
+  local repo ask=${o_i:+1}
+  [[ -t 0 && -t 1 ]] && ask=1
+  _lazyfleet_stack_here "$1" || return 1
+  repo=$reply[1]
+  _lazyfleet_push_branches $repo $reply[2] || return 1
+  brs=($reply)
+  _lazyfleet_push_run $repo ${o_f:+-f} $brs && return 0
+  [[ -z $o_f && $REPLY == refused ]] || return 1
+  if [[ -z $ask ]]; then
+    _lazyfleet_err "use --force to push with lease (after a restack, say)"; return 1
+  fi
+  _lazyfleet_ask "Force-push with lease? (it refuses to drop commits on origin you have not fetched)" || return 1
+  _lazyfleet_push_run $repo -f $brs
+}
+
+# reply=(the branches to push for branch $2 of repo $1, bottom up): its
+# whole stack, with the branch the stack sits on unless that is the default
+# branch; just the branch when it is no part of a stack, or is the default
+# branch. Fails when one of them needs a restack: pushed now, its pull request
+# would show the wrong commits.
+_lazyfleet_push_branches() {
+  local repo=$1 br=$2 top base= trunk b e t=$'\t'  # ($'\t' isn't expanded inside a subscript)
+  local -a entries list
+  _lazyfleet_stack_load $repo; entries=($reply)
+  _lazyfleet_stack_trunk $repo; trunk=$REPLY
+  if _lazyfleet_stack_chain $br $entries; then top=$reply[1] base=$REPLY; else top=$br; fi
+  if [[ $top == "$trunk" ]]; then reply=($top); return 0; fi
+  _lazyfleet_stack_below $top $entries
+  list=($top $reply)
+  [[ -n $base && $base != "$trunk" ]] && list=($base $list)
+  for b in $list; do
+    e=${entries[(r)${(b)b}$t*]}
+    [[ -z $e || ${e##*$t} == 0 ]] && continue
+    _lazyfleet_err "$b needs a restack first (r, or lazyfleet stack restack)"
+    return 1
+  done
+  reply=($list)
+}
+
+# _lazyfleet_push_run repo [-f] branch... — one atomic push of the branches to
+# origin, setting their upstream; -f with lease. Fails with REPLY=refused when
+# origin refused a branch (its history changed, or origin has new commits).
+_lazyfleet_push_run() {
+  local repo=$1 out
+  local -a lease
+  shift
+  [[ $1 == -f ]] && { lease=(--force-with-lease); shift }
+  REPLY=
+  _lazyfleet_step "Pushing ${(j:, :)@}${lease:+ (force with lease)}"
+  out=$(git -C $repo push -q --atomic -u $lease origin "$@" 2>&1) && { print -u2 done; return 0 }
+  if [[ -z $lease && $out == *'[rejected]'* ]]; then
+    # only which branches, and why: git's hints (git pull) are no help after a restack
+    REPLY=refused; print -u2 refused
+    print -rl -u2 -- ${(M)${(f)out}:#*\[rejected\]*}
+  else
+    print -u2 failed; print -ru2 -- $out
+  fi
+  return 1
+}
+
 # REPLY=dir of the TUI's background pulls: a file per worktree being pulled
 # (its path with / as %), and <that>.err with the output of a failed one
 _lazyfleet_pulldir() {

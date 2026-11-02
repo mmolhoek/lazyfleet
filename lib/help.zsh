@@ -21,6 +21,8 @@ _lazyfleet_help() {
                                  remove a worktree (-f: even if dirty, locked or with agents running,
                                  -D: delete its local branch too)
   lazyfleet pull [worktree]      fast-forward a worktree to its upstream
+  lazyfleet push [worktree] [-f] push its branch to origin, with the rest of its stack
+                                 (-f: force with lease, after a restack)
   lazyfleet stack [show | on <parent> | off | restack] [worktree]
                                  stacked branches: show the stack, stack the branch on a parent
                                  (new --on does that for a new one), unstack it, or rebase the

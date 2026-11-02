@@ -123,12 +123,12 @@ no other tool is needed.
   (`lazyfleet stack on <parent>` / `off`).
 - **See it:** stacked rows show `▲2/3`, and the Details pane draws the whole stack. `⟲` means the branch's parent
   has moved on since the branch was based on it (an amended commit, a review fix, a pull of `main`).
-- **Restack:** `S` (or `lazyfleet stack restack`) rebases every branch of the stack onto its parent, from the bottom
+- **Restack:** `r` (or `lazyfleet stack restack`) rebases every branch of the stack onto its parent, from the bottom
   up, each in its own worktree. A worktree with uncommitted changes stops it before anything is rebased.
 - **Conflicts:** when a rebase stops on a conflict, lazyfleet opens [lazygit](https://github.com/jesseduffield/lazygit)
   in that worktree, when it is installed: resolve the conflicts there (pick hunks, or `e` for your editor), let it
   continue the rebase, and quit. lazyfleet then carries on with the rest of the stack. Quit with conflicts left and
-  the rebase waits for you: the row shows the branch and `⟲`, and `S` opens lazygit again. Resolved but not
+  the rebase waits for you: the row shows the branch and `⟲`, and `r` opens lazygit again. Resolved but not
   continued, lazyfleet continues it; aborted in lazygit, the restack stops and the branch is as it was.
 - **Without lazygit**, lazyfleet lists the files in conflict itself, each one's conflict in the preview. `e` (or
   `enter`) opens a file in `$VISUAL` / `$EDITOR`; once you save it without conflict markers it is marked resolved,
@@ -136,11 +136,18 @@ no other tool is needed.
   later commit). `a` aborts the rebase (it asks), `esc` leaves it for later.
 - **Without a terminal** (a script), `restack` stops instead; resolve and `git add` the files, and `restack`
   continues the rebase.
+- **Push:** `P` (or `lazyfleet push`) pushes the whole stack to `origin` in one go, bottom up, and sets each
+  branch's upstream. It refuses while a branch needs a restack. After a restack origin refuses the rewritten
+  branches; `P` then asks to force-push with lease (`lazyfleet push --force`), which still refuses to drop commits
+  on origin that you have not fetched.
+- **Pull requests:** `O` on a stacked branch opens GitHub's page for a pull request onto its parent, so each one
+  shows only its own commits. When the bottom one is merged and its branch deleted, GitHub moves the next pull
+  request onto `main`; `r` then moves the branch there too, and `P` pushes it.
 - **Merging:** when the bottom branch is merged and deleted (by `lazyfleet prune`, say), the branch above it shows
   `⟲` with "parent gone"; restack moves it onto the default branch, keeping only its own commits, so squash merges
   work too.
 
-lazyfleet only rebases when you ask (`S` or `restack`). The parent is kept in the repo's git config
+lazyfleet only rebases when you ask (`r` or `restack`). The parent is kept in the repo's git config
 (`branch.<name>.lazyfleetParent`), which git renames along with the branch and deletes along with it.
 
 ## Commands
@@ -159,6 +166,7 @@ lazyfleet rm [worktree] [-f] [-D]
                                remove a worktree; -f: even if dirty, locked or with agents running,
                                -D: delete its local branch too
 lazyfleet pull [worktree]      fast-forward to its upstream (git pull --ff-only)
+lazyfleet push [worktree] [-f] push its branch, with the rest of its stack (-f: force with lease)
 lazyfleet stack [show | on <parent> | off | restack] [worktree]
                                show a stack, stack a branch on a parent, unstack it, or restack
 lazyfleet prune [-n] [-y] [--keep-branches] [--no-fetch] [-r repo | --all]
@@ -187,14 +195,15 @@ A worktree can be named by its path, its branch (`feat/x`), its session (`app/fe
 | `e`         | open the worktree in `$VISUAL` / `$EDITOR` (a window named `edit`)  |                    |
 | `g`         | open lazygit in the worktree (a window named `lazygit`)            |                    |
 | `o`         | open the worktree's pull request in the browser                    |                    |
-| `O`         | open GitHub's page for a new pull request                          |                    |
+| `O`         | open GitHub's page for a new pull request (onto its parent when stacked) |              |
 | `N`         | new worktree stacked on this row's branch                          |                    |
-| `s` · `S`   | pick the branch this one is stacked on (or none) · restack its stack |                  |
+| `s` · `r`   | pick the branch this one is stacked on (or none) · restack its stack |                    |
+| `P`         | push the branch, with the rest of its stack; refused, asks to force with lease |          |
 | `a`         | add repo: pick one found under your project dirs, or type a path   | add repo           |
 | `tab` · `w` | switch between Worktrees and Windows · Windows view                | back to Worktrees  |
 | `c` · `C`   | edit the project config · the global settings                      | global settings    |
 | `/` · `esc` | fuzzy filter (type a repo name to narrow the list) · leave filter  |                    |
-| `r` · `q`   | reload · quit                                                      |                    |
+| `R` · `q`   | reload · quit                                                      | `r` · `R` reload   |
 
 `e` and `g` start the tool in a window of the worktree's own session (creating the session when needed) and switch
 to it; pressing the key again shows that window instead of starting a second one. `o` uses the pull request data

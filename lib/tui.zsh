@@ -2,14 +2,14 @@
 # Loaded by lazyfleet.zsh, in that order; not meant to be sourced on its own.
 
 # keys that type into the find input instead while it's shown
-typeset -g _LAZYFLEET_LETTERS='j,k,n,N,d,p,e,g,o,O,s,S,r,a,w,c,C,R,q,/'
+typeset -g _LAZYFLEET_LETTERS='j,k,n,N,d,p,P,e,g,o,O,s,r,a,w,c,C,R,q,/'
 typeset -g _LAZYFLEET_FOOTER_WT=$'↵ open  (n)ew worktree  (a)dd project
-(d)elete  (p)ull  (e)ditor  (g) lazygit
+(d)elete  (p)ull  (P)ush  (e)ditor  (g) lazygit
 (o)pen PR  (O) new PR
-(N)ew on this  (s)tack on  (S) restack
+(N)ew on this  (s)tack on  (r)estack
 (w)indows  ⇥ windows  / find
 (c) project config  (C) global settings
-(r)eload  (q)uit'
+(R)eload  (q)uit'
 typeset -g _LAZYFLEET_FOOTER_WIN=$'↵ switch  (d) kill
 ⇥ worktrees  / find
 (r)eload  (q)uit
@@ -75,7 +75,7 @@ _lazyfleet_ui_binds() {
   # Query changes emitted by a transform are ignored by fzf, so the
   # view-switching keys reset the input with directly chained actions.
   local reset="+clear-query+hide-input+rebind($_LAZYFLEET_LETTERS)"
-  for k in / n N d p e g o O s S r a c C R q; do reply+=(--bind "${k}:transform:$bin _key {1} {2}"); done
+  for k in / n N d p P e g o O s r a c C R q; do reply+=(--bind "${k}:transform:$bin _key {1} {2}"); done
   for k in enter tab esc w; do reply+=(--bind "${k}:transform($bin _key {1} {2})$reset"); done
   reply+=(--bind "load:transform:$bin _loaded")
 }
@@ -163,7 +163,10 @@ _lazyfleet_loaded() {
 _lazyfleet_key() {
   _lazyfleet_footers
   case $FZF_KEY in
-    (/|esc|q|tab|w|a|c|C|r|R) _lazyfleet_key_view $1 $2 ;;
+    # r restacks a worktree's stack; in the Windows view it reloads, like R
+    (r) _lazyfleet_key_label
+        if [[ $REPLY == Windows ]]; then _lazyfleet_key_view $1 $2; else _lazyfleet_key_row $1 $2; fi ;;
+    (/|esc|q|tab|w|a|c|C|R) _lazyfleet_key_view $1 $2 ;;
     (*) _lazyfleet_key_row $1 $2 ;;
   esac
 }
@@ -237,7 +240,9 @@ _lazyfleet_key_row() {
     # stacks (lib/stack.zsh): a new worktree on this one, its parent, restack
     (N) print -r -- "become(printf '%s\\n' newon {2})" ;;
     (s) print -r -- "execute($bin _ui_stackon {2})+$rl" ;;
-    (S) print -r -- "execute($bin _ui_restack {2})+$rl" ;;
+    (r) print -r -- "execute($bin _ui_restack {2})+$rl" ;;
+    # push the branch (and the rest of its stack); refused, it asks to force
+    (P) print -r -- "execute($bin _ui_push {2})+$rl" ;;
     (p)
       # in the background when fzf listens: the row shows ⟳ until it's done
       if [[ -n $FZF_SOCK ]]; then print -r -- "execute-silent($bin _ui_pull {2})+$rl"
@@ -358,10 +363,24 @@ _lazyfleet_newpr() {
   [[ $br != ${def#origin/} ]] ||
     { _lazyfleet_err "$br is the default branch: there is nothing to open a pull request from"; return 1 }
   git -C $repo show-ref --verify -q "refs/remotes/origin/$br" ||
-    { _lazyfleet_err "$br is not on origin yet: run 'git push -u origin $br' first"; return 1 }
-  _lazyfleet_urlencode $br
+    { _lazyfleet_err "$br is not on origin yet: push it first (P)"; return 1 }
+  _lazyfleet_newpr_base $repo $br || return 1
   url="https://github.com/$slug/compare/$REPLY?expand=1"
   _lazyfleet_browser $url
+}
+
+# REPLY=the compare part of the new pull request link for branch $2 of repo
+# $1: the branch, or for a stacked one (lib/stack.zsh) parent...branch, so
+# the pull request goes onto its parent and shows only its own commits
+_lazyfleet_newpr_base() {
+  local par head
+  _lazyfleet_urlencode $2; head=$REPLY
+  par=$(git -C $1 config --get branch.$2.lazyfleetParent 2>/dev/null)
+  [[ -n $par ]] || { REPLY=$head; return 0 }
+  git -C $1 show-ref --verify -q "refs/remotes/origin/$par" ||
+    { _lazyfleet_err "$par, which $2 is stacked on, is not on origin yet: push the stack first (P)"; return 1 }
+  _lazyfleet_urlencode $par
+  REPLY=$REPLY...$head
 }
 
 _lazyfleet_ui_newpr() { _lazyfleet_newpr "$@" || _lazyfleet_pause }
@@ -402,6 +421,8 @@ _lazyfleet_ui_stackon() {
 }
 
 _lazyfleet_ui_restack() { _lazyfleet_stack_restack -i $1 || _lazyfleet_pause }
+
+_lazyfleet_ui_push() { _lazyfleet_push -i $1 || _lazyfleet_pause }
 
 _lazyfleet_ui_add() {
   _lazyfleet_findrepos | _lazyfleet_pick 'Add repo' 'repo> ' || return 0
@@ -450,7 +471,7 @@ _lazyfleet_pulled() {
   _lazyfleet_pulldir || return
   local -a errs=($REPLY/*.err(N))
   (( $#errs )) && print -rn -- "execute($bin _ui_pullfail)+"
-  FZF_KEY=r _lazyfleet_key
+  FZF_KEY=R _lazyfleet_key
 }
 
 _lazyfleet_ui_pullfail() {

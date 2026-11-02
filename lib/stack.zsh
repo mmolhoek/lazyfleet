@@ -324,7 +324,7 @@ _lazyfleet_stack_upstream() {
 _lazyfleet_stack_stopped() {
   print -ru2 -- "lazyfleet: the rebase of $1 stopped on a conflict in ${2/#$HOME/~}."
   print -ru2 -- "  Resolve the files there and git add them, then restack again: it continues the rebase."
-  print -ru2 -- "  (In lazyfleet, S lists the files and opens each in your editor.)"
+  print -ru2 -- "  (In lazyfleet, r opens them for you to resolve.)"
 }
 
 # --- resolving a conflict ------------------------------------------------------
@@ -398,7 +398,7 @@ _lazyfleet_stack_onterm() {
 
 # Say that the rebase of branch $1 is left in worktree $2, and how to go on
 _lazyfleet_stack_left() {
-  print -ru2 -- "lazyfleet: the rebase of $1 is left in ${2/#$HOME/~}: press S (or restack) to go on with it"
+  print -ru2 -- "lazyfleet: the rebase of $1 is left in ${2/#$HOME/~}: press r (or restack) to go on with it"
 }
 
 # Continue the rebase of branch $1 in worktree $2 (git's message for each
@@ -474,7 +474,7 @@ _lazyfleet_stack_pickfile() {
   [[ -n $note ]] && head=$'\e[33m'${note//[[:cntrl:]]/ }$'\e[0m\n'$head
   out=$(print -rl -- "$@" | LAZYFLEET_RWT=$wt fzf --ansi --layout reverse --style full --no-sort --no-input \
     --list-label " Conflicts · $br " --preview-label ' Conflict ' --header $head \
-    --footer $'↵ / e  edit the file (saved without markers: resolved)\na  abort the rebase   esc  later (S goes on)' \
+    --footer $'↵ / e  edit the file (saved without markers: resolved)\na  abort the rebase   esc  later (r goes on)' \
     --with-shell "${commands[zsh]:-/bin/zsh} -c" \
     --preview 'git -C "$LAZYFLEET_RWT" -c color.diff=always diff -- {}' --preview-window right,60% \
     --pointer '▌' --gutter ' ' --expect a,e --bind 'j:down,k:up')
@@ -596,7 +596,7 @@ _lazyfleet_stack_print() {
   head=$'\e[1mStack\e[0m'
   _lazyfleet_stack_pos $br "$trunk" $entries && head+="  $REPLY"
   _lazyfleet_stack_tree $br $entries || return 1
-  [[ ${(F)reply} == *⟲* ]] && head+=$'  \e[2m(S or lazyfleet stack restack)\e[0m'
+  [[ ${(F)reply} == *⟲* ]] && head+=$'  \e[2m(r or lazyfleet stack restack)\e[0m'
   print -r -- $head
   print -rl -- $reply
 }
@@ -612,7 +612,7 @@ _lazyfleet_stack_preview() {
   print -r -- $out
   _lazyfleet_stack_rebasing $1 || return 0
   _lazyfleet_stack_unmerged $1
-  (( $#reply )) && print -r -- $'   \e[33m'"$#reply file(s) in conflict: S resolves them"$'\e[0m'
+  (( $#reply )) && print -r -- $'   \e[33m'"$#reply file(s) in conflict: r resolves them"$'\e[0m'
   return 0
 }
 

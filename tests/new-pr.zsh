@@ -60,7 +60,7 @@ check 'the URL is a single argument' eval 'test "$(seen | wc -l | tr -d " ")" = 
 # --- refusals
 w5=$(mkwt feat/local)
 run $w5
-check 'a branch that is not on origin is refused' eval 'test $rc = 1 && gq "not on origin yet" <<<$out && gq "git push -u origin feat/local" <<<$out'
+check 'a branch that is not on origin is refused' eval 'test $rc = 1 && gq "not on origin yet" <<<$out && gq "push it first (P)" <<<$out'
 check 'and opens nothing' test ! -e $BROWSER_LOG
 run $repo
 check 'the default branch is refused' eval 'test $rc = 1 && gq "is the default branch" <<<$out && test ! -e $BROWSER_LOG'
