@@ -389,26 +389,76 @@ _lazyfleet_pull() {
 # with it the rest of its stack (lib/stack.zsh), in one atomic push; -f (or
 # --force): with lease, as needed after a restack. A push origin refuses
 # asks to force on a terminal (-i: it is one, as in the TUI), else fails.
-# Then the stack's open pull requests whose base is off are listed (and on a
-# terminal fixed, if you say so).
+# A forced push never drops a change origin has that the branches lack
+# (_lazyfleet_push_forced). Then the stack's open pull requests whose base is
+# off are listed (and on a terminal fixed, if you say so).
 _lazyfleet_push() {
   local -a o_f o_i brs
   zparseopts -D -E -F f=o_f -force=o_f i=o_i || return 1
-  local repo ask=${o_i:+1}
+  local repo ask=${o_i:+1} force=${o_f:+1}
   [[ -t 0 && -t 1 ]] && ask=1
   _lazyfleet_stack_here "$1" || return 1
   repo=$reply[1]
   _lazyfleet_push_branches $repo $reply[2] || return 1
   brs=($reply)
-  if ! _lazyfleet_push_run $repo ${o_f:+-f} $brs; then
-    [[ -z $o_f && $REPLY == refused ]] || return 1
+  if [[ -z $force ]] && ! _lazyfleet_push_run $repo $brs; then
+    [[ $REPLY == refused ]] || return 1
     [[ -n $ask ]] || { _lazyfleet_err "use --force to push with lease (after a restack, say)"; return 1 }
-    _lazyfleet_ask "Force-push with lease? (it refuses to drop commits on origin you have not fetched)" || return 1
-    _lazyfleet_push_run $repo -f $brs || return 1
+    _lazyfleet_ask "Force-push with lease? (it never drops changes on origin that these branches lack)" || return 1
+    force=1
   fi
+  if [[ -n $force ]]; then _lazyfleet_push_forced $repo $brs || return 1; fi
   # with pull request marks on: the pull requests' bases follow the stack
   _lazyfleet_pr_enabled && _lazyfleet_ghslug $repo && _lazyfleet_stack_fixbases $repo $REPLY "$ask" $brs
   return 0
+}
+
+# A forced push (with lease) of repo $1's branches $2...: never one that drops
+# a change origin has and they lack. The lease alone does not see that once
+# origin was fetched (restack fetches), so each branch is compared with
+# origin's first. When origin changed since the last fetch (GitHub rebased
+# the stack after a merge), fetch, compare again, and push once more.
+_lazyfleet_push_forced() {
+  local repo=$1
+  shift
+  _lazyfleet_push_lost $repo "$@" || return 1
+  _lazyfleet_push_run $repo -f "$@" && return 0
+  [[ $REPLY == stale ]] || return 1
+  _lazyfleet_step "Fetching from origin"
+  git -C $repo fetch -q --prune origin 2>/dev/null
+  _lazyfleet_done || return 1
+  _lazyfleet_push_lost $repo "$@" || return 1
+  print -ru2 -- "lazyfleet: origin only has the same changes, rewritten (GitHub rebased the stack?): pushing yours"
+  _lazyfleet_push_run $repo -f "$@"
+}
+
+# Fail, listing them, when origin's copy of a branch of repo $1 ($2...) has a
+# change of its own that the local branch lacks, as far as this repo knows
+# origin. Its own: the commits above its parent on origin (or above origin's
+# default branch), so that an amended parent's old commit does not count.
+# Compared by change (git cherry), not by commit: commits that were only
+# rewritten (rebased) are no loss.
+_lazyfleet_push_lost() {
+  local repo=$1 b c par trunk= limit
+  local -a lost
+  shift
+  _lazyfleet_stack_trunk $repo && trunk=$REPLY
+  for b in "$@"; do
+    git -C $repo show-ref -q --verify refs/remotes/origin/$b || continue
+    par=$(git -C $repo config --get branch.$b.lazyfleetParent 2>/dev/null)
+    limit=
+    for c in "$par" "$trunk"; do
+      [[ -n $c ]] && git -C $repo show-ref -q --verify refs/remotes/origin/$c && { limit=refs/remotes/origin/$c; break }
+    done
+    for c in ${(M)${(f)"$(git -C $repo cherry refs/heads/$b refs/remotes/origin/$b $limit 2>/dev/null)"}:#+*}; do
+      lost+=("$b: $(git -C $repo log -1 --format='%h %s' ${c#+ } 2>/dev/null)")
+    done
+  done
+  (( $#lost )) || return 0
+  print -ru2 -- "lazyfleet: origin has changes these branches do not; a forced push would drop them:"
+  print -rl -u2 -- "   "${^lost}
+  print -ru2 -- "  Get them first (lazygit, or git pull --rebase in that worktree), then push again."
+  return 1
 }
 
 # reply=(the branches to push for branch $2 of repo $1, bottom up): its
@@ -446,7 +496,9 @@ _lazyfleet_push_run() {
   REPLY=
   _lazyfleet_step "Pushing ${(j:, :)@}${lease:+ (force with lease)}"
   out=$(git -C $repo push -q --atomic -u $lease origin "$@" 2>&1) && { print -u2 done; return 0 }
-  if [[ -z $lease && $out == *'[rejected]'* ]]; then
+  if [[ -n $lease && $out == *'(stale info)'* ]]; then
+    REPLY=stale; print -u2 'origin has changed'
+  elif [[ -z $lease && $out == *'[rejected]'* ]]; then
     # only which branches, and why: git's hints (git pull) are no help after a restack
     REPLY=refused; print -u2 refused
     print -rl -u2 -- ${(M)${(f)out}:#*\[rejected\]*}

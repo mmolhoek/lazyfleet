@@ -147,16 +147,21 @@ no other tool is needed.
   continues the rebase.
 - **Push:** `P` (or `lazyfleet push`) pushes the whole stack to `origin` in one go, bottom up, and sets each
   branch's upstream. It refuses while a branch needs a restack. After a restack origin refuses the rewritten
-  branches; `P` then asks to force-push with lease (`lazyfleet push --force`), which still refuses to drop commits
-  on origin that you have not fetched. Afterwards it checks the stack's open pull requests (with `gh`, when the pull
+  branches; `P` then asks to force-push with lease (`lazyfleet push --force`). A forced push never drops a change
+  that origin has and your branch lacks: it compares each branch with origin's first (by change, so commits that
+  were only rewritten, as GitHub does when it rebases a stack, are no loss), lists what it would drop, and stops.
+  When origin changed since the last fetch, it fetches and compares again by itself. Afterwards it checks the stack's open pull requests (with `gh`, when the pull
   request marks are on) and offers to move any whose base is not the branch below it; without a terminal it
   prints the `gh pr edit` commands instead. So `P` on a stack that is already pushed lines its pull requests up.
 - **Pull requests:** `O` on a stacked branch opens GitHub's page for a pull request onto its parent, so each one
   shows only its own commits. When the bottom one is merged and its branch deleted, GitHub moves the next pull
   request onto `main`; `r` then moves the branch there too, and `P` pushes it.
-- **Merging:** when the bottom branch is merged and deleted (by `lazyfleet prune`, say), the branch above it shows
-  `⟲` with "parent gone"; restack moves it onto the default branch, keeping only its own commits, so squash merges
-  work too.
+- **Merging:** `r` first fetches from origin (offline it goes on without) and brings `main` up to date when that
+  is a plain fast-forward. A branch merged on GitHub (its pull request merged at the commit the branch is at, or
+  gone from origin with its change in `main`) is left as it is, for `lazyfleet prune`, and the branch above it moves
+  onto `main` with only its own commits, so squash merges work too. GitHub's own stacks (Preview stack, Create
+  stack) work alongside: after GitHub merges a layer and rebases the rest itself, `r` then `P` (answering yes to
+  force) puts your branches back on origin, and the pull requests' bases are left as GitHub moved them.
 
 lazyfleet only rebases when you ask (`r` or `restack`). The parent is kept in the repo's git config
 (`branch.<name>.lazyfleetParent`), which git renames along with the branch and deletes along with it.
