@@ -2,7 +2,7 @@
 # Loaded by lazyfleet.zsh, in that order; not meant to be sourced on its own.
 
 # keys that type into the find input instead while it's shown
-typeset -g _LAZYFLEET_LETTERS='j,k,n,d,D,p,P,e,g,o,O,s,S,r,a,w,c,C,R,q,/,?'
+typeset -g _LAZYFLEET_LETTERS='j,k,n,d,D,p,P,e,g,o,O,s,S,r,a,w,c,C,R,q,u,/,?'
 typeset -g _LAZYFLEET_FOOTER_WT=$'↵ open  (n)ew worktree  (a)dd project
 (d)elete  (p)ull  (P)ush  (e)ditor  (g) lazygit
 (o)pen PR  (O) new PR  (D)iff
@@ -76,7 +76,7 @@ _lazyfleet_ui_binds() {
   # Query changes emitted by a transform are ignored by fzf, so the
   # view-switching keys reset the input with directly chained actions.
   local reset="+clear-query+hide-input+rebind($_LAZYFLEET_LETTERS)"
-  for k in / n d D p P e g o O s S r a c C R q '?'; do reply+=(--bind "${k}:transform:$bin _key {1} {2}"); done
+  for k in / n d D p P e g o O s S r a c C R q u '?'; do reply+=(--bind "${k}:transform:$bin _key {1} {2}"); done
   for k in enter tab esc w; do reply+=(--bind "${k}:transform($bin _key {1} {2})$reset"); done
   reply+=(--bind "load:transform:$bin _loaded")
 }
@@ -119,6 +119,8 @@ _lazyfleet_ui_act() {
       _lazyfleet_open_path $sel ;;
     (edit|lazygit) _lazyfleet_handoff $what $it || _lazyfleet_pause ;;
     (window) view=windows; _lazyfleet_open_window $it || _lazyfleet_pause ;;
+    # returns only when it did not restart lazyfleet: the list again
+    (update) _lazyfleet_ui_update; reply=('' "$it"); return 2 ;;
     (*) rm -f $LAZYFLEET_POSFILE; reply=('' ''); return 1 ;;
   esac
   # last: what ran above may use reply itself
@@ -167,7 +169,7 @@ _lazyfleet_key() {
     # r restacks a worktree's stack; in the Windows view it reloads, like R
     (r) _lazyfleet_key_label
         if [[ $REPLY == Windows ]]; then _lazyfleet_key_view $1 $2; else _lazyfleet_key_row $1 $2; fi ;;
-    (/|esc|q|tab|w|a|c|C|R|'?') _lazyfleet_key_view $1 $2 ;;
+    (/|esc|q|tab|w|a|c|C|R|u|'?') _lazyfleet_key_view $1 $2 ;;
     (*) _lazyfleet_key_row $1 $2 ;;
   esac
 }
@@ -202,6 +204,8 @@ _lazyfleet_key_view() {
       if [[ $kind == w && -n $p ]]; then print -r -- "execute($bin config {2})+$rl"
       else print -r -- "execute($bin config)+$rl"; fi ;;
     (C) print -r -- "execute($bin config)+$rl" ;;
+    # update lazyfleet (or look for one now), then restart it
+    (u) print -r -- "become(printf '%s\\n' update {2})" ;;
     # every key and mark, explained, starting with this view's
     ('?') if [[ $lbl == Windows ]]; then print -r -- "execute($bin _ui_keys t)"
           else print -r -- "execute($bin _ui_keys w)"; fi ;;

@@ -278,7 +278,7 @@ check 'completion offers --install' gq -- "--install" $ROOT/_lazyfleet
 reset 0.1.0
 check 'the version line is the version' eval '_lazyfleet_version_line && test "$REPLY" = "lazyfleet v0.1.0"'
 reset 0.1.0; seed $EPOCHSECONDS v0.2.0
-check 'the version line names an update' eval '_lazyfleet_version_line && test "$REPLY" = "lazyfleet v0.1.0 · update available: v0.2.0"'
+check 'the version line names an update' eval '_lazyfleet_version_line && test "$REPLY" = "lazyfleet v0.1.0 · (u)pdate available: v0.2.0"'
 reset 0.1.0; seed $EPOCHSECONDS v0.2.0; LAZYFLEET_UPDATE_CHECK=off
 check 'the version line stays quiet about updates when they are off' eval '_lazyfleet_version_line && test "$REPLY" = "lazyfleet v0.1.0"'
 unset LAZYFLEET_UPDATE_CHECK
@@ -318,7 +318,7 @@ check 'without a version the footers are untouched' gq -x ok-none <<<$res
 
 reset 0.1.0; seed $EPOCHSECONDS v0.2.0
 keys=$( FZF_KEY=tab FZF_LIST_LABEL=" Worktrees " _lazyfleet_key w $SANDBOX/none 2>&1 )
-check 'the key handler uses the footers with the version' eval 'tr "\n" " " <<<$keys | gq "change-footer(.*lazyfleet v0.1.0 · update available: v0.2.0)"'
+check 'the key handler uses the footers with the version' eval 'tr "\n" " " <<<$keys | gq "change-footer(.*lazyfleet v0.1.0 · (u)pdate available: v0.2.0)"'
 
 # the TUI start: a stub fzf records its arguments
 cat >$SANDBOX/stub/fzf <<'STUB'
@@ -331,7 +331,7 @@ rehash
 export FZF_ARGS=$SANDBOX/fzf.args
 reset 0.1.0; seed $EPOCHSECONDS v0.2.0; rm -f $FZF_ARGS
 ( export LAZYFLEET_TMUX="tmux -L lf-update-test" TMUX_TMPDIR=$SANDBOX; unset TMUX; _lazyfleet_ui </dev/null >/dev/null 2>&1 )
-check 'the TUI footer carries the version and the update' eval 'gq "lazyfleet v0.1.0 · update available: v0.2.0" $FZF_ARGS'
+check 'the TUI footer carries the version and the update' eval 'gq "lazyfleet v0.1.0 · (u)pdate available: v0.2.0" $FZF_ARGS'
 check 'the TUI title points out the update' eval 'gq -x " lazyfleet · v0.2.0 available " $FZF_ARGS'
 reset; rm -f $FZF_ARGS
 ( export LAZYFLEET_TMUX="tmux -L lf-update-test" TMUX_TMPDIR=$SANDBOX; unset TMUX; _lazyfleet_ui </dev/null >/dev/null 2>&1 )
@@ -352,5 +352,35 @@ reset; check 'a checkout says its version is unknown' eval '_lazyfleet_main vers
 reset 0.1.0; _lazyfleet_main version >/dev/null; sleep 0.2
 check 'showing the version never uses the network' test "$(calls)" = 0
 check 'completion offers version' gq "'version:" $ROOT/_lazyfleet
+
+# --- u in the TUI: install, then restart into the new version
+# stand-ins: the update moves VERSION to $NEWV (when set), and the restart and
+# the key to press are noted instead of done
+( 
+  ver=0.1.0
+  _lazyfleet_version() { REPLY=$ver }
+  _lazyfleet_update() { print -r -- "update $*"; [[ -n $NEWV ]] && ver=$NEWV; return 0 }
+  _lazyfleet_restart() { print -r -- restarted; exit 0 }
+  _lazyfleet_pause() { print -r -- paused }
+  out=$(NEWV=0.2.0 _lazyfleet_ui_update)
+  [[ $out == *'update --install'* && $out == *'Starting lazyfleet v0.2.0…'* && $out == *restarted* && $out != *paused* ]]
+) && ok 'u: installs, then restarts into the new version' || fail 'u: installs, then restarts into the new version'
+(
+  ver=0.1.0
+  _lazyfleet_version() { REPLY=$ver }
+  _lazyfleet_update() { print -r -- "lazyfleet v0.1.0 is up to date."; return 0 }
+  _lazyfleet_restart() { print -r -- restarted }
+  _lazyfleet_pause() { print -r -- paused }
+  out=$(_lazyfleet_ui_update); rc=$?
+  [[ $rc == 1 && $out == *'up to date'* && $out == *paused* && $out != *restarted* ]]
+) && ok 'u: nothing new: says so, waits for a key, no restart' || fail 'u: nothing new: says so, waits for a key, no restart'
+(
+  _lazyfleet_ui_update() { print -r -- ran; return 1 }
+  _lazyfleet_ui_act $'update\n/some/path' >/dev/null; rc=$?
+  [[ $rc == 2 && $reply[2] == /some/path ]]
+) && ok 'u: without a restart the list comes back, on the same row' || fail 'u: without a restart the list comes back, on the same row'
+check 'u: the key, in the worktrees' eval '[[ $(FZF_KEY=u FZF_LIST_LABEL=" Worktrees " _lazyfleet_key w /x) == "become(printf '"'"'%s\\n'"'"' update {2})" ]]'
+check 'u: and in the windows' eval '[[ $(FZF_KEY=u FZF_LIST_LABEL=" Windows " _lazyfleet_key t "=a/b:1") == "become("*" update {2})" ]]'
+check 'u: typed into the find input while it is shown' eval '[[ ,$_LAZYFLEET_LETTERS, == *,u,* ]]'
 
 finish

@@ -30,6 +30,7 @@ typeset -ga _LAZYFLEET_KEYS=(
   $'w\t/\tfind\tShows the find input: type to narrow the list (a repo or branch name). While it is shown, letters are typed, not keys.'
   $'w\tesc\tleave find\tHides the find input again; without it, esc quits.'
   $'w\tR\treload\tReads every worktree, its status and its marks again.'
+  $'w\tu\tupdate lazyfleet\tWhen the footer says (u)pdate available, installs that release (lazyfleet update --install) and starts the new version in place of this one. Without one known yet, it looks for one now and says when this copy is up to date. A copy that was not installed by install.sh (a git checkout) says how to update it instead.'
   $'w\tq\tquit\tLeaves lazyfleet.'
   $'w\t?\tthese keys\tThis screen: every key, and what the marks on a row mean.'
   # --- the Windows view
@@ -39,6 +40,7 @@ typeset -ga _LAZYFLEET_KEYS=(
   $'t\tr\treload\tLists the tmux windows again (R does the same).'
   $'t\tC\tglobal settings\tEdits lazyfleet\'s settings (c does the same here).'
   $'t\t/\tfind\tType to narrow the list of windows.'
+  $'t\tu\tupdate lazyfleet\tThe same as in the Worktrees view: installs a newer release and restarts lazyfleet.'
   $'t\tq\tquit\tLeaves lazyfleet.'
   $'t\t?\tthese keys\tThis screen, with the Windows view\'s keys first.'
   # --- the marks on a row

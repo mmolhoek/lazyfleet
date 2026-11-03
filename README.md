@@ -226,6 +226,7 @@ same in your terminal.
 | `c` · `C`   | edit the project config · the global settings                      | global settings    |
 | `/` · `esc` | fuzzy filter (type a repo name to narrow the list) · leave filter  |                    |
 | `R` · `q`   | reload · quit                                                      | `r` · `R` reload   |
+| `u`         | install the newer release (or look for one now), then restart      | the same           |
 | `?`         | every key and mark, explained                                      | the same           |
 
 `e` and `g` start the tool in a window of the worktree's own session (creating the session when needed) and switch
@@ -344,7 +345,8 @@ For a shorter command, add `alias lzs=lazyfleet`.
 An install from the script looks for a newer release once a day, in the background (one request to github.com,
 carrying no data from lazyfleet). When there is one, the TUI's title says `lazyfleet · v1.2.3 available`, and quitting
 tells you how to update (inside tmux, as a tmux message). `lazyfleet update` looks right now, and
-`lazyfleet update --install` installs what it finds. `lazyfleet doctor` says when the check last looked. The version
+`lazyfleet update --install` installs what it finds; in the TUI, `u` does that (the footer then says "(u)pdate
+available: v1.3.0") and restarts lazyfleet into the new version. `lazyfleet doctor` says when the check last looked. The version
 is on the last line of the TUI's key help, at the top of `lazyfleet help`, and in `lazyfleet version`. A checkout,
 or an install of a branch, never checks. `update_check=off` turns the check off.
 
