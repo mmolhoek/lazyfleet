@@ -181,14 +181,36 @@ _lazyfleet_version_label() {
 }
 
 # REPLY=the version line for the TUI footers: "lazyfleet v1.2.3", followed by
-# "update available: v1.2.4" when the cache knows a newer release. Fails when
+# "(u)pdate available: v1.2.4" when the cache knows a newer release (u installs it). Fails when
 # this copy does not know its version.
+# u in the TUI: install the newer release (lazyfleet update --install), then
+# start the new version in place of this one: the TUI runs the old code,
+# while each key would run the new code from disk. Without a newer release,
+# or when this copy cannot install one, it says why and fails (the list comes
+# back).
+_lazyfleet_ui_update() {
+  local before= after=
+  _lazyfleet_version && before=$REPLY
+  _lazyfleet_update --install
+  _lazyfleet_version && after=$REPLY
+  if [[ -n $after && $after != "$before" ]]; then
+    print -r -- "Starting lazyfleet v$after…"
+    _lazyfleet_restart
+  fi
+  _lazyfleet_pause
+  return 1
+}
+
+# Replace this process with a fresh lazyfleet TUI (a function of its own, so
+# that a test can stand in for it)
+_lazyfleet_restart() { exec $LAZYFLEET_DIR/bin/lazyfleet }
+
 _lazyfleet_version_line() {
   local label tag
   _lazyfleet_version_label || return 1
   label=$REPLY
   if _lazyfleet_update_available; then
-    tag=$REPLY; REPLY="lazyfleet $label · update available: $tag"
+    tag=$REPLY; REPLY="lazyfleet $label · (u)pdate available: $tag"
   else
     REPLY="lazyfleet $label"
   fi
