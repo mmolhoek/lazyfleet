@@ -211,7 +211,7 @@ report() {
   say ""
   say "For zsh completion, add this to ~/.zshrc instead of the PATH line:"
   say "  source $INSTALL_DIR/lazyfleet.zsh"
-  say "lazyfleet looks for a newer release once a day; turn that off with update_check=off in"
+  say "lazyfleet looks for a newer release when it starts; turn that off with update_check=off in"
   # shellcheck disable=SC2088  # the ~ is for the reader, not for expanding
   say "~/.config/lazyfleet/config (or LAZYFLEET_UPDATE_CHECK=off)."
 }

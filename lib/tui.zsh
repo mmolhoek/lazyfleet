@@ -27,20 +27,18 @@ _lazyfleet_ui() {
   zparseopts -D -E w=o_w
   local bin=${(q)LAZYFLEET_DIR}/bin/lazyfleet q=$1 out view=${o_w:+windows} rows sel rc label sock
   local -a binds start
-  _lazyfleet_footers
-  _lazyfleet_ui_label; label=$REPLY
   _lazyfleet_tmpdir || return 1
   # coming back from a session, the first load puts the cursor on the row we
   # left (sel: its path or window target); this file hands that over once
   local -x LAZYFLEET_POSFILE=$REPLY/pos.$$
-  # background jobs (pull) send fzf actions here; unix socket paths are
-  # limited to 103 bytes; without it p pulls in the foreground
-  sock=$REPLY/fzf.$$.sock
-  (( $#sock < 104 )) || sock=
+  _lazyfleet_ui_sock; sock=$REPLY
   _lazyfleet_ui_binds $bin $sock; binds=($reply)
   # start on the Windows view when tmux has any (unless given a query)
   [[ -z $view && -z $q && -n $(_lazyfleet_tmux list-windows -a -F x 2>/dev/null) ]] && view=windows
   while :; do
+    # (each time: the update check may have found a release since)
+    _lazyfleet_footers
+    _lazyfleet_ui_label; label=$REPLY
     _lazyfleet_ui_start "$view" "$q"; start=($reply)
     if [[ $view == windows ]]; then rows=$(_lazyfleet_winrows); else rows=$(_lazyfleet_rows); fi
     _lazyfleet_ui_handover $rows "$sel"
@@ -64,6 +62,17 @@ _lazyfleet_ui() {
     # inside tmux the client has switched away: the TUI is done
     [[ -n $TMUX ]] && return 0
   done
+}
+
+# REPLY=the socket the TUI's fzf listens on, empty when the path would be too
+# long. Background jobs (pull, the update check) send fzf actions there;
+# without it p pulls in the foreground. Unix socket paths are limited to 103
+# bytes.
+_lazyfleet_ui_sock() {
+  _lazyfleet_tmpdir 2>/dev/null || { REPLY=; return 0 }
+  REPLY+=/fzf.$$.sock
+  (( $#REPLY < 104 )) || REPLY=
+  return 0
 }
 
 # reply=fzf's --bind (and --listen) arguments for the TUI; $1 the lazyfleet
@@ -545,24 +554,30 @@ _lazyfleet_ui_label() {
 }
 
 # Put the version line under each TUI footer. The footers are globals that the
-# TUI and its key handler (a separate process) both use, so both call this;
-# doing it twice in one process changes nothing.
-typeset -g _LAZYFLEET_FOOTERS_DONE=
+# TUI and its key handler (a separate process) both use, so both call this.
+# Called again, it puts the line there as it is now (an update found since),
+# in place of the one it put before.
+typeset -g _LAZYFLEET_FOOTERS_LINE=
 _lazyfleet_footers() {
-  [[ -n $_LAZYFLEET_FOOTERS_DONE ]] && return 0
-  _LAZYFLEET_FOOTERS_DONE=1
-  _lazyfleet_version_line || return 0
-  _LAZYFLEET_FOOTER_WT+=$'\n'$REPLY
-  _LAZYFLEET_FOOTER_WIN+=$'\n'$REPLY
+  local line=
+  _lazyfleet_version_line && line=$'\n'$REPLY
+  [[ $line == "$_LAZYFLEET_FOOTERS_LINE" ]] && return 0
+  _LAZYFLEET_FOOTER_WT=${_LAZYFLEET_FOOTER_WT%"$_LAZYFLEET_FOOTERS_LINE"}$line
+  _LAZYFLEET_FOOTER_WIN=${_LAZYFLEET_FOOTER_WIN%"$_LAZYFLEET_FOOTERS_LINE"}$line
+  _LAZYFLEET_FOOTERS_LINE=$line
 }
 
 _lazyfleet_interactive() { [[ -t 1 && -t 2 ]] }
 
-# The TUI, plus the update check when run by a person: refresh the cache before
-# it starts, and print the notice after it ends, when it would not be wiped
+# The TUI, plus the update check when run by a person: look for a newer
+# release as it starts (the answer comes to the running TUI), and print the
+# notice after it ends, when it would not be wiped
 _lazyfleet_ui_checked() {
   local rc
-  _lazyfleet_interactive && _lazyfleet_update_refresh
+  if _lazyfleet_interactive; then
+    _lazyfleet_ui_sock
+    _lazyfleet_update_refresh ${(q)LAZYFLEET_DIR}/bin/lazyfleet "$REPLY"
+  fi
   _lazyfleet_ui "$@"; rc=$?
   _lazyfleet_interactive && _lazyfleet_update_notice
   return $rc

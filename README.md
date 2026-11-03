@@ -280,7 +280,7 @@ line. The environment variable under each name wins when it is set.
 | `search_depth`<br><sub>`LAZYFLEET_SEARCH_DEPTH`</sub> | how deep `a` looks | `4` |
 | `worktrees`<br><sub>`LAZYFLEET_WORKTREES`</sub> | where new worktrees go | `~/.lazyfleet/worktrees` |
 | `status_branch`<br><sub>`LAZYFLEET_STATUS_BRANCH`</sub> | `off`: no branch in the sessions' status bar | `on` |
-| `update_check`<br><sub>`LAZYFLEET_UPDATE_CHECK`</sub> | `off`: no daily check for a new release | `on` |
+| `update_check`<br><sub>`LAZYFLEET_UPDATE_CHECK`</sub> | `off`: no check for a new release | `on` |
 | `agent_icons`<br><sub>`LAZYFLEET_AGENT_ICONS`</sub> | `off`: no `✻` `✦` `π` agent marks | `on` |
 | `agent_notify`<br><sub>`LAZYFLEET_AGENT_NOTIFY`</sub> | `off`: no tmux message when an agent needs you or is done | `on` |
 | `pr_status`<br><sub>`LAZYFLEET_PR_STATUS`</sub> | `off`: no `#42 ✓` pull request and CI marks | `on` |
@@ -343,8 +343,9 @@ For a shorter command, add `alias lzs=lazyfleet`.
 <details>
 <summary><b>Updates</b></summary>
 
-An install from the script looks for a newer release once a day, in the background (one request to github.com,
-carrying no data from lazyfleet). When there is one, the TUI's title says `lazyfleet · v1.2.3 available`, and quitting
+An install from the script looks for a newer release each time the TUI starts, in the background (one request to
+github.com, carrying no data from lazyfleet), so the TUI never waits for it. When there is one, the TUI's title says
+`lazyfleet · v1.2.3 available` (as soon as the answer comes in, while you look at the list), and quitting
 tells you how to update (inside tmux, as a tmux message). `lazyfleet update` looks right now, and
 `lazyfleet update --install` installs what it finds; in the TUI, `u` does that (the footer then says "(u)pdate
 available: v1.3.0") and restarts lazyfleet into the new version. `lazyfleet doctor` says when the check last looked. The version

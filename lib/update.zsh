@@ -1,11 +1,13 @@
-# lazyfleet: The version of this copy, and the daily check for a newer release.
+# lazyfleet: The version of this copy, and the check for a newer release.
 # Loaded by lazyfleet.zsh, in that order; not meant to be sourced on its own.
 
 # --- update check ------------------------------------------------------------
-# At most once a day, in the background, ask GitHub for the latest release and
-# cache the answer; the TUI shows what is cached, so starting it never waits
-# for the network. Only a copy that knows its version (a VERSION file, written
-# by install.sh) checks: a git checkout does not.
+# Each time the TUI starts, ask GitHub in the background for the latest
+# release and cache the answer. The TUI starts with what is cached, so it never
+# waits for the network; when the answer is a newer release than the one it
+# showed, the running TUI is told through fzf's socket, and its title and
+# footer change while you look at them. Only a copy that knows its version (a
+# VERSION file, written by install.sh) checks: a git checkout does not.
 # Turn it off with update_check=off in the config file or LAZYFLEET_UPDATE_CHECK=off.
 
 
@@ -40,15 +42,42 @@ _lazyfleet_update_fetch() {
   mkdir -p ${f:h} && tmp=$f.$$ && print -r -- "$EPOCHSECONDS $tag" >$tmp && mv -f $tmp $f
 }
 
-# Refresh the cache in the background, unless it is under a day old
+# Refresh the cache in the background. With $1 (the lazyfleet command) and $2
+# (the socket the TUI's fzf listens on), a newer release than the cache knew
+# is also shown in the TUI, once fzf listens (it may not, yet).
 _lazyfleet_update_refresh() {
-  local f stamp= tag=
+  local bin=$1 sock=$2 f had=
   _lazyfleet_update_enabled || return 0
   _lazyfleet_update_cache; f=$REPLY
-  [[ -r $f ]] && read -r stamp tag <$f
-  [[ $stamp == <-> ]] && (( EPOCHSECONDS - stamp < 86400 )) && return 0
-  ( _lazyfleet_update_fetch $f ) &>/dev/null &!
+  _lazyfleet_update_available && had=$REPLY
+  (
+    _lazyfleet_update_fetch $f
+    [[ -n $sock ]] && _lazyfleet_update_available && [[ $REPLY != "$had" ]] || exit 0
+    _lazyfleet_update_wait $sock || exit 0
+    FZF_SOCK=$sock _lazyfleet_fzfpost "transform($bin _update_shown)"
+  ) </dev/null &>/dev/null &!
   return 0
+}
+
+# Wait up to 10 s for socket $1 to appear
+_lazyfleet_update_wait() {
+  local i
+  for (( i = 0; i < 100; i++ )); do
+    [[ -S $1 ]] && return 0
+    sleep 0.1
+  done
+  return 1
+}
+
+# The TUI's fzf asks this when a newer release turned up after it started:
+# the actions that show it in the title and in the current view's footer
+_lazyfleet_update_shown() {
+  local foot
+  _lazyfleet_footers
+  _lazyfleet_ui_label; local label=$REPLY
+  _lazyfleet_key_label
+  if [[ $REPLY == Windows ]]; then foot=$_LAZYFLEET_FOOTER_WIN; else foot=$_LAZYFLEET_FOOTER_WT; fi
+  print -r -- "change-border-label($label)+change-footer($foot)"
 }
 
 # REPLY=the cached latest version (vX.Y.Z), if newer than this copy
@@ -88,7 +117,7 @@ _lazyfleet_update_notice() {
   print -ru2 -- $msg
 }
 
-# REPLY=what the daily update check last found, in words, for doctor.
+# REPLY=what the update check last found, in words, for doctor.
 # Fails when this copy does not check (no version, no curl, or turned off).
 _lazyfleet_update_status() {
   local f stamp= tag= age ago
@@ -107,7 +136,7 @@ _lazyfleet_update_status() {
 }
 
 # lazyfleet update [--install] — look for a newer release right now, in the
-# foreground, whatever the daily cache or update_check say; the answer
+# foreground, whatever update_check says; the answer
 # refreshes the cache. With --install, also install it.
 _lazyfleet_update() {
   local cur tag= stamp= f install=
