@@ -318,10 +318,71 @@ _lazyfleet_stack_landed() {
 # REPLY=what branch $2 of repo $1 goes onto: its parent $3, or the default
 # branch when the parent is gone (saying so)
 _lazyfleet_stack_onto() {
-  _lazyfleet_stack_isbranch $1 $3 && { REPLY=$3; return 0 }
+  local why=gone
+  if _lazyfleet_stack_isbranch $1 $3; then
+    _lazyfleet_stack_merged $1 $3 || { REPLY=$3; return 0 }
+    why=merged
+  fi
   _lazyfleet_stack_trunk $1 ||
-    { _lazyfleet_err "$2: its parent $3 is gone, and there is no main or master to move it onto"; return 1 }
-  print -ru2 -- "lazyfleet: $2: its parent $3 is gone, so it moves onto $REPLY"
+    { _lazyfleet_err "$2: its parent $3 is $why, and there is no main or master to move it onto"; return 1 }
+  print -ru2 -- "lazyfleet: $2: its parent $3 is $why, so it moves onto $REPLY"
+}
+
+# --- origin, and parents merged on GitHub --------------------------------------
+
+# Before a restack: bring repo $1's view of origin up to date (git fetch
+# --prune; offline, that is said and then ignored), and its default branch
+# along with it when that is a plain fast-forward
+_lazyfleet_stack_sync() {
+  git -C $1 remote get-url origin >/dev/null 2>&1 || return 0
+  if ! git -C $1 fetch -q --prune origin 2>/dev/null; then
+    print -ru2 -- "lazyfleet: could not fetch from origin; going on with what is known here"
+    return 0
+  fi
+  _lazyfleet_stack_fftrunk $1
+  return 0
+}
+
+# Fast-forward repo $1's default branch to origin's, when it is behind and has
+# nothing of its own: in the worktree that has it checked out (only when that
+# has no changes), else the branch alone. Says so when it moved.
+_lazyfleet_stack_fftrunk() {
+  local repo=$1 trunk wt e
+  _lazyfleet_stack_trunk $repo || return 0
+  trunk=$REPLY
+  git -C $repo show-ref -q --verify refs/remotes/origin/$trunk || return 0
+  [[ $(git -C $repo rev-parse refs/heads/$trunk) != $(git -C $repo rev-parse refs/remotes/origin/$trunk) ]] || return 0
+  git -C $repo merge-base --is-ancestor refs/heads/$trunk refs/remotes/origin/$trunk || return 0
+  _lazyfleet_stack_wt $repo $trunk 2>/dev/null && wt=$REPLY
+  if [[ -n $wt ]]; then
+    [[ -z $(git -C $wt status --porcelain --untracked-files=no 2>/dev/null) ]] || return 0
+    git -C $wt merge -q --ff-only refs/remotes/origin/$trunk 2>/dev/null || return 0
+  else
+    git -C $repo update-ref refs/heads/$trunk refs/remotes/origin/$trunk || return 0
+  fi
+  print -ru2 -- "lazyfleet: $trunk is brought up to date with origin"
+}
+
+# Succeed when branch $2 of repo $1 is merged: GitHub says its pull request
+# was merged at the commit the branch is at (the pull request marks' cache, as
+# prune has it); or, without GitHub, it was pushed, origin's branch is gone,
+# and each of its commits is in origin's default branch
+_lazyfleet_stack_merged() {
+  local repo=$1 br=$2 slug trunk
+  local -a f
+  local -A prs
+  if _lazyfleet_pr_enabled && _lazyfleet_ghslug $repo; then
+    slug=$REPLY
+    _lazyfleet_pr_read $slug >/dev/null 2>&1
+    f=("${(@ps:	:)prs[${slug:l}:$br]}")
+    [[ $f[2] == merged && -n $f[6] && $f[6] == $(git -C $repo rev-parse refs/heads/$br) ]] && return 0
+  fi
+  [[ $(git -C $repo config --get branch.$br.merge) == refs/heads/$br ]] || return 1
+  git -C $repo show-ref -q --verify refs/remotes/origin/$br && return 1
+  _lazyfleet_stack_trunk $repo || return 1
+  trunk=$REPLY
+  git -C $repo show-ref -q --verify refs/remotes/origin/$trunk || return 1
+  [[ -z ${(M)${(f)"$(git -C $repo cherry refs/remotes/origin/$trunk refs/heads/$br 2>/dev/null)"}:#+*} ]]
 }
 
 # _lazyfleet_stack_rebase repo branch parent rev worktree [-i]
@@ -573,7 +634,15 @@ _lazyfleet_stack_restack() {
   _lazyfleet_stack_load $repo; entries=($reply)
   _lazyfleet_stack_order $br $entries ||
     { _lazyfleet_err "$br is not part of a stack (lazyfleet stack on <parent>)"; return 1 }
-  for b in $reply; do
+  local -a order=($reply)
+  _lazyfleet_stack_sync $repo
+  _lazyfleet_stack_load $repo; entries=($reply)
+  for b in $order; do
+    # a merged branch is done: the ones on it move on (_lazyfleet_stack_onto)
+    if _lazyfleet_stack_merged $repo $b; then
+      print -ru2 -- "lazyfleet: $b is merged: left as it is (lazyfleet prune removes it)"
+      continue
+    fi
     e=${entries[(r)${(b)b}$t*]}
     f=("${(@ps:\t:)e}")
     _lazyfleet_stack_restack_one $repo $b $f[2] "$f[3]" $i || return 1
@@ -719,7 +788,11 @@ _lazyfleet_stack_fixbases() {
   _lazyfleet_stack_load $repo; entries=($reply)
   for b in "$@"; do
     e=${entries[(r)${(b)b}$t*]}
-    [[ -n $e ]] && want+=("$b$t${${e#*$t}%%$t*}")
+    [[ -n $e ]] || continue
+    e=${${e#*$t}%%$t*}
+    # (a parent merged on GitHub: GitHub moved the pull request on, not lazyfleet)
+    git -C $repo show-ref -q --verify refs/remotes/origin/$e && ! _lazyfleet_stack_merged $repo $e || continue
+    want+=("$b$t$e")
   done
   (( $#want )) || return 0
   _lazyfleet_stack_prbases $slug || { print -ru2 -- "lazyfleet: could not check the bases of the pull requests (gh)"; return 0 }

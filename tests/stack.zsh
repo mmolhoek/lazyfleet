@@ -692,14 +692,16 @@ out=$(key=y _lazyfleet_push -i $W/p3 2>&1); rc=$?
 assert_eq 'ask: nothing new pushes fine, without asking' 0 $rc
 check 'ask: no question' eval '[[ $out != *Force-push* ]]'
 
-# --- the lease: commits on origin that were not fetched are never dropped
+# --- someone else's commit on origin is never dropped: restack fetches (so the
+# lease alone would let a forced push through); the push compares first
 git clone -q $SANDBOX/origin.git $SANDBOX/other-clone 2>/dev/null
 git -C $SANDBOX/other-clone checkout -q p3 && commit $SANDBOX/other-clone theirs.txt x && git -C $SANDBOX/other-clone push -q origin p3 2>/dev/null
 theirs=$(remote p3)
 commit $W/p1 p1.txt four; _lazyfleet_stack restack $W/p1 >/dev/null 2>&1
 out=$(key=y _lazyfleet_push -i $W/p1 2>&1); rc=$?
 assert_eq 'lease: the forced push fails' 1 $rc
-assert_contains 'lease: git says why' 'stale info' $out
+assert_contains 'lease: says what it would drop' 'p3: '"${theirs[1,7]}"' theirs.txt: x' $out
+assert_contains 'lease: and how to go on' 'Get them first' $out
 assert_eq 'lease: their commit is still on origin' $theirs "$(remote p3)"
 _lazyfleet_push_run $repo plain >/dev/null 2>&1
 check 'run: a branch on its own' eval '[[ $(remote plain) == $(tip plain) ]]'
@@ -756,7 +758,9 @@ out=$(_lazyfleet_stack_fixbases $repo me/app 1 plain 2>&1)
 check 'bases: a branch outside a stack does not ask GitHub' eval '[[ ! -s $SANDBOX/gh.log ]]'
 
 # --- after P: a GitHub origin (that pushes to the local one), pull request marks on
+# (their commit taken in first, as one would)
 git -C $repo fetch -q origin
+git -C $W/p3 cherry-pick -x $theirs >/dev/null
 git -C $repo remote set-url origin https://github.com/me/app.git
 git -C $repo remote set-url --push origin $SANDBOX/origin.git
 mkdir -p $SANDBOX/ghbin && print '#!/bin/sh' >$SANDBOX/ghbin/gh && chmod +x $SANDBOX/ghbin/gh
@@ -774,6 +778,82 @@ git -C $repo remote set-url origin $SANDBOX/origin.git
 path=(${path:#$SANDBOX/ghbin}); rehash
 unfunction gh
 unfunction _lazyfleet_readkey; source $ROOT/lib/core.zsh
+
+# ============================================================================
+# after GitHub merged the bottom of a stack, and rebased the rest itself
+# ============================================================================
+
+git -C $repo stash -q -u 2>/dev/null   # (the main worktree clean: main can be brought up to date)
+gside=$SANDBOX/github-side
+_lazyfleet_new --no-open -q -r $repo g1 >/dev/null 2>&1; commit $W/g1 g1.txt one
+_lazyfleet_stack_link $repo g1 main
+_lazyfleet_new --no-open -q -r $repo --on g1 g2 >/dev/null 2>&1; commit $W/g2 g2.txt one
+_lazyfleet_new --no-open -q -r $repo --on g2 g3 >/dev/null 2>&1; commit $W/g3 g3.txt one
+out=$(_lazyfleet_push $W/g1 2>&1); rc=$?
+assert_eq 'github: the stack is pushed' 0 $rc
+# GitHub's side: squash-merge g1 into main and delete it, rebase g2 and g3 onto
+# main and force-push them (a clone of origin plays GitHub)
+git clone -q $SANDBOX/origin.git $gside 2>/dev/null
+old2=$(git -C $gside rev-parse origin/g2)
+git -C $gside checkout -q main && git -C $gside merge -q --squash origin/g1 && git -C $gside commit -q -m 'g1 (#1)'
+git -C $gside push -q origin main :g1 2>/dev/null
+git -C $gside checkout -q -b g2 origin/g2 && git -C $gside rebase -q --onto main origin/g1 g2
+git -C $gside checkout -q -b g3 origin/g3 && git -C $gside rebase -q --onto g2 $old2 g3
+git -C $gside push -q -f origin g2 g3 2>/dev/null
+
+# --- r: fetches, brings main up to date, sees g1 merged, moves g2 onto main
+out=$(_lazyfleet_stack restack $W/g2 2>&1); rc=$?
+assert_eq 'github r: works' 0 $rc
+assert_contains 'github r: brings main up to date' 'main is brought up to date with origin' $out
+assert_eq 'github r: really' "$(git -C $repo rev-parse origin/main)" "$(tip main)"
+assert_contains 'github r: leaves the merged branch alone' 'g1 is merged: left as it is (lazyfleet prune removes it)' $out
+assert_contains 'github r: sees the parent merged' 'g2: its parent g1 is merged, so it moves onto main' $out
+assert_eq 'github r: g2 is stacked on main now' main "$(cfg g2)"
+assert_eq 'github r: with only its own commit on main' 'g2.txt: one' "$(git -C $repo log --format=%s main..g2)"
+assert_eq 'github r: g3 on g2, with only its own' 'g3.txt: one' "$(git -C $repo log --format=%s g2..g3)"
+
+# --- P: refused (GitHub's g2 and g3 differ), forced; and once more after GitHub
+# rewrote g3 again since the fetch: fetched, compared, pushed
+# (dates of their own: amended within the same second, the commit would be the very same one)
+git -C $gside checkout -q g3 && GIT_COMMITTER_DATE='2001-01-01T00:00:00' git -C $gside commit -q --amend --no-edit --date='2001-01-01T00:00:00' && git -C $gside push -q -f origin g3 2>/dev/null
+_lazyfleet_readkey() { true }
+out=$(_lazyfleet_push -i $W/g2 2>&1); rc=$?
+assert_eq 'github P: works' 0 $rc
+assert_contains 'github P: origin changed since the fetch' 'origin has changed' $out
+assert_contains 'github P: only rewritten, so it pushes' 'origin only has the same changes, rewritten (GitHub rebased the stack?): pushing yours' $out
+for b in g2 g3; do assert_eq "github P: $b on origin is the local one" "$(tip $b)" "$(remote $b)"; done
+# someone pushed a real change to g3 on GitHub: never dropped
+git -C $gside checkout -q g3 && commit $gside g3.txt theirs && git -C $gside push -q -f origin g3 2>/dev/null
+commit $W/g2 g2.txt two; _lazyfleet_stack restack $W/g2 >/dev/null 2>&1
+their3=$(remote g3)
+out=$(_lazyfleet_push -i $W/g2 2>&1); rc=$?
+assert_eq 'github P: a real change on origin stops it' 1 $rc
+assert_contains 'github P: and names it' 'g3.txt: theirs' $out
+assert_eq 'github P: which stays on origin' $their3 "$(remote g3)"
+unfunction _lazyfleet_readkey; source $ROOT/lib/core.zsh
+
+# --- merged: GitHub's word (the pull request cache) at the commit the branch is at
+git -C $repo branch m1 main
+_lazyfleet_pr_enabled() { true }
+_lazyfleet_ghslug() { REPLY=me/app }
+_lazyfleet_pr_read() { prs[me/app:m1]="5${T}merged${T}${T}u${T}t${T}$PRHEAD" }
+PRHEAD=$(tip m1) _lazyfleet_stack_merged $repo m1; assert_eq 'merged: GitHub says so, at its commit' 0 $?
+PRHEAD=0123abc _lazyfleet_stack_merged $repo m1; assert_eq 'merged: not at another commit (work after the merge)' 1 $?
+unfunction _lazyfleet_pr_enabled _lazyfleet_ghslug _lazyfleet_pr_read; source $ROOT/lib/pr.zsh
+check 'merged: a branch never pushed is not' not _lazyfleet_stack_merged $repo m1
+check 'merged: one still on origin is not' not _lazyfleet_stack_merged $repo g2
+
+# --- the pull request bases leave GitHub's moves alone: a pull request whose
+# parent is merged (GitHub moved it onto main) is not put back onto that parent
+gh() { print -r -- "$*" >>$SANDBOX/gh.log; [[ $2 == -X ]] && return 0; print -r -- $GH_PRS }
+out=$(GH_PRS="g3${T}me/app${T}31${T}main" _lazyfleet_stack_fixbases $repo me/app '' g2 g3 2>&1)
+assert_contains 'bases: a parent on origin is still asked for' '#31 g3: onto main, should be onto g2' $out
+check 'github: g1 counts as merged (gone from origin, its change in main)' _lazyfleet_stack_merged $repo g1
+git -C $repo config branch.g3.lazyfleetParent g1
+out=$(GH_PRS="g3${T}me/app${T}31${T}main" _lazyfleet_stack_fixbases $repo me/app '' g3 2>&1)
+assert_eq 'bases: one onto a merged parent is left as GitHub moved it' '' $out
+_lazyfleet_stack_link $repo g3 g2
+unfunction gh
 
 # ============================================================================
 # the keys
