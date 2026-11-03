@@ -41,7 +41,7 @@ _lazyfleet_help() {
                                  keeps a backup)
   lazyfleet doctor               check that zsh, git, tmux and fzf (and gh) are there and recent enough
   lazyfleet version              show the installed version
-  lazyfleet update [--install]   look for a newer release now (otherwise once a day); --install installs it
+  lazyfleet update [--install]   look for a newer release now (the TUI looks as it starts); --install installs it
 
 .lazyfleet (repo root, key=value; indent lines to continue a value):
   setup=…  copy=file1 file2

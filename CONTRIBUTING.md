@@ -26,7 +26,7 @@ agents call.
 | `lib/split.zsh`    | the list/Details split: `<` `>`, remembered per terminal width          |
 | `lib/tui.zsh`      | the fzf driver, its keys and the prompts behind them                    |
 | `lib/keys.zsh`     | the reference of the TUI's keys and marks: `?` and `lazyfleet keys`     |
-| `lib/update.zsh`   | the version of this copy and the daily check for a new release          |
+| `lib/update.zsh`   | the version of this copy and the check for a new release at start-up   |
 | `lib/doctor.zsh`   | `lazyfleet doctor`                                                      |
 | `lib/prune.zsh`    | `lazyfleet prune`                                                       |
 

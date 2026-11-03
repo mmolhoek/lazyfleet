@@ -85,11 +85,8 @@ check 'the cache holds the latest tag' gq -E '^[0-9]+ v0\.2\.0$' $cache
 check 'refresh asks for the latest release of this repo' gq 'https://github.com/mmolhoek/lazyfleet/releases/latest' $STUB_LOG
 check 'refresh asks once' test "$(calls)" = 1
 
-reset 0.1.0; seed $EPOCHSECONDS v0.1.5; _lazyfleet_update_refresh; sleep 0.5
-check 'a cache under a day old is not refreshed' test "$(calls)" = 0
-
-reset 0.1.0; seed $(( EPOCHSECONDS - 90000 )) v0.1.5; _lazyfleet_update_refresh
-check 'a cache over a day old is refreshed' retry 'gq -E "^[0-9]+ v0\.2\.0$" $cache'
+reset 0.1.0; seed $EPOCHSECONDS v0.1.5; _lazyfleet_update_refresh
+check 'a cache of a minute ago is refreshed too: every start looks' retry 'gq -E "^[0-9]+ v0\.2\.0$" $cache'
 
 reset 0.1.0; STUB_FAIL=1; export STUB_FAIL; _lazyfleet_update_refresh
 check 'a failed lookup is cached, to not retry at once' retry '[[ -s $cache ]]'
@@ -105,6 +102,57 @@ check 'refresh writes no cache when disabled' test ! -e $cache
 
 reset 0.1.0; LAZYFLEET_RELEASES_URL=https://example.test/rel _lazyfleet_update_refresh
 check 'LAZYFLEET_RELEASES_URL changes where it looks' retry 'gq "https://example.test/rel/latest" $STUB_LOG && [[ -s $cache ]]'
+
+# --- telling the running TUI. fzf is a socket that nothing reads: the post
+# itself is logged by a stand-in for _lazyfleet_fzfpost.
+zmodload zsh/net/socket
+sock=$SANDBOX/tmp/fzf.sock POSTLOG=$SANDBOX/posts
+tell() {  # $1=the cache before (tag, or none), rest: what to set
+  rm -f $POSTLOG $sock; reset 0.1.0
+  [[ -n $1 ]] && seed $EPOCHSECONDS $1
+  shift; (( $# )) && export "$@"
+  (
+    _lazyfleet_fzfpost() { print -r -- "$FZF_SOCK $1" >>$POSTLOG }
+    _lazyfleet_update_refresh /bin/lf $sock
+  )
+}
+listen() { zsocket -l $sock && exec {REPLY}>&- }   # the socket file, as fzf makes it
+tell ''; listen
+check 'a newer release is shown in the running TUI' retry '[[ -s $POSTLOG ]]'
+posted=$(<$POSTLOG)
+assert_eq 'told through its socket, to ask for the title and footer' "$sock transform(/bin/lf _update_shown)" $posted
+tell v0.1.5; listen
+check 'also when the cache knew an older release' retry '[[ -s $POSTLOG ]]'
+tell v0.2.0; listen; retry 'gq -E "^[0-9]+ v0\.2\.0$" $cache'; sleep 0.3
+check 'not when the TUI already shows that release' test ! -e $POSTLOG
+tell '' STUB_URL=https://github.com/mmolhoek/lazyfleet/releases/tag/v0.1.0; listen; retry '[[ -s $cache ]]'; sleep 0.3
+check 'not when the latest is this version' test ! -e $POSTLOG
+tell ''; sleep 0.5; listen
+check 'it waits for fzf to listen' retry '[[ -s $POSTLOG ]]'
+rm -f $POSTLOG $sock; reset 0.1.0
+( _lazyfleet_fzfpost() { print x >>$POSTLOG }; _lazyfleet_update_refresh /bin/lf '' )
+retry '[[ -s $cache ]]'; sleep 0.3
+check 'without a socket, only the cache' test ! -e $POSTLOG
+rm -f $sock
+
+# what fzf is told to do then
+shown() {  # $1=the list label
+  ( reset 0.1.0; seed $EPOCHSECONDS v0.2.0; FZF_LIST_LABEL=" $1 " _lazyfleet_update_shown )
+}
+out=$(shown 'Worktrees · loading…')
+assert_contains 'shown: the title names the release' 'change-border-label( lazyfleet · v0.2.0 available )' $out
+assert_contains 'shown: the worktrees footer, with u' "change-footer(${_LAZYFLEET_FOOTER_WT}"$'\n'"lazyfleet v0.1.0 · (u)pdate available: v0.2.0)" $out
+out=$(shown Windows)
+assert_contains 'shown: in the windows, their footer' "change-footer(${_LAZYFLEET_FOOTER_WIN}"$'\n'"lazyfleet v0.1.0 · (u)pdate available: v0.2.0)" $out
+
+# the footers' version line can change in one process, and is never doubled
+(
+  reset 0.1.0; wt0=$_LAZYFLEET_FOOTER_WT
+  _lazyfleet_footers; _lazyfleet_footers
+  assert_eq 'footers: the line once' "$wt0"$'\n''lazyfleet v0.1.0' "$_LAZYFLEET_FOOTER_WT"
+  seed $EPOCHSECONDS v0.2.0; _lazyfleet_footers
+  assert_eq 'footers: replaced when an update turns up' "$wt0"$'\n''lazyfleet v0.1.0 · (u)pdate available: v0.2.0' "$_LAZYFLEET_FOOTER_WT"
+)
 
 # --- reading the cache
 reset 0.1.0; seed $EPOCHSECONDS v0.2.0
@@ -189,15 +237,17 @@ wiring() {  # $1=interactive (0/1), rest: lazyfleet args
   (
     typeset -a calls
     _lazyfleet_ui() { calls+=("ui${*:+ $*}"); return 3 }
-    _lazyfleet_update_refresh() { calls+=(refresh) }
+    _lazyfleet_update_refresh() { calls+=("refresh ${2:t}") }
     _lazyfleet_update_notice() { calls+=(notice) }
     _lazyfleet_interactive() { return $interactive }
     _lazyfleet_main "$@"
     print -r -- "rc=$? ${calls}"
   )
 }
-check 'the TUI refreshes before and notifies after' test "$(wiring 0)" = 'rc=3 refresh ui notice'
-check 'the windows view does too' test "$(wiring 0 windows)" = 'rc=3 refresh ui -w notice'
+# (the socket's name; none where the temp dir's path is too long for one, as on macOS)
+_lazyfleet_ui_sock; tsock=${REPLY:t}
+check 'the TUI looks as it starts, tells its fzf, and notifies after' test "$(wiring 0)" = "rc=3 refresh $tsock ui notice"
+check 'the windows view does too' test "$(wiring 0 windows)" = "rc=3 refresh $tsock ui -w notice"
 check 'the TUI keeps its exit status' eval 'wiring 0 | gq "^rc=3"'
 check 'not interactive: no check at all' test "$(wiring 1)" = 'rc=3 ui'
 reset 0.1.0

@@ -161,7 +161,7 @@ _lazyfleet_doctor() {
   _lazyfleet_doctor_install_hint tmux; _lazyfleet_doctor_need tmux $_LAZYFLEET_MIN_TMUX warn $REPLY ${=LAZYFLEET_TMUX:-tmux} -V
   _lazyfleet_doctor_install_hint fzf;  _lazyfleet_doctor_need fzf  $_LAZYFLEET_MIN_FZF  fail $REPLY fzf --version
   _lazyfleet_doctor_optional
-  # what the daily update check last found; nothing to say for a checkout
+  # what the update check last found; nothing to say for a checkout
   _lazyfleet_version && { _lazyfleet_update_status; _lazyfleet_doctor_report ok $REPLY "lazyfleet update" }
   _lazyfleet_doctor_statusline
   _lazyfleet_doctor_repos

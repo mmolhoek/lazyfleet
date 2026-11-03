@@ -576,7 +576,7 @@ _lazyfleet_config() {
 # search_depth=4
 # worktrees=~/.lazyfleet/worktrees
 # status_branch=off   (no branch in the tmux status bar of new sessions)
-# update_check=off     (don't look for a newer release once a day; LAZYFLEET_UPDATE_CHECK)
+# update_check=off     (don't look for a newer release when the TUI starts; LAZYFLEET_UPDATE_CHECK)
 # agent_icons=off      (no ✻ Claude Code / ✦ Copilot CLI / π omp marks on worktrees and windows; LAZYFLEET_AGENT_ICONS)
 # pr_status=off        (no pull request / CI marks on worktrees; LAZYFLEET_PR_STATUS)
 # trust_branch_config=on  (run setup=/copy= from a branch's own .lazyfleet even when it differs from the main worktree's; LAZYFLEET_TRUST_BRANCH_CONFIG)
