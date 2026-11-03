@@ -244,8 +244,10 @@ wiring() {  # $1=interactive (0/1), rest: lazyfleet args
     print -r -- "rc=$? ${calls}"
   )
 }
-check 'the TUI looks as it starts, tells its fzf, and notifies after' test "$(wiring 0)" = "rc=3 refresh fzf.$$.sock ui notice"
-check 'the windows view does too' test "$(wiring 0 windows)" = "rc=3 refresh fzf.$$.sock ui -w notice"
+# (the socket's name; none where the temp dir's path is too long for one, as on macOS)
+_lazyfleet_ui_sock; tsock=${REPLY:t}
+check 'the TUI looks as it starts, tells its fzf, and notifies after' test "$(wiring 0)" = "rc=3 refresh $tsock ui notice"
+check 'the windows view does too' test "$(wiring 0 windows)" = "rc=3 refresh $tsock ui -w notice"
 check 'the TUI keeps its exit status' eval 'wiring 0 | gq "^rc=3"'
 check 'not interactive: no check at all' test "$(wiring 1)" = 'rc=3 ui'
 reset 0.1.0
