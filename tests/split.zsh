@@ -39,9 +39,32 @@ check 'file: a loading label is still the worktrees' eval '[[ $(key "<" "Worktre
 
 # --- bounds
 for i in {1..20}; do key '<' Worktrees 90 >/dev/null; done
-_lazyfleet_split_get w 90; assert_eq 'bounds: no wider than 80%' 80 $REPLY
+_lazyfleet_split_get w 90; assert_eq 'bounds: no wider than 90%' 90 $REPLY
 for i in {1..20}; do key '>' Worktrees 90 >/dev/null; done
-_lazyfleet_split_get w 90; assert_eq 'bounds: no narrower than 20%' 20 $REPLY
+_lazyfleet_split_get w 90; assert_eq 'bounds: no narrower than 10%' 10 $REPLY
+
+# --- dragged with the mouse: fzf says nothing, but each key notes the split
+# (fzf gives the pane floor(width * percent / 100) columns, 4 of them border
+# and padding: measured with fzf 0.66 and 0.74)
+rm -f $f
+nkey() { FZF_KEY=$1 FZF_LIST_LABEL=" $2 " FZF_COLUMNS=$3 FZF_PREVIEW_COLUMNS=$4 _lazyfleet_key w /x }
+FZF_COLUMNS=120 FZF_PREVIEW_COLUMNS=40 _lazyfleet_split_now; assert_eq 'now: 40 of 120 columns is 37%' 37 $REPLY
+FZF_COLUMNS=87 FZF_PREVIEW_COLUMNS=56 _lazyfleet_split_now; assert_eq 'now: 56 of 87 is 69% (the smallest that gives as many)' 69 $REPLY
+FZF_COLUMNS=120 FZF_PREVIEW_COLUMNS=56 _lazyfleet_split_now; assert_eq 'now: the default 50% comes back as 50' 50 $REPLY
+check 'now: without a preview, nothing' not eval 'FZF_COLUMNS=120 FZF_PREVIEW_COLUMNS= _lazyfleet_split_now'
+nkey q Worktrees 120 40 >/dev/null
+_lazyfleet_split_get w 120; assert_eq 'mouse: q notes the split it was dragged to' 37 $REPLY
+nkey tab Windows 120 128 >/dev/null
+_lazyfleet_split_get t 120; assert_eq 'mouse: any key does, for its own view' 90 $REPLY
+print -l 'w 87 70' >$f; m0=$(<$f)
+nkey j Worktrees 87 56 >/dev/null
+m1=$(<$f)
+assert_eq 'mouse: a percent that only rounds differently is not rewritten' $m0 $m1
+nkey j Worktrees 120 56 >/dev/null
+check 'mouse: the default split is not saved for nothing' eval '[[ $(<$f) != *"w 120"* ]]'
+print -l 'w 120 50' >$f
+out=$(nkey '<' Worktrees 120 40)
+assert_eq 'mouse: < goes on from where it was dragged' 'change-preview-window(right,42%)' $out
 
 # --- a file that is not as lazyfleet writes it
 print -l 'w 130 5' 'w 131 notanumber' 'x 132 50' 'w 133 65 extra' 'w 134 65' >$f

@@ -170,6 +170,8 @@ _lazyfleet_loaded() {
 # Key dispatcher: prints fzf actions. Args: row kind, row path.
 _lazyfleet_key() {
   _lazyfleet_footers
+  # the split as it is now: fzf's mouse drag of it says nothing (lib/split.zsh)
+  _lazyfleet_split_note
   case $FZF_KEY in
     # r restacks a worktree's stack; in the Windows view it reloads, like R
     (r) _lazyfleet_key_label

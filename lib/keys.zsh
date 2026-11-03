@@ -29,7 +29,7 @@ typeset -ga _LAZYFLEET_KEYS=(
   $'w\tC\tglobal settings\tEdits lazyfleet\'s settings in $EDITOR: where to look for repos, where worktrees go, and what to switch off.'
   $'w\t/\tfind\tShows the find input: type to narrow the list (a repo or branch name). While it is shown, letters are typed, not keys.'
   $'w\tesc\tleave find\tHides the find input again; without it, esc quits.'
-  $'w\t<\tDetails wider\tMoves the divider between the list and the Details pane left, 5% at a time. Each view keeps its own split, remembered per width of the terminal, so a laptop screen and a large monitor each keep theirs; moving the terminal to the other screen brings that one back.'
+  $'w\t<\tDetails wider\tMoves the divider between the list and the Details pane left, 5% at a time. Each view keeps its own split, remembered per width of the terminal, so a laptop screen and a large monitor each keep theirs; moving the terminal to the other screen brings that one back. Dragging the border with the mouse is remembered the same way.'
   $'w\t>\tDetails narrower\tMoves the divider right, 5% at a time (remembered like <).'
   $'w\tR\treload\tReads every worktree, its status and its marks again.'
   $'w\tu\tupdate lazyfleet\tWhen the footer says (u)pdate available, installs that release (lazyfleet update --install) and starts the new version in place of this one. Without one known yet, it looks for one now and says when this copy is up to date. A copy that was not installed by install.sh (a git checkout) says how to update it instead.'
