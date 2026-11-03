@@ -814,7 +814,8 @@ assert_eq 'github r: g3 on g2, with only its own' 'g3.txt: one' "$(git -C $repo 
 
 # --- P: refused (GitHub's g2 and g3 differ), forced; and once more after GitHub
 # rewrote g3 again since the fetch: fetched, compared, pushed
-git -C $gside checkout -q g3 && git -C $gside commit -q --amend --no-edit --date=now && git -C $gside push -q -f origin g3 2>/dev/null
+# (dates of their own: amended within the same second, the commit would be the very same one)
+git -C $gside checkout -q g3 && GIT_COMMITTER_DATE='2001-01-01T00:00:00' git -C $gside commit -q --amend --no-edit --date='2001-01-01T00:00:00' && git -C $gside push -q -f origin g3 2>/dev/null
 _lazyfleet_readkey() { true }
 out=$(_lazyfleet_push -i $W/g2 2>&1); rc=$?
 assert_eq 'github P: works' 0 $rc
