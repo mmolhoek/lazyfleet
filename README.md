@@ -227,6 +227,7 @@ same in your terminal.
 | `/` · `esc` | fuzzy filter (type a repo name to narrow the list) · leave filter  |                    |
 | `R` · `q`   | reload · quit                                                      | `r` · `R` reload   |
 | `u`         | install the newer release (or look for one now), then restart      | the same           |
+| `<` · `>`   | the Details pane wider · narrower; remembered per terminal width (a laptop screen and a big monitor each keep theirs) | the same, for this view |
 | `?`         | every key and mark, explained                                      | the same           |
 
 `e` and `g` start the tool in a window of the worktree's own session (creating the session when needed) and switch

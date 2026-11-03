@@ -2,21 +2,20 @@
 # Loaded by lazyfleet.zsh, in that order; not meant to be sourced on its own.
 
 # keys that type into the find input instead while it's shown
-typeset -g _LAZYFLEET_LETTERS='j,k,n,d,D,p,P,e,g,o,O,s,S,r,a,w,c,C,R,q,u,/,?'
+typeset -g _LAZYFLEET_LETTERS='j,k,n,d,D,p,P,e,g,o,O,s,S,r,a,w,c,C,R,q,u,/,?,<,>'
 typeset -g _LAZYFLEET_FOOTER_WT=$'↵ open  (n)ew worktree  (a)dd project
 (d)elete  (p)ull  (P)ush  (e)ditor  (g) lazygit
 (o)pen PR  (O) new PR  (D)iff
 (s) new stacked on this  (S)tack on…  (r)estack
-(w)indows  ⇥ windows  / find
+(w)indows  ⇥ windows  / find  < > split
 (c) project config  (C) global settings
 (R)eload  (q)uit  (?) all keys and marks'
 typeset -g _LAZYFLEET_FOOTER_WIN=$'↵ switch  (d) kill
-⇥ worktrees  / find
+⇥ worktrees  / find  < > split
 (r)eload  (q)uit
 (C) global settings
 (?) all keys and marks'
-# list/Details split: the Windows view is mostly preview
-typeset -g _LAZYFLEET_PW='right,50%' _LAZYFLEET_PW_WIN='right,70%'
+# (the list/Details split: lib/split.zsh)
 
 # --- TUI --------------------------------------------------------------------
 
@@ -76,18 +75,24 @@ _lazyfleet_ui_binds() {
   # Query changes emitted by a transform are ignored by fzf, so the
   # view-switching keys reset the input with directly chained actions.
   local reset="+clear-query+hide-input+rebind($_LAZYFLEET_LETTERS)"
-  for k in / n d D p P e g o O s S r a c C R q u '?'; do reply+=(--bind "${k}:transform:$bin _key {1} {2}"); done
+  for k in / n d D p P e g o O s S r a c C R q u '?' '<' '>'; do reply+=(--bind "${k}:transform:$bin _key {1} {2}"); done
   for k in enter tab esc w; do reply+=(--bind "${k}:transform($bin _key {1} {2})$reset"); done
   reply+=(--bind "load:transform:$bin _loaded")
+  # back to the split saved for the new width (moved to another screen, say)
+  reply+=(--bind "resize:transform:$bin _split_resized")
 }
 
 # reply=the fzf arguments one round of the TUI starts with: view $1
 # ("windows" or empty for worktrees), and query $2 (shows the find input)
 _lazyfleet_ui_start() {
+  local w
+  _lazyfleet_split_width; w=$REPLY
   if [[ $1 == windows ]]; then
-    reply=(--list-label ' Windows ' --footer "$_LAZYFLEET_FOOTER_WIN" --preview-window $_LAZYFLEET_PW_WIN)
+    _lazyfleet_split_pw t $w
+    reply=(--list-label ' Windows ' --footer "$_LAZYFLEET_FOOTER_WIN" --preview-window $REPLY)
   else
-    reply=(--list-label ' Worktrees · loading… ' --footer "$_LAZYFLEET_FOOTER_WT" --preview-window $_LAZYFLEET_PW)
+    _lazyfleet_split_pw w $w
+    reply=(--list-label ' Worktrees · loading… ' --footer "$_LAZYFLEET_FOOTER_WT" --preview-window $REPLY)
   fi
   [[ -n $2 ]] && reply+=(--bind "start:show-input+unbind($_LAZYFLEET_LETTERS)")
 }
@@ -170,6 +175,7 @@ _lazyfleet_key() {
     (r) _lazyfleet_key_label
         if [[ $REPLY == Windows ]]; then _lazyfleet_key_view $1 $2; else _lazyfleet_key_row $1 $2; fi ;;
     (/|esc|q|tab|w|a|c|C|R|u|'?') _lazyfleet_key_view $1 $2 ;;
+    ('<'|'>') _lazyfleet_split_key ;;
     (*) _lazyfleet_key_row $1 $2 ;;
   esac
 }
@@ -187,9 +193,12 @@ _lazyfleet_key_reload() {
 # Keys about the list as a whole: find, quit, switch view, reload, settings,
 # add a project. $1 kind of the row (w worktree, t window), $2 its path.
 _lazyfleet_key_view() {
-  local bin=${(q)LAZYFLEET_DIR}/bin/lazyfleet kind=$1 p=$2 lbl rl wt foot=$_LAZYFLEET_FOOTER_WT
-  local win="change-list-label( Windows )+change-footer($_LAZYFLEET_FOOTER_WIN)+change-preview-window($_LAZYFLEET_PW_WIN)+reload($bin _winrows)+first"
-  local pw="change-preview-window($_LAZYFLEET_PW)"
+  local bin=${(q)LAZYFLEET_DIR}/bin/lazyfleet kind=$1 p=$2 lbl rl wt foot=$_LAZYFLEET_FOOTER_WT cw win pw
+  # each view brings back its own split (lib/split.zsh)
+  _lazyfleet_split_width; cw=$REPLY
+  _lazyfleet_split_pw t $cw
+  win="change-list-label( Windows )+change-footer($_LAZYFLEET_FOOTER_WIN)+change-preview-window($REPLY)+reload($bin _winrows)+first"
+  _lazyfleet_split_pw w $cw; pw="change-preview-window($REPLY)"
   _lazyfleet_key_label; lbl=$REPLY
   _lazyfleet_key_reload; rl=$REPLY
   _lazyfleet_wtload; wt=$REPLY

@@ -16,6 +16,7 @@ autoload -Uz is-at-least
 #   stack     stacked branches: parents, marks, restack
 #   rows      what the TUI lists and previews
 #   commands  add, forget, ls, new, open, rm, pull, config
+#   split     the list/Details split, remembered per terminal width
 #   tui       the fzf driver, its keys and prompts
 #   help      help and version
 #   keys      the reference of the TUI's keys and marks (? and lazyfleet keys)
@@ -30,6 +31,7 @@ source $LAZYFLEET_DIR/lib/pr.zsh
 source $LAZYFLEET_DIR/lib/stack.zsh
 source $LAZYFLEET_DIR/lib/rows.zsh
 source $LAZYFLEET_DIR/lib/commands.zsh
+source $LAZYFLEET_DIR/lib/split.zsh
 source $LAZYFLEET_DIR/lib/tui.zsh
 source $LAZYFLEET_DIR/lib/update.zsh
 source $LAZYFLEET_DIR/lib/help.zsh

@@ -36,7 +36,7 @@ done
 _lazyfleet_ui_binds /bin/lf ''
 bound=()
 # (load is an event of fzf's, not a key)
-for a in $reply; do [[ $a == *:transform* && $a != load:* ]] && bound+=(${a%%:*}); done
+for a in $reply; do [[ $a == *:transform* && $a != (load|resize):* ]] && bound+=(${a%%:*}); done
 check 'binds: found the keys' eval '(( $#bound > 15 ))'
 keys_of w; wkeys=($reply)
 for k in $bound; do
