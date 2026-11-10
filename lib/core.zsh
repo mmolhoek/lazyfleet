@@ -3,16 +3,29 @@
 
 # A tmux server keeps the environment it started with and hands it to every
 # session, so never pass it an exported FPATH containing our dir: compinit in
-# each session's shell would flag the dir as insecure.
+# each session's shell would flag the dir as insecure. Nor LAZYFLEET_TUI
+# (lib/history.zsh), or lazyfleet run in those sessions would think it is the
+# TUI: tmux gets it empty.
 _lazyfleet_tmux() {
   if [[ ${(t)FPATH} == *export* ]]; then
-    FPATH=${(j.:.)${fpath:#$LAZYFLEET_DIR}} command ${=LAZYFLEET_TMUX:-tmux} "$@"
+    LAZYFLEET_TUI= FPATH=${(j.:.)${fpath:#$LAZYFLEET_DIR}} command ${=LAZYFLEET_TMUX:-tmux} "$@"
   else
-    command ${=LAZYFLEET_TMUX:-tmux} "$@"
+    LAZYFLEET_TUI= command ${=LAZYFLEET_TMUX:-tmux} "$@"
   fi
 }
 
-_lazyfleet_err() { print -ru2 -- "lazyfleet: $*"; return 1 }
+# Say what went wrong, and fail. In the TUI it goes to the message history,
+# which the footer shows, and waits for _lazyfleet_pause, if one comes
+# (lib/history.zsh); elsewhere on stderr.
+_lazyfleet_err() {
+  if [[ -n $LAZYFLEET_TUI ]]; then
+    _lazyfleet_history_add "$*"
+    _lazyfleet_errs+=("lazyfleet: $*")
+  else
+    print -ru2 -- "lazyfleet: $*"
+  fi
+  return 1
+}
 
 # REPLY=our private dir for setup scripts, caches and temp files. Its name is
 # predictable (shared /tmp when TMPDIR is unset), so refuse one that another
@@ -49,7 +62,16 @@ _lazyfleet_confirm() {
   _lazyfleet_ask $1
 }
 
-_lazyfleet_pause() { local k; print -n "${1:-press any key} "; read -sk1 k </dev/tty; print }
+# Wait for a key, so that what was printed can be read before the TUI comes
+# back; the errors kept back in the TUI are printed first
+_lazyfleet_pause() {
+  local k
+  (( $#_lazyfleet_errs )) && print -rl -u2 -- $_lazyfleet_errs
+  _lazyfleet_errs=()
+  print -n "${1:-press any key} "
+  read -sk1 k </dev/tty
+  print
+}
 
 _lazyfleet_regfile() { REPLY=${XDG_CONFIG_HOME:-$HOME/.config}/lazyfleet/repos }
 

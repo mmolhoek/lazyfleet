@@ -27,6 +27,8 @@ _lazyfleet_ui() {
   zparseopts -D -E w=o_w
   local bin=${(q)LAZYFLEET_DIR}/bin/lazyfleet q=$1 out view=${o_w:+windows} rows sel rc label sock
   local -a binds start
+  # what lazyfleet says from here on goes to the message history (lib/history.zsh)
+  _lazyfleet_history_now; local -x LAZYFLEET_TUI=$REPLY
   _lazyfleet_tmpdir || return 1
   # coming back from a session, the first load puts the cursor on the row we
   # left (sel: its path or window target); this file hands that over once
@@ -121,18 +123,20 @@ _lazyfleet_ui_handover() {
 
 # Act on what fzf ended with ($1: an action line, then a path or target).
 # reply=(the view to show next, the item to put the cursor on). Status: 0
-# done, 1 quit, 2 nothing happened (a new worktree that was cancelled).
+# done, 1 quit, 2 nothing happened (a new worktree that was cancelled, or
+# what failed: the list comes back, its footer saying why).
 _lazyfleet_ui_act() {
   local -a lines=(${(f)1})
   local what=$lines[1] it=$lines[2] view= sel=$lines[2]
   case $what in
-    (open) _lazyfleet_open_path $it || _lazyfleet_pause ;;
+    (open) _lazyfleet_open_path $it || { reply=('' "$it"); return 2 } ;;
     (new|newon)
       _lazyfleet_ui_$what $it || { reply=('' ''); return 2 }
       sel=$REPLY
-      _lazyfleet_open_path $sel ;;
-    (edit|lazygit) _lazyfleet_handoff $what $it || _lazyfleet_pause ;;
-    (window) view=windows; _lazyfleet_open_window $it || _lazyfleet_pause ;;
+      _lazyfleet_open_path $sel || { reply=('' "$sel"); return 2 } ;;
+    (edit|lazygit) _lazyfleet_handoff $what $it || { reply=('' "$it"); return 2 } ;;
+    (window) _lazyfleet_open_window $it || { reply=(windows "$it"); return 2 }
+      view=windows ;;
     # returns only when it did not restart lazyfleet: the list again
     (update) _lazyfleet_ui_update; reply=('' "$it"); return 2 ;;
     (*) rm -f $LAZYFLEET_POSFILE; reply=('' ''); return 1 ;;
@@ -205,6 +209,8 @@ _lazyfleet_key_reload() {
 # add a project. $1 kind of the row (w worktree, t window), $2 its path.
 _lazyfleet_key_view() {
   local bin=${(q)LAZYFLEET_DIR}/bin/lazyfleet kind=$1 p=$2 lbl rl wt foot=$_LAZYFLEET_FOOTER_WT cw win pw
+  # after a command: the footer again, with what it may have said
+  local ft="+transform($bin _ui_refresh)"
   # each view brings back its own split (lib/split.zsh)
   _lazyfleet_split_width; cw=$REPLY
   _lazyfleet_split_pw t $cw
@@ -221,9 +227,9 @@ _lazyfleet_key_view() {
     (q) print abort ;;
     (c)
       # the row's project; the Windows view has none, so the settings
-      if [[ $kind == w && -n $p ]]; then print -r -- "execute($bin config {2})+$rl"
-      else print -r -- "execute($bin config)+$rl"; fi ;;
-    (C) print -r -- "execute($bin config)+$rl" ;;
+      if [[ $kind == w && -n $p ]]; then print -r -- "execute($bin config {2})+$rl$ft"
+      else print -r -- "execute($bin config)+$rl$ft"; fi ;;
+    (C) print -r -- "execute($bin config)+$rl$ft" ;;
     # update lazyfleet (or look for one now), then restart it
     (u) print -r -- "become(printf '%s\\n' update {2})" ;;
     # every key and mark, explained, starting with this view's
@@ -236,7 +242,7 @@ _lazyfleet_key_view() {
         (*) print -r -- $win ;;
       esac ;;
     (w) print -r -- $win ;;
-    (a) print -r -- "execute($bin _ui_add)+change-footer($_LAZYFLEET_FOOTER_WT)+$pw+$wt" ;;
+    (a) print -r -- "execute($bin _ui_add)+$pw+$wt$ft" ;;
   esac
 }
 
@@ -244,6 +250,8 @@ _lazyfleet_key_view() {
 # text in the actions. $1 kind of the row (w worktree, t window), $2 its path.
 _lazyfleet_key_row() {
   local bin=${(q)LAZYFLEET_DIR}/bin/lazyfleet kind=$1 p=$2 rl
+  # after a command: the footer again, with what it may have said
+  local ft="+transform($bin _ui_refresh)"
   # an empty list has no row; n still makes a worktree (it asks for the repo)
   [[ -n $p || $FZF_KEY == n ]] || return 0
   _lazyfleet_key_reload; rl=$REPLY
@@ -253,8 +261,8 @@ _lazyfleet_key_row() {
       else print -r -- "become(printf '%s\\n' open {2})"; fi ;;
     (n) [[ $kind == t ]] || print -r -- "become(printf '%s\\n' new {2})" ;;
     (d)
-      if [[ $kind == t ]]; then print -r -- "execute($bin _ui_killwin {2})+$rl"
-      else print -r -- "execute($bin _ui_rm {2})+$rl"; fi ;;
+      if [[ $kind == t ]]; then print -r -- "execute($bin _ui_killwin {2})+$rl$ft"
+      else print -r -- "execute($bin _ui_rm {2})+$rl$ft"; fi ;;
   esac
   # the rest only makes sense for a worktree
   [[ $kind == w ]] || return 0
@@ -262,21 +270,21 @@ _lazyfleet_key_row() {
     # the editor or lazygit, in a window of the worktree's session
     (e) print -r -- "become(printf '%s\\n' edit {2})" ;;
     (g) print -r -- "become(printf '%s\\n' lazygit {2})" ;;
-    (o) print -r -- "execute($bin _ui_openpr {2})" ;;
+    (o) print -r -- "execute($bin _ui_openpr {2})$ft" ;;
     # GitHub's page for a new pull request of the worktree's branch
-    (O) print -r -- "execute($bin _ui_newpr {2})" ;;
+    (O) print -r -- "execute($bin _ui_newpr {2})$ft" ;;
     # the branch's own changes, against its parent (stacked) or the default branch
-    (D) print -r -- "execute($bin _ui_diff {2})" ;;
+    (D) print -r -- "execute($bin _ui_diff {2})$ft" ;;
     # stacks (lib/stack.zsh): a new worktree on this one, its parent, restack
     (s) print -r -- "become(printf '%s\\n' newon {2})" ;;
-    (S) print -r -- "execute($bin _ui_stackon {2})+$rl" ;;
-    (r) print -r -- "execute($bin _ui_restack {2})+$rl" ;;
+    (S) print -r -- "execute($bin _ui_stackon {2})+$rl$ft" ;;
+    (r) print -r -- "execute($bin _ui_restack {2})+$rl$ft" ;;
     # push the branch (and the rest of its stack); refused, it asks to force
-    (P) print -r -- "execute($bin _ui_push {2})+$rl" ;;
+    (P) print -r -- "execute($bin _ui_push {2})+$rl$ft" ;;
     (p)
       # in the background when fzf listens: the row shows ⟳ until it's done
       if [[ -n $FZF_SOCK ]]; then print -r -- "execute-silent($bin _ui_pull {2})+$rl"
-      else print -r -- "execute($bin _ui_pull {2})+$rl"; fi ;;
+      else print -r -- "execute($bin _ui_pull {2})+$rl$ft"; fi ;;
   esac
 }
 
@@ -362,7 +370,8 @@ _lazyfleet_openpr() {
   _lazyfleet_browser $url
 }
 
-_lazyfleet_ui_openpr() { _lazyfleet_openpr $1 || _lazyfleet_pause }
+# (a failure says one line, which the footer shows: no need to wait for a key)
+_lazyfleet_ui_openpr() { _lazyfleet_openpr $1 }
 
 # REPLY=$1 percent-encoded for a URL path (byte by byte, so it does not depend on the locale)
 _lazyfleet_urlencode() {
@@ -413,13 +422,13 @@ _lazyfleet_newpr_base() {
   REPLY=$REPLY...$head
 }
 
-_lazyfleet_ui_newpr() { _lazyfleet_newpr "$@" || _lazyfleet_pause }
+_lazyfleet_ui_newpr() { _lazyfleet_newpr "$@" }
 
 # Prompt for a branch and create its worktree; REPLY=its path
 _lazyfleet_ui_new() {
   local repo br
   if ! { [[ -n $1 ]] && _lazyfleet_toplevel $1 } && ! _lazyfleet_toplevel; then
-    print 'Add a repo first (a).'; _lazyfleet_pause; return 1
+    _lazyfleet_err 'add a repo first (a)'; return 1
   fi
   repo=$REPLY
   _lazyfleet_branches $repo | _lazyfleet_pick "New worktree in ${repo:t}" 'branch> ' || return 1
@@ -431,7 +440,7 @@ _lazyfleet_ui_new() {
 # worktree $1; REPLY=its path
 _lazyfleet_ui_newon() {
   local repo par
-  _lazyfleet_stack_here $1 || { _lazyfleet_pause; return 1 }
+  _lazyfleet_stack_here $1 || return 1
   repo=$reply[1] par=$reply[2]
   _lazyfleet_branches $repo | _lazyfleet_pick "New worktree stacked on $par" 'branch> ' || return 1
   local br=$REPLY
@@ -444,14 +453,14 @@ _lazyfleet_ui_newon() {
 _lazyfleet_ui_stackon() {
   local repo br none='(not stacked)'
   local -a heads
-  _lazyfleet_stack_here $1 || { _lazyfleet_pause; return 1 }
+  _lazyfleet_stack_here $1 || return 1
   repo=$reply[1] br=$reply[2]
   heads=(${${(f)"$(git -C $repo for-each-ref --sort=-committerdate --format='%(refname)' refs/heads)"}#refs/heads/})
   print -rl -- $none ${heads:#$br} | _lazyfleet_pick "Stack $br on" 'parent> ' || return 0
   local par=$REPLY
-  if [[ $par == $none ]]; then _lazyfleet_stack_unlink $repo $br || _lazyfleet_pause
+  if [[ $par == $none ]]; then _lazyfleet_stack_unlink $repo $br
   else
-    _lazyfleet_stack_link $repo $br $par || { _lazyfleet_pause; return 0 }
+    _lazyfleet_stack_link $repo $br $par || return 0
     _lazyfleet_stack_offer_root $repo $par
   fi
 }
@@ -462,7 +471,7 @@ _lazyfleet_ui_push() { _lazyfleet_push -i $1 || _lazyfleet_pause }
 
 _lazyfleet_ui_add() {
   _lazyfleet_findrepos | _lazyfleet_pick 'Add repo' 'repo> ' || return 0
-  _lazyfleet_add ${REPLY/#\~/$HOME} >/dev/null || _lazyfleet_pause
+  _lazyfleet_add ${REPLY/#\~/$HOME} >/dev/null
 }
 
 _lazyfleet_ui_killwin() {
@@ -495,7 +504,8 @@ _lazyfleet_ui_pull() {
   : >$m
   {
     local out
-    out=$(_lazyfleet_pull $1 2>&1) || print -r -- $out >$m.err
+    # (its errors with git's output: shown together once it is done)
+    out=$(LAZYFLEET_TUI= _lazyfleet_pull $1 2>&1) || print -r -- $out >$m.err
     rm -f $m
     _lazyfleet_fzfpost "transform($bin _pulled)"
   } </dev/null >/dev/null 2>&1 &!
@@ -513,7 +523,10 @@ _lazyfleet_pulled() {
 _lazyfleet_ui_pullfail() {
   local e
   _lazyfleet_pulldir || return
-  for e in $REPLY/*.err(N); do print -r -- "$(<$e)"; print; rm -f $e; done
+  for e in $REPLY/*.err(N); do
+    _lazyfleet_history_add "pull failed in ${${${e:t}%.err}//\%//}"
+    print -r -- "$(<$e)"; print; rm -f $e
+  done
   _lazyfleet_pause
 }
 
@@ -553,18 +566,32 @@ _lazyfleet_ui_label() {
   else REPLY=' lazyfleet '; fi
 }
 
-# Put the version line under each TUI footer. The footers are globals that the
-# TUI and its key handler (a separate process) both use, so both call this.
-# Called again, it puts the line there as it is now (an update found since),
-# in place of the one it put before.
-typeset -g _LAZYFLEET_FOOTERS_LINE=
+# Put the last message of this run (lib/history.zsh) and the version line
+# under each TUI footer. The footers are globals that the TUI and its key
+# handler (a separate process) both use, so both call this. Called again, it
+# puts the lines there as they are now (a new message, an update found since),
+# in place of the ones it put before.
+typeset -g _LAZYFLEET_FOOTERS_TAIL=
 _lazyfleet_footers() {
-  local line=
-  _lazyfleet_version_line && line=$'\n'$REPLY
-  [[ $line == "$_LAZYFLEET_FOOTERS_LINE" ]] && return 0
-  _LAZYFLEET_FOOTER_WT=${_LAZYFLEET_FOOTER_WT%"$_LAZYFLEET_FOOTERS_LINE"}$line
-  _LAZYFLEET_FOOTER_WIN=${_LAZYFLEET_FOOTER_WIN%"$_LAZYFLEET_FOOTERS_LINE"}$line
-  _LAZYFLEET_FOOTERS_LINE=$line
+  local tail=
+  _lazyfleet_history_last && tail+=$'\n'"› $REPLY"
+  _lazyfleet_version_line && tail+=$'\n'$REPLY
+  [[ $tail == "$_LAZYFLEET_FOOTERS_TAIL" ]] && return 0
+  _LAZYFLEET_FOOTER_WT=${_LAZYFLEET_FOOTER_WT%"$_LAZYFLEET_FOOTERS_TAIL"}$tail
+  _LAZYFLEET_FOOTER_WIN=${_LAZYFLEET_FOOTER_WIN%"$_LAZYFLEET_FOOTERS_TAIL"}$tail
+  _LAZYFLEET_FOOTERS_TAIL=$tail
+}
+
+# The TUI's title and the current view's footer as they are now: after a
+# command (which may have said something), or when the update check found a
+# release
+_lazyfleet_ui_refresh() {
+  local foot label
+  _lazyfleet_footers
+  _lazyfleet_ui_label; label=$REPLY
+  _lazyfleet_key_label
+  if [[ $REPLY == Windows ]]; then foot=$_LAZYFLEET_FOOTER_WIN; else foot=$_LAZYFLEET_FOOTER_WT; fi
+  print -r -- "change-border-label($label)+change-footer($foot)"
 }
 
 _lazyfleet_interactive() { [[ -t 1 && -t 2 ]] }

@@ -17,6 +17,7 @@ agents call.
 | ------------------ | ---------------------------------------------------------------------- |
 | `lib/core.zsh`     | tmux, temp files, the repo registry, worktrees and session names        |
 | `lib/config.zsh`   | settings, and the lookup of `copy=` / `setup=`                          |
+| `lib/history.zsh`  | what lazyfleet says while the TUI runs: `~/.lazyfleet_history`, footer  |
 | `lib/sessions.zsh` | a worktree's tmux session: create, switch, attach, status               |
 | `lib/agents.zsh`   | Claude Code / Copilot CLI / omp in tmux panes: state, marks, hooks      |
 | `lib/pr.zsh`       | pull request and CI marks                                               |

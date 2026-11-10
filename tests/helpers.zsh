@@ -188,14 +188,19 @@ check 'binds: enter resets the find input' eval '[[ ${(j: :)reply} == *"enter:tr
 act() {
   (
     _lazyfleet_open_path() { print -r -- "open $1"; reply=(clobbered); return ${OPEN_RC:-0} }
-    _lazyfleet_open_window() { print -r -- "window $1" }
+    _lazyfleet_open_window() { print -r -- "window $1"; return ${OPEN_RC:-0} }
+    _lazyfleet_handoff() { print -r -- "$1 $2"; return ${OPEN_RC:-0} }
     _lazyfleet_ui_new() { [[ -n $NEW ]] && REPLY=$NEW }
     _lazyfleet_pause() { print pause }
     _lazyfleet_ui_act $1; print -r -- "rc=$? view=$reply[1] sel=$reply[2]"
   )
 }
 assert_eq 'act: open opens, then the worktrees with that row' $'open /wt/a\nrc=0 view= sel=/wt/a' "$(act $'open\n/wt/a')"
-assert_eq 'act: a failed open pauses' $'open /wt/a\npause\nrc=0 view= sel=/wt/a' "$(OPEN_RC=1 act $'open\n/wt/a')"
+# what failed said so in the message history: the list again, its footer says it
+assert_eq 'act: a failed open shows the list again, no pause' $'open /wt/a\nrc=2 view= sel=/wt/a' "$(OPEN_RC=1 act $'open\n/wt/a')"
+assert_eq 'act: a failed window, the windows again' $'window =s:1\nrc=2 view=windows sel==s:1' "$(OPEN_RC=1 act $'window\n=s:1')"
+assert_eq 'act: a failed editor, the list again' $'edit /wt/a\nrc=2 view= sel=/wt/a' "$(OPEN_RC=1 act $'edit\n/wt/a')"
+assert_eq 'act: the editor opens' $'edit /wt/a\nrc=0 view= sel=/wt/a' "$(act $'edit\n/wt/a')"
 assert_eq 'act: window goes back to the windows' $'window =s:1\nrc=0 view=windows sel==s:1' "$(act $'window\n=s:1')"
 assert_eq 'act: new opens what was made' $'open /wt/new\nrc=0 view= sel=/wt/new' "$(NEW=/wt/new act $'new\n/src/app')"
 assert_eq 'act: a cancelled new is nothing' 'rc=2 view= sel=' "$(act $'new\n/src/app')"

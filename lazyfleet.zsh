@@ -10,6 +10,7 @@ autoload -Uz is-at-least
 # The code is in lib/, one part per concern:
 #   core      tmux, temp files, the repo registry, worktrees
 #   config    settings and per-repo config
+#   history   what lazyfleet says while the TUI runs (~/.lazyfleet_history)
 #   sessions  a worktree's tmux session
 #   agents    Claude Code / Copilot CLI / omp in tmux panes, and their hooks
 #   pr        pull request and CI marks
@@ -25,6 +26,7 @@ autoload -Uz is-at-least
 #   prune     lazyfleet prune
 source $LAZYFLEET_DIR/lib/core.zsh
 source $LAZYFLEET_DIR/lib/config.zsh
+source $LAZYFLEET_DIR/lib/history.zsh
 source $LAZYFLEET_DIR/lib/sessions.zsh
 source $LAZYFLEET_DIR/lib/agents.zsh
 source $LAZYFLEET_DIR/lib/pr.zsh

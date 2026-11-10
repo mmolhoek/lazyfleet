@@ -54,7 +54,7 @@ _lazyfleet_update_refresh() {
     _lazyfleet_update_fetch $f
     [[ -n $sock ]] && _lazyfleet_update_available && [[ $REPLY != "$had" ]] || exit 0
     _lazyfleet_update_wait $sock || exit 0
-    FZF_SOCK=$sock _lazyfleet_fzfpost "transform($bin _update_shown)"
+    FZF_SOCK=$sock _lazyfleet_fzfpost "transform($bin _ui_refresh)"
   ) </dev/null &>/dev/null &!
   return 0
 }
@@ -67,17 +67,6 @@ _lazyfleet_update_wait() {
     sleep 0.1
   done
   return 1
-}
-
-# The TUI's fzf asks this when a newer release turned up after it started:
-# the actions that show it in the title and in the current view's footer
-_lazyfleet_update_shown() {
-  local foot
-  _lazyfleet_footers
-  _lazyfleet_ui_label; local label=$REPLY
-  _lazyfleet_key_label
-  if [[ $REPLY == Windows ]]; then foot=$_LAZYFLEET_FOOTER_WIN; else foot=$_LAZYFLEET_FOOTER_WT; fi
-  print -r -- "change-border-label($label)+change-footer($foot)"
 }
 
 # REPLY=the cached latest version (vX.Y.Z), if newer than this copy

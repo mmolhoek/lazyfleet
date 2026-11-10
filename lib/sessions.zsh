@@ -119,18 +119,35 @@ _lazyfleet_open_window() {
 
 # Switch to session $1 (inside tmux) or attach to it (outside)
 _lazyfleet_attach() {
+  local out rc line
   if [[ -n $TMUX ]]; then
     _lazyfleet_tmux switch-client -t "$1"
+    return
+  fi
+  # what the tmux client says when it ends ("[detached (from session x)]")
+  # goes to the message history in the TUI, not behind it (lib/history.zsh).
+  # It draws through the terminal it was given as stdin, so this is safe.
+  if [[ -z $LAZYFLEET_TUI ]] || ! _lazyfleet_tmpdir 2>/dev/null; then
+    _lazyfleet_attach_tty "$1"
+    return
+  fi
+  out=$REPLY/attach.$$
+  _lazyfleet_attach_tty "$1" >$out 2>&1; rc=$?
+  for line in ${(f)"$(<$out)"}; do _lazyfleet_history_add $line; done
+  rm -f $out
+  return rc
+}
+
+# Attach to session $1 (outside tmux). tmux refuses a stdin named /dev/tty
+# (as under fzf's become), so attach through the real controlling terminal
+# device, opened read-write: the server draws through the client's stdin, a
+# read-only fd stays blank.
+_lazyfleet_attach_tty() {
+  local t=${$(ps -o tty= -p $$ 2>/dev/null)// /}
+  if [[ -c /dev/$t ]]; then
+    _lazyfleet_tmux attach-session -t "$1" <>/dev/$t
   else
-    # tmux refuses a stdin named /dev/tty (as under fzf's become), so attach
-    # through the real controlling terminal device, opened read-write: the
-    # server draws through the client's stdin, a read-only fd stays blank
-    local t=${$(ps -o tty= -p $$ 2>/dev/null)// /}
-    if [[ -c /dev/$t ]]; then
-      _lazyfleet_tmux attach-session -t "$1" <>/dev/$t
-    else
-      _lazyfleet_tmux attach-session -t "$1"
-    fi
+    _lazyfleet_tmux attach-session -t "$1"
   fi
 }
 

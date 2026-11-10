@@ -874,7 +874,7 @@ done
 check 's, S, r and P are typed into the filter, not run, while it is shown' \
   eval '[[ $_LAZYFLEET_LETTERS == *,S,* && $_LAZYFLEET_LETTERS == *,s,* && $_LAZYFLEET_LETTERS == *,r,* && $_LAZYFLEET_LETTERS == *,P,* ]]'
 check 'the footer names them' eval '[[ $_LAZYFLEET_FOOTER_WT == *"(s) new stacked on this"* && $_LAZYFLEET_FOOTER_WT == *"(S)tack on…"* && $_LAZYFLEET_FOOTER_WT == *"(r)estack"* && $_LAZYFLEET_FOOTER_WT == *"(P)ush"* && $_LAZYFLEET_FOOTER_WT == *"(D)iff"* ]]'
-check 'D shows the diff' eval 'k D | gq "^execute(.* _ui_diff {2})$"'
+check 'D shows the diff' eval 'k D | gq "^execute(.* _ui_diff {2})+transform(.* _ui_refresh)$"'
 check 'D does nothing in the windows view' test -z "$(FZF_LIST_LABEL=' Windows ' FZF_KEY=D _lazyfleet_key t '=a/b:1')"
 check 'help names lazyfleet diff' eval '_lazyfleet_help | gq "lazyfleet diff \[worktree\]"'
 check 'and reload under R' eval '[[ $_LAZYFLEET_FOOTER_WT == *"(R)eload"* && $_LAZYFLEET_FOOTER_WT != *"(r)eload"* ]]'

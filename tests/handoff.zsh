@@ -226,7 +226,7 @@ FZF_LABEL=" Worktrees "
 k() { FZF_KEY=$1 FZF_LIST_LABEL=$FZF_LABEL _lazyfleet_key ${2:-w} ${3-/some/path} }
 check 'e on a worktree hands over to the editor' eval 'k e | gq "^become(printf .* edit {2})$"'
 check 'g on a worktree hands over to lazygit' eval 'k g | gq "^become(printf .* lazygit {2})$"'
-check 'o on a worktree opens its pull request' eval 'k o | gq "^execute(.* _ui_openpr {2})$"'
+check 'o on a worktree opens its pull request' eval 'k o | gq "^execute(.* _ui_openpr {2})+transform(.* _ui_refresh)$"'
 for key in e g o; do
   check "$key does nothing in the windows view" test -z "$(FZF_LIST_LABEL=' Windows ' FZF_KEY=$key _lazyfleet_key t '=a/b:1')"
   check "$key does nothing without a row" test -z "$(k $key w '')"
