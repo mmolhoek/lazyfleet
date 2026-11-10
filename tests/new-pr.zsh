@@ -80,7 +80,7 @@ export BROWSER=mybrowser
 
 # --- the key
 k() { FZF_KEY=$1 FZF_LIST_LABEL=" Worktrees " _lazyfleet_key ${2:-w} ${3-/some/path} }
-check 'O opens the new pull request page' eval 'k O | gq "^execute(.* _ui_newpr {2})$"'
+check 'O opens the new pull request page' eval 'k O | gq "^execute(.* _ui_newpr {2})+transform(.* _ui_refresh)$"'
 for key in O; do
   check "$key does nothing in the windows view" test -z "$(FZF_LIST_LABEL=' Windows ' FZF_KEY=$key _lazyfleet_key t '=a/b:1')"
   check "$key does nothing without a row" test -z "$(k $key w '')"

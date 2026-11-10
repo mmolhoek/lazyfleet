@@ -66,8 +66,16 @@ shows the whole diff, uncommitted changes too, in git's pager.
 lazyfleet starts on this view when tmux has windows open.
 
 Outside tmux, opening a worktree attaches to its session, and when you detach (`prefix d`) you are back in the TUI.
-Inside tmux, it switches the client and the TUI closes. Bind it to a key for a switcher popup (with the full path:
-tmux runs it with the PATH its server started with):
+Inside tmux, it switches the client and the TUI closes.
+
+What lazyfleet has to say while the TUI runs (an error from a key, tmux's `[detached (from session …)]`) does not
+pile up in the terminal behind it: it goes to `~/.lazyfleet_history`, with the date and time, and the last one of
+this run is shown in the footer, above the version line (`› 16:38 no pull request known for feat/x`). The file keeps
+the latest 1000 lines. Where a command prints more than a line (git's output when a push is refused, a restack's
+conflicts), the TUI still waits for a key so you can read it.
+
+Inside tmux, bind it to a key for a switcher popup (with the full path: tmux runs it with the PATH its server
+started with):
 
 ```tmux
 bind w display-popup -E -w 80% -h 60% "~/.local/bin/lazyfleet"
@@ -382,6 +390,7 @@ It exits with status 1 when anything failed, so scripts can use it.
   one, as it was when the session started), following checkouts within `status-interval`.
 - Agent state: one small file per agent and pane in `~/.cache/lazyfleet/agents` (`LAZYFLEET_AGENT_DIR` moves it),
   removed when the agent stops.
+- Messages from the TUI: `~/.lazyfleet_history`, the latest 1000 lines (`LAZYFLEET_HISTORY` moves it).
 - Pull request cache: one small file per repository in lazyfleet's temporary directory (`pr/`), safe to delete.
 - `LAZYFLEET_TMUX` overrides the tmux command (e.g. `tmux -L other`).
 

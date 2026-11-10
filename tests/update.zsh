@@ -120,7 +120,7 @@ listen() { zsocket -l $sock && exec {REPLY}>&- }   # the socket file, as fzf mak
 tell ''; listen
 check 'a newer release is shown in the running TUI' retry '[[ -s $POSTLOG ]]'
 posted=$(<$POSTLOG)
-assert_eq 'told through its socket, to ask for the title and footer' "$sock transform(/bin/lf _update_shown)" $posted
+assert_eq 'told through its socket, to ask for the title and footer' "$sock transform(/bin/lf _ui_refresh)" $posted
 tell v0.1.5; listen
 check 'also when the cache knew an older release' retry '[[ -s $POSTLOG ]]'
 tell v0.2.0; listen; retry 'gq -E "^[0-9]+ v0\.2\.0$" $cache'; sleep 0.3
@@ -137,7 +137,7 @@ rm -f $sock
 
 # what fzf is told to do then
 shown() {  # $1=the list label
-  ( reset 0.1.0; seed $EPOCHSECONDS v0.2.0; FZF_LIST_LABEL=" $1 " _lazyfleet_update_shown )
+  ( reset 0.1.0; seed $EPOCHSECONDS v0.2.0; FZF_LIST_LABEL=" $1 " _lazyfleet_ui_refresh )
 }
 out=$(shown 'Worktrees · loading…')
 assert_contains 'shown: the title names the release' 'change-border-label( lazyfleet · v0.2.0 available )' $out

@@ -183,7 +183,7 @@ check 'windows sorted by session' test "$sessions" = "$(print -r -- $sessions | 
 check 'windows sorted by number' test "$(_lazyfleet_winrows | cut -f2 | grep '^=alpha:' | tr '\n' ' ')" = '=alpha:0 =alpha:9 =alpha:10 '
 _lazyfleet_tmux kill-session -t '=Zeta'; _lazyfleet_tmux kill-session -t '=alpha'
 check 'key enter opens' eval 'FZF_KEY=enter FZF_LIST_LABEL=" Worktrees " _lazyfleet_key w $p | gq "^become(printf .* open {2})$"'
-check 'key a adds a project and shows the worktrees' eval 'FZF_KEY=a FZF_LIST_LABEL=" Windows " _lazyfleet_key t x | tr "\n" " " | gq "change-list-label( Worktrees · loading… ).*reload(.* _rows) $"'
+check 'key a adds a project and shows the worktrees' eval 'FZF_KEY=a FZF_LIST_LABEL=" Windows " _lazyfleet_key t x | tr "\n" " " | gq "^execute(.* _ui_add)+.*change-list-label( Worktrees · loading… )+reload(.* _rows)+transform(.* _ui_refresh) $"'
 check 'winrows list session windows' retry '_lazyfleet_winrows | gq "^t	=app/feat-x:1	.*1:extra"'
 # tmux >= 3.4 turns tabs in -F output into "_" off a terminal: targets must come out intact
 check 'winrows targets are intact' eval '_lazyfleet_winrows | cut -f2 | gq -x "=app/feat-x:0"'
@@ -210,8 +210,8 @@ check 'load: handed-over row before status reload' eval 'LAZYFLEET_POSFILE=$pf F
 check 'load: other views do nothing' test -z "$(FZF_LIST_LABEL=' Windows ' _lazyfleet_loaded)"
 check 'keys see through the loading marker' eval 'FZF_KEY=R FZF_LIST_LABEL=" Worktrees · checking status… " _lazyfleet_key w $p | gq "change-list-label( Worktrees · loading… )+reload(.* _rows)"'
 check 'c on a worktree opens its project config' eval 'FZF_KEY=c FZF_LIST_LABEL=" Worktrees " _lazyfleet_key w $p | gq "^execute(.* config {2})+.*reload("'
-check 'c in the windows view opens the settings' eval 'FZF_KEY=c FZF_LIST_LABEL=" Windows " _lazyfleet_key t x | gq "^execute(.* config)+reload(.*_winrows)$"'
-check 'C opens the settings' eval 'FZF_KEY=C FZF_LIST_LABEL=" Windows " _lazyfleet_key t x | gq "^execute(.* config)+reload(.*_winrows)$"'
+check 'c in the windows view opens the settings' eval 'FZF_KEY=c FZF_LIST_LABEL=" Windows " _lazyfleet_key t x | gq "^execute(.* config)+reload(.*_winrows)+transform(.* _ui_refresh)$"'
+check 'C opens the settings' eval 'FZF_KEY=C FZF_LIST_LABEL=" Windows " _lazyfleet_key t x | gq "^execute(.* config)+reload(.*_winrows)+transform(.* _ui_refresh)$"'
 check 'r reloads' eval 'FZF_KEY=r FZF_LIST_LABEL=" Windows " _lazyfleet_key t x | gq "^reload(.*_winrows)"'
 check 'key esc quits when hidden' test "$(FZF_KEY=esc FZF_INPUT_STATE=hidden _lazyfleet_key w $p)" = abort
 
