@@ -349,11 +349,14 @@ _lazyfleet_rm_confirm() {
       force=1
     fi
   fi
-  # only an explicit -f skips this: accepting the lock prompt above doesn't
-  if [[ -z $explicit && -n $(git -C $p status --porcelain 2>/dev/null) ]]; then
+  # only an explicit -f skips this: accepting the lock prompt above doesn't.
+  # (changes inside submodules count, whatever git is set to show)
+  if [[ -z $explicit && -n $(git -C $p status --porcelain --ignore-submodules=none 2>/dev/null) ]]; then
     _lazyfleet_confirm "${p/#$HOME/~} has uncommitted changes. Remove anyway?" "$p has changes (use -f)" || return 1
     force=1
   fi
+  _lazyfleet_rm_submodules $p $explicit || return 1
+  [[ -n $REPLY ]] && force=1
   # removing the worktree closes its session, and with it the agents in there;
   # like the changes above, only an explicit -f skips the question
   if [[ -z $explicit ]]; then
@@ -370,6 +373,50 @@ _lazyfleet_rm_confirm() {
   REPLY=
   [[ -n $force ]] && REPLY="--force${locked:+ --force}"
   return 0
+}
+
+# git refuses to remove a worktree with submodules checked out unless forced.
+# Forcing is safe for their files (the changes question above covers those),
+# not for their commits: each worktree has its own copy of a submodule's
+# repository (in its own git dir), removed with it. So ask first when one has
+# commits that are on none of its remotes; only an explicit -f ($2) skips
+# that. REPLY=1 when git needs --force for submodules. Fails when the answer
+# is no, or when it would ask off a terminal.
+_lazyfleet_rm_submodules() {
+  local p=$1 explicit=$2 what
+  REPLY=
+  _lazyfleet_submodules $p
+  (( $#reply )) || return 0
+  if [[ -z $explicit ]]; then
+    _lazyfleet_submodules_unpushed $p $reply
+    if (( $#reply )); then
+      what=${(j:, :)reply}
+      _lazyfleet_confirm "${p/#$HOME/~} has submodule commits that are on no remote ($what); removing the worktree deletes them. Remove anyway?" \
+        "$p has submodule commits that are on no remote: $what (use -f)" || return 1
+    fi
+  fi
+  REPLY=1
+}
+
+# reply=(the submodules checked out in worktree $1, nested ones too, as paths
+# relative to it)
+_lazyfleet_submodules() {
+  reply=()
+  [[ -f $1/.gitmodules ]] || return 0
+  reply=(${(f)"$(git -C $1 submodule foreach --quiet --recursive 'printf "%s\n" "$displaypath"' 2>/dev/null)"})
+}
+
+# reply=("path: N commit(s)" ...): those of submodules $2... of worktree $1
+# with commits (on HEAD or a local branch) that are on none of their remotes
+_lazyfleet_submodules_unpushed() {
+  local p=$1 sub n
+  local -a found
+  shift
+  for sub in "$@"; do
+    n=$(git -C $p/$sub rev-list --count HEAD --branches --not --remotes 2>/dev/null) || continue
+    (( n )) && found+=("$sub: $n commit${${n:#1}:+s}")
+  done
+  reply=($found)
 }
 
 # lazyfleet pull [worktree] — fast-forward it to its upstream (never merges)
