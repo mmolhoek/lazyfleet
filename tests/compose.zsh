@@ -180,7 +180,7 @@ check 'key: the footer names it' eval '[[ $_LAZYFLEET_FOOTER_WT == *"(x) compose
 export PATH=$REAL_PATH; rehash
 if [[ -z $REAL_DOCKER ]] || ! docker info >/dev/null 2>&1 || ! docker compose version >/dev/null 2>&1; then
   skip 'real: no Docker daemon or compose plugin'
-  finish
+  finish; exit
 fi
 img=lazyfleet-test-sleep:1
 real_cleanup() {
@@ -195,7 +195,7 @@ done
 tar -C $SANDBOX/img -c . | docker import -c "CMD [\"${commands[sleep]:A}\",\"600\"]" - $img >/dev/null 2>&1
 if ! docker image inspect $img >/dev/null 2>&1; then
   skip 'real: could not make a test image'
-  finish
+  finish; exit
 fi
 # both worktrees name the same project, as a compose file with name: does
 for w in $wa $wb; do printf 'name: lftestshared\nservices:\n  app:\n    image: %s\n' $img >$w/compose.yaml; done
