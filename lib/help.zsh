@@ -25,6 +25,9 @@ _lazyfleet_help() {
                                  (-f: force with lease, after a restack)
   lazyfleet diff [worktree]      what its branch changes: against the branch below it when stacked,
                                  else the default branch (uncommitted changes too)
+  lazyfleet compose up|down|toggle [worktree]
+                                 docker compose up -d or down in it (up first names, and on a terminal
+                                 offers to stop, what runs from the repo's other worktrees)
   lazyfleet stack [show | on <parent> | off | restack] [worktree]
                                  stacked branches: show the stack, stack the branch on a parent
                                  (new --on does that for a new one), unstack it, or rebase the
