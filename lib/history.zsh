@@ -44,6 +44,10 @@ _lazyfleet_history_add() {
   print -rl -- $lines >|$f.$$ 2>/dev/null && mv -f $f.$$ $f
 }
 
+# Note message $* in the history when the TUI runs (what went well: what went
+# wrong goes there through _lazyfleet_err); elsewhere nothing
+_lazyfleet_history_note() { [[ -z $LAZYFLEET_TUI ]] || _lazyfleet_history_add "$*" }
+
 # REPLY="HH:MM message": the last message, when it was added while this TUI
 # runs (at or after LAZYFLEET_TUI). Fails otherwise.
 _lazyfleet_history_last() {
