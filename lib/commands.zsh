@@ -607,6 +607,8 @@ _lazyfleet_config() {
         print -r -- "# copy=.env .env.local"
         print -r -- "# setup="
         print -r -- "#   npm ci"
+        print -r -- "# Compose services or containers whose logs you do not want to see (* and ? allowed):"
+        print -r -- "# logs_hide=redis postgres"
         if [[ -r $repo/.lazyfleet ]]; then
           print -r -- "#"
           print -r -- "# The repo's .lazyfleet currently has:"

@@ -272,6 +272,7 @@ While containers run from a worktree, its Details pane shows their latest log li
 services of a compose project are merged in order of time. `l` opens the logs in `less`, following the newest lines:
 `ctrl-c` stops following so you can scroll and search (`/`), `F` follows again, and `q` goes back to the list. With
 more than one thing running (a compose project and a devcontainer, say) `l` lets you pick; the pane shows the first.
+Services you never want to read (a database, a cache) go in the project config: `logs_hide=redis postgres` (`c`).
 
 ## Setting up a repo: `.lazyfleet`
 
@@ -283,12 +284,15 @@ setup=
   npm ci
   docker compose up -d db
   npm run migrate
+logs_hide=redis postgres
 ```
 
 - `copy`: untracked files copied from the main worktree (paths inside the repo: no leading `/`, no `..`).
 - `setup`: runs in the first window of the new worktree's session, through your interactive shell, so mise, direnv
   and aliases work. Questions your shell asks on entering the directory (a mise enter hook) come first and wait for
   you; then the window stays open as a normal shell. Under fish it runs as a `/bin/sh` child of fish.
+- `logs_hide`: compose services or containers whose logs you do not want to see, in the Details pane or with `l`
+  (blank-separated, `*` and `?` allowed: `logs_hide=redis kafka-*`). They keep running; only their logs are left out.
 
 A value continues on indented lines; the first one's indent is removed from all, so nested blocks keep their shape.
 The file is read as data and never sourced, but `setup=` does run on your machine. That is why a branch's own

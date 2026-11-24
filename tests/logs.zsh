@@ -23,7 +23,8 @@ git -C $repo worktree add -q -b a $LAZYFLEET_WORKTREES/app/a 2>/dev/null
 wa=$LAZYFLEET_WORKTREES/app/a
 
 # --- the fake docker. ps: the compose query (it filters on the compose
-# label) prints $F/compose, the 🐳 query $F/all; logs print $F/logs (compose
+# label) prints $F/compose, the 🐳 query $F/all, the services of one project
+# $F/services; logs print $F/logs (compose
 # with --timestamps: $F/stamped); "logs --follow" keeps going, a line a tenth
 # of a second, until it is stopped. Every call is logged in $F/log.
 F=$SANDBOX/fake; mkdir -p $F $SANDBOX/bin
@@ -33,6 +34,7 @@ F=$FAKE
 printf '%s|%s\n' "$PWD" "$*" >>"$F/log"
 case "$*" in
   'compose version') exit 0 ;;
+  *com.docker.compose.project=*) cat "$F/services" 2>/dev/null ;;
   ps\ --filter*) cat "$F/compose" 2>/dev/null ;;
   ps*) cat "$F/all" 2>/dev/null ;;
   *--follow*) echo "$$" >"$F/pid"; i=0; while :; do echo "follow line $i"; i=$((i+1)); sleep 0.1; done ;;
@@ -56,19 +58,62 @@ fresh; running "$wa${T}app${T}app-api-1" "$wa${T}app${T}app-db-1" "$repo${T}main
   "$wa${T}app-api-1${T}Up${T}1" "$wa${T}app-db-1${T}Up${T}2" "$wa${T}devc${T}Up${T}3" "$repo${T}m-1${T}Up${T}4"
 _lazyfleet_logs_targets $wa
 assert_eq 'targets: its compose project, then its other containers' \
-  "compose${T}app${T}compose project app (2 containers)|container${T}devc${T}container devc" "${(j:|:)reply}"
+  "compose${T}app${T}${T}compose project app (2 containers)|container${T}devc${T}${T}container devc" "${(j:|:)reply}"
 _lazyfleet_logs_targets $repo
-assert_eq 'targets: per worktree' "compose${T}main${T}compose project main (1 container)" "$reply"
+assert_eq 'targets: per worktree' "compose${T}main${T}${T}compose project main (1 container)" "$reply"
 fresh; _lazyfleet_logs_targets $wa
 assert_eq 'targets: nothing running, none' 0 $#reply
 
 # --- the commands
-_lazyfleet_logs_cmd "compose${T}app${T}x"
+_lazyfleet_logs_cmd "compose${T}app${T}${T}x"
 assert_eq 'cmd: a compose project, following its last lines' "docker compose -p app logs --follow --tail 200" "$reply"
-_lazyfleet_logs_cmd "container${T}devc${T}x"
+_lazyfleet_logs_cmd "container${T}devc${T}${T}x"
 assert_eq 'cmd: a container' "docker logs --follow --tail 200 devc" "$reply"
-_lazyfleet_logs_cmd -n 12 "compose${T}app${T}x"
+_lazyfleet_logs_cmd -n 12 "compose${T}app${T}${T}x"
 assert_eq 'cmd: -n, only that many lines, not following' "docker compose -p app logs --tail 12" "$reply"
+
+_lazyfleet_logs_cmd -n 12 "compose${T}app${T}api worker${T}x"
+assert_eq 'cmd: with services named, only theirs' "docker compose -p app logs --tail 12 api worker" "$reply"
+
+# --- logs_hide= in the project config
+hide() { _lazyfleet_projconf $repo; mkdir -p ${REPLY:h}; print -r -- "$1" >$REPLY }
+nohide() { _lazyfleet_projconf $repo; rm -f $REPLY $repo/.lazyfleet }
+compose_ab() {
+  running "$wa${T}app${T}app-api-1" "$wa${T}app${T}app-db-1" -- "$wa${T}app-api-1${T}Up${T}1" "$wa${T}app-db-1${T}Up${T}2" "$@"
+  print -rl -- "api${T}app-api-1" "db${T}app-db-1" >$F/services
+}
+fresh; compose_ab; hide 'logs_hide=db'
+_lazyfleet_logs_targets $wa
+assert_eq 'hide: a service, by its name: the others are named, and the count says so' \
+  "compose${T}app${T}api${T}compose project app (1 container, 1 hidden)" "$reply"
+check 'hide: compose is asked which service each container is' gq '|ps --filter label=com.docker.compose.project=app ' $F/log
+_lazyfleet_logs_cmd -n 5 $reply[1]
+assert_eq 'hide: its logs are left out' "docker compose -p app logs --tail 5 api" "$reply"
+hide 'logs_hide=app-db-*'
+_lazyfleet_logs_targets $wa
+assert_eq 'hide: a container, by a pattern of its name' "compose${T}app${T}api${T}compose project app (1 container, 1 hidden)" "$reply"
+hide 'logs_hide=nothing-like-it'
+_lazyfleet_logs_targets $wa
+assert_eq 'hide: nothing matching: all of it, as without' "compose${T}app${T}${T}compose project app (2 containers)" "$reply"
+fresh; compose_ab "$wa${T}devc${T}Up${T}3"; hide 'logs_hide=api db dev?'
+_lazyfleet_logs_targets $wa
+assert_eq 'hide: all of it hidden, compose project and container: nothing' 0 $#reply
+out=$(_lazyfleet_logs $wa 2>&1); rc=$?
+assert_eq 'hide: l then fails' 1 $rc
+assert_contains 'hide: and says why' "is hidden by logs_hide= in its project config (c)" $out
+_lazyfleet_containers_in $wa >/dev/null
+out=$(_lazyfleet_preview w $wa 2>/dev/null)
+check 'hide: the Details pane then shows the git details' eval '[[ $out == *"commits since main"* && $out != *"compose project"* ]]'
+fresh; compose_ab; nohide; print 'logs_hide=db' >$repo/.lazyfleet
+_lazyfleet_logs_targets $wa
+assert_eq 'hide: from the repo'"'"'s .lazyfleet too' "compose${T}app${T}api${T}compose project app (1 container, 1 hidden)" "$reply"
+fresh; compose_ab; nohide
+_lazyfleet_logs_targets $wa
+check 'hide: not set: compose is not asked about services' not gq 'compose.project=app ' $F/log
+_lazyfleet_projconf $repo; rm -f $REPLY
+EDITOR=true _lazyfleet_main config $repo >/dev/null 2>&1
+check 'hide: a new project config shows how' gq '^# logs_hide=' $REPLY
+rm -f $REPLY
 
 # --- choosing
 _lazyfleet_logs_choose "compose${T}app${T}x"

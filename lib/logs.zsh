@@ -7,30 +7,81 @@
 # The logs are shown in less, following (+F): ctrl-c stops following, so you
 # can scroll and search, F follows again, q quits. docker writes them to a
 # file of its own, and is stopped once less quits.
+#
+# logs_hide= in a project's config (c) names compose services or containers
+# whose logs are not shown, here or in the Details pane: blank-separated,
+# * and ? allowed (logs_hide=redis postgres kafka-*). They go on running.
 
 typeset -g _LAZYFLEET_LOGS_TAIL=200
 
-# reply=("kind<TAB>id<TAB>label" ...): what runs from worktree $1, kind
-# compose (id: the project) or container (id: its name)
+# reply=("kind<TAB>id<TAB>services<TAB>label" ...): what runs from worktree
+# $1 and is not hidden (logs_hide=), kind compose (id: the project;
+# services: the ones to show, blank-separated, or none for all of them) or
+# container (id: its name)
 _lazyfleet_logs_targets() {
-  local p=${1:A} proj line n
-  local -a running found names
+  local p=${1:A} proj line
+  local -a running found names hide
+  _lazyfleet_logs_hidden $p; hide=($reply)
   _lazyfleet_compose_running; running=($reply)
   _lazyfleet_compose_projects $p $running
   for proj in $reply; do
-    n=0
     for line in $running; do
-      [[ ${${line%%$'\t'*}:A} == $p && ${${line#*$'\t'}%%$'\t'*} == $proj ]] || continue
-      (( n++ )); names+=(${line##*$'\t'})
+      [[ ${${line%%$'\t'*}:A} == $p && ${${line#*$'\t'}%%$'\t'*} == $proj ]] && names+=(${line##*$'\t'})
     done
-    found+=("compose"$'\t'"$proj"$'\t'"compose project $proj ($n container${${n:#1}:+s})")
+    _lazyfleet_logs_compose_target $p $proj "$hide" $running && found+=($REPLY)
   done
   _lazyfleet_containers_in $p
   for line in $reply; do
     line=${${line#*$'\t'}%%$'\t'*}
-    (( ${names[(Ie)$line]} )) || found+=("container"$'\t'"$line"$'\t'"container $line")
+    (( ${names[(Ie)$line]} )) && continue
+    _lazyfleet_logs_hides "$hide" $line && continue
+    found+=("container"$'\t'"$line"$'\t'$'\t'"container $line")
   done
   reply=($found)
+}
+
+# REPLY=the target line for compose project $2, running from worktree $1,
+# with name patterns $3 (blank-separated) hidden; $4...: the lines of
+# _lazyfleet_compose_running. Fails when all of it is hidden.
+_lazyfleet_logs_compose_target() {
+  local p=$1 proj=$2 hide=$3 line svc n=0 off=0
+  local -a show
+  shift 3
+  for line in "$@"; do
+    [[ ${${line%%$'\t'*}:A} == $p && ${${line#*$'\t'}%%$'\t'*} == $proj ]] && (( n++ ))
+  done
+  if [[ -n $hide ]]; then
+    # which service each container is: compose filters its logs by service
+    for line in ${(f)"$(docker ps --filter label=com.docker.compose.project=$proj \
+        --format '{{.Label "com.docker.compose.service"}}	{{.Names}}' 2>/dev/null)"}; do
+      svc=${line%%$'\t'*}
+      [[ -n $svc ]] || continue
+      if _lazyfleet_logs_hides $hide $svc ${line##*$'\t'}; then (( off++ )); else show+=($svc); fi
+    done
+    (( off )) || show=()
+    (( off && ! $#show )) && return 1
+    (( n -= off ))
+  fi
+  REPLY="compose"$'\t'"$proj"$'\t'"${(j: :)${(u)show}}"$'\t'"compose project $proj ($n container${${n:#1}:+s}"
+  (( off )) && REPLY+=", $off hidden"
+  REPLY+=")"
+}
+
+# reply=(the patterns of logs_hide= in the project config of worktree $1)
+_lazyfleet_logs_hidden() {
+  reply=()
+  _lazyfleet_toplevel $1 || return 0
+  _lazyfleet_conf logs_hide $1 $REPLY || return 0
+  reply=(${=REPLY})
+}
+
+# Does a pattern of $1 (blank-separated) match one of names $2...?
+_lazyfleet_logs_hides() {
+  local pat name
+  for pat in ${=1}; do
+    for name in "${@:2}"; do [[ $name == ${~pat} ]] && return 0; done
+  done
+  return 1
 }
 
 # reply=(the command that follows the logs of target $1 (a line of
@@ -39,10 +90,11 @@ _lazyfleet_logs_targets() {
 _lazyfleet_logs_cmd() {
   local -a how=(--follow --tail $_LAZYFLEET_LOGS_TAIL)
   [[ $1 == -n ]] && { how=(--tail $2); shift 2 }
-  local kind=${1%%$'\t'*} id=${${1#*$'\t'}%%$'\t'*}
+  local kind=${1%%$'\t'*} id=${${1#*$'\t'}%%$'\t'*} svc=${${${1#*$'\t'}#*$'\t'}%%$'\t'*}
   if [[ $kind == compose ]]; then
     _lazyfleet_compose_cmd || return 1
-    reply+=(-p $id logs $how)
+    # (only the services not hidden, when some are)
+    reply+=(-p $id logs $how ${=svc})
   else
     reply=(docker logs $how $id)
   fi
@@ -159,7 +211,12 @@ _lazyfleet_logs() {
   _lazyfleet_worktree_arg "$1" 'usage: lazyfleet logs [worktree]' || return 1
   p=$REPLY
   _lazyfleet_logs_targets $p; targets=($reply)
-  (( $#targets )) || { _lazyfleet_err "no containers run from ${p/#$HOME/~}"; return 1 }
+  if (( ! $#targets )); then
+    _lazyfleet_containers_in $p
+    (( $#reply )) && _lazyfleet_err "all that runs from ${p/#$HOME/~} is hidden by logs_hide= in its project config (c)" ||
+      _lazyfleet_err "no containers run from ${p/#$HOME/~}"
+    return 1
+  fi
   if (( $#targets > 1 )) && [[ ! -t 0 ]]; then
     _lazyfleet_err "several run from ${p/#$HOME/~} (pick one on a terminal): ${(j:, :)${(@)targets##*$'\t'}}"
     return 1
