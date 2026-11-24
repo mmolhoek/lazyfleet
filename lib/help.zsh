@@ -28,6 +28,8 @@ _lazyfleet_help() {
   lazyfleet compose up|down|toggle [worktree]
                                  docker compose up -d or down in it (up first names, and on a terminal
                                  offers to stop, what runs from the repo's other worktrees)
+  lazyfleet logs [worktree]      the logs of what runs from it (its compose project, a devcontainer),
+                                 following, in less
   lazyfleet stack [show | on <parent> | off | restack] [worktree]
                                  stacked branches: show the stack, stack the branch on a parent
                                  (new --on does that for a new one), unstack it, or rebase the

@@ -315,7 +315,8 @@ _lazyfleet_pr_preview() {
 }
 
 # _lazyfleet_preview [-f] kind path — -f: a window preview keeps redrawing
-# (when its pane changes) until fzf stops it for another row
+# (when its pane changes), and so do a worktree's logs, until fzf stops it
+# for another row
 _lazyfleet_preview() {
   local -a o_f
   zparseopts -D -E f=o_f
@@ -324,7 +325,7 @@ _lazyfleet_preview() {
     return
   fi
   if [[ $1 == t ]]; then _lazyfleet_preview_window ${o_f:+-f} $2
-  else _lazyfleet_preview_worktree $2; fi
+  else _lazyfleet_preview_worktree ${o_f:+-f} $2; fi
 }
 
 # The preview of tmux window $1 (=session:index): its pane. With -f first,
@@ -347,10 +348,10 @@ _lazyfleet_preview_window() {
   done
 }
 
-# The preview of worktree $1: its session and windows, containers, pull
-# request, git status and recent commits
-_lazyfleet_preview_worktree() {
-  local p=$1 s e wins m=0
+# The first lines of a worktree's preview: its session name, path, and the
+# session's windows
+_lazyfleet_preview_session() {
+  local p=$1 s wins m=0
   _lazyfleet_toplevel $p && { [[ $p == ${REPLY:A} ]] && m=1; _lazyfleet_session $REPLY $p $m }
   s=$REPLY
   print -r -- $'\e[1m'$s$'\e[0m  '${p/#$HOME/\~}
@@ -359,7 +360,20 @@ _lazyfleet_preview_worktree() {
   else
     print -r -- $'\e[2m○ no session\e[0m'
   fi
+}
+
+# The preview of worktree $1 (-f first: kept up to date): its session and
+# windows, then, while containers run from it, their latest logs
+# (lib/logs.zsh); else its containers (none), pull request, git status and
+# recent commits
+_lazyfleet_preview_worktree() {
+  local p e head follow=
+  [[ $1 == -f ]] && { follow=1; shift }
+  p=$1
+  head=$(_lazyfleet_preview_session $p)
   _lazyfleet_containers_in $p -c
+  if (( $#reply )) && _lazyfleet_preview_logs ${follow:+-f} $p $head $#reply; then return 0; fi
+  print -r -- $head
   if (( $#reply )); then
     print -r -- $'\e[36m🐳 '$#reply' running\e[0m'
     for e in $reply[1,10]; do e=${e#*$'\t'}; print -r -- "   ${e%%$'\t'*}  "$'\e[2m'"${${e#*$'\t'}%%$'\t'*}"$'\e[0m'; done

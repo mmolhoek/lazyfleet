@@ -47,7 +47,7 @@ quits. You need `zsh`, `git`, `tmux` and fzf 0.66 or newer; `lazyfleet doctor` c
 | `●` | the worktree has a live tmux session |
 | `↑3 ↓2` | commits ahead of and behind its upstream |
 | `*` (at the end) | uncommitted changes |
-| `🐳2` | Docker containers started from it (compose working dir or devcontainer folder); `x` starts or stops its compose services |
+| `🐳2` | Docker containers started from it (compose working dir or devcontainer folder): Details shows their logs; `x` starts or stops its compose services, `l` opens the logs |
 | `⟳ pulling` | a background pull is running (`p`) |
 | `#42 ✓` · `#42 ✗` · `#42 …` | its pull request, with CI passing, failing or running |
 | `#42 draft` · `merged` · `closed` | a pull request in another state |
@@ -195,6 +195,7 @@ lazyfleet push [worktree] [-f] push its branch, with the rest of its stack (-f: 
 lazyfleet diff [worktree]      what its branch changes: against its parent when stacked, else the default branch
 lazyfleet compose up|down|toggle [worktree]
                                docker compose up -d or down in it, as x in the TUI
+lazyfleet logs [worktree]      the logs of what runs from it, following, in less (as l in the TUI)
 lazyfleet stack [show | on <parent> | off | restack] [worktree]
                                show a stack, stack a branch on a parent, unstack it, or restack
 lazyfleet prune [-n] [-y] [--keep-branches] [--no-fetch] [-r repo | --all]
@@ -232,6 +233,7 @@ same in your terminal.
 | `S` · `r`   | pick the branch this one is stacked on (or none) · restack its stack |                    |
 | `P`         | push the branch, with the rest of its stack; refused, asks to force with lease |          |
 | `x`         | `docker compose up -d` in the worktree, or `down` when its compose containers run (see below) |  |
+| `l`         | the logs of what runs from it, in `less`, following (see below)    |                    |
 | `a`         | add repo: pick one found under your project dirs, or type a path   | add repo           |
 | `tab` · `w` | switch between Worktrees and Windows · Windows view                | back to Worktrees  |
 | `c` · `C`   | edit the project config · the global settings                      | global settings    |
@@ -253,7 +255,7 @@ always takes what you typed. All lists are sorted alphabetically.
 
 </details>
 
-## Docker compose
+## Docker compose and logs
 
 `x` on a worktree runs `docker compose up -d` there, or `docker compose down` when its compose containers already run
 (the `🐳` mark counts them). Output from compose shows while it works; a failure waits for a key, and the footer says
@@ -264,6 +266,12 @@ Worktrees of one repo share a compose file, and so often a project name (`name:`
 leave the containers on the first one's files; with shared ports it fails. So before `up`, lazyfleet names what runs
 from the repo's other worktrees and offers to stop that first. `down` goes by the project names on the worktree's own
 containers: it works whatever the compose file says now, never stops another worktree's containers, and keeps volumes.
+
+While containers run from a worktree, its Details pane shows their latest log lines instead of the git details
+(those come back once nothing runs; `D` shows the diff any time), kept up to date while the row is selected. The
+services of a compose project are merged in order of time. `l` opens the logs in `less`, following the newest lines:
+`ctrl-c` stops following so you can scroll and search (`/`), `F` follows again, and `q` goes back to the list. With
+more than one thing running (a compose project and a devcontainer, say) `l` lets you pick; the pane shows the first.
 
 ## Setting up a repo: `.lazyfleet`
 

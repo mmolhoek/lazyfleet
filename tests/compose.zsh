@@ -174,7 +174,7 @@ k() { FZF_COLUMNS=120 FZF_KEY=x FZF_LIST_LABEL=" $1 " _lazyfleet_key $2 $3 }
 check 'key: x toggles, then reloads and refreshes the footer' eval '[[ $(k Worktrees w $wa) == "execute("*" _ui_compose {2})+"*"reload("*"+transform("*" _ui_refresh)" ]]'
 check 'key: x does nothing in the windows' eval '[[ -z $(k Windows t "=a:1") ]]'
 check 'key: x is typed while finding' eval '[[ ,$_LAZYFLEET_LETTERS, == *,x,* ]]'
-check 'key: the footer names it' eval '[[ $_LAZYFLEET_FOOTER_WT == *"(x) compose up/down"* ]]'
+check 'key: the footer names it' eval '[[ $_LAZYFLEET_FOOTER_WT == *"(x) compose  (l)ogs"* ]]'
 
 # --- real containers, when there is a Docker daemon
 export PATH=$REAL_PATH; rehash
