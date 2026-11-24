@@ -49,7 +49,7 @@ _lazyfleet_help() {
   lazyfleet update [--install]   look for a newer release now (the TUI looks as it starts); --install installs it
 
 .lazyfleet (repo root, key=value; indent lines to continue a value):
-  setup=…  copy=file1 file2
+  setup=…  copy=file1 file2  logs_hide=service-or-container …
 ~/.config/lazyfleet/projects/<repo>.conf: the same keys, for one repo (wins)
 ~/.config/lazyfleet/config: search=dirs  search_depth=n  worktrees=dir  status_branch=off  update_check=off  agent_icons=off  agent_notify=off  pr_status=off  trust_branch_config=on
 EOF
