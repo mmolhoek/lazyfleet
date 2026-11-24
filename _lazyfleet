@@ -12,6 +12,7 @@ local -a cmds=(
   'push:push a branch, or its whole stack, to origin'
   'diff:what a branch changes (against its parent when stacked)'
   'compose:docker compose up or down in a worktree'
+  'logs:the logs of what runs from a worktree'
   'stack:show, change or restack a stack of branches'
   'prune:remove worktrees whose branch is merged'
   'windows:switch between tmux windows'
@@ -29,7 +30,7 @@ if (( CURRENT == 2 )); then
   return
 fi
 case $words[2] in
-  (open|rm|pull|diff) compadd -- ${(f)"$(lazyfleet _names)"} ;;
+  (open|rm|pull|diff|logs) compadd -- ${(f)"$(lazyfleet _names)"} ;;
   (compose) _arguments '1:action:(up down toggle)' '2:worktree:(${(f)"$(lazyfleet _names)"})' ;;
   (push) _arguments '-f[force with lease]' '--force[force with lease]' '1:worktree:(${(f)"$(lazyfleet _names)"})' ;;
   (forget|config) compadd -- ${${(f)"$(lazyfleet repos)"}:t} ;;

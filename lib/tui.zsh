@@ -2,10 +2,10 @@
 # Loaded by lazyfleet.zsh, in that order; not meant to be sourced on its own.
 
 # keys that type into the find input instead while it's shown
-typeset -g _LAZYFLEET_LETTERS='j,k,n,d,D,p,P,e,g,o,O,s,S,r,a,w,x,c,C,R,q,u,/,?,<,>'
+typeset -g _LAZYFLEET_LETTERS='j,k,n,d,D,p,P,e,g,o,O,s,S,r,a,w,x,l,c,C,R,q,u,/,?,<,>'
 typeset -g _LAZYFLEET_FOOTER_WT=$'↵ open  (n)ew worktree  (a)dd project
 (d)elete  (p)ull  (P)ush  (e)ditor  (g) lazygit
-(o)pen PR  (O) new PR  (D)iff  (x) compose up/down
+(o)pen PR  (O) new PR  (D)iff  (x) compose  (l)ogs
 (s) new stacked on this  (S)tack on…  (r)estack
 (w)indows  ⇥ windows  / find  < > split
 (c) project config  (C) global settings
@@ -86,7 +86,7 @@ _lazyfleet_ui_binds() {
   # Query changes emitted by a transform are ignored by fzf, so the
   # view-switching keys reset the input with directly chained actions.
   local reset="+clear-query+hide-input+rebind($_LAZYFLEET_LETTERS)"
-  for k in / n d D p P e g o O s S r a x c C R q u '?' '<' '>'; do reply+=(--bind "${k}:transform:$bin _key {1} {2}"); done
+  for k in / n d D p P e g o O s S r a x l c C R q u '?' '<' '>'; do reply+=(--bind "${k}:transform:$bin _key {1} {2}"); done
   for k in enter tab esc w; do reply+=(--bind "${k}:transform($bin _key {1} {2})$reset"); done
   reply+=(--bind "load:transform:$bin _loaded")
   # back to the split saved for the new width (moved to another screen, say)
@@ -139,6 +139,8 @@ _lazyfleet_ui_act() {
       view=windows ;;
     # returns only when it did not restart lazyfleet: the list again
     (update) _lazyfleet_ui_update; reply=('' "$it"); return 2 ;;
+    # (what went wrong goes to the footer: the list comes back either way)
+    (logs) _lazyfleet_logs $it; reply=('' "$it"); return 2 ;;
     (*) rm -f $LAZYFLEET_POSFILE; reply=('' ''); return 1 ;;
   esac
   # last: what ran above may use reply itself
@@ -281,6 +283,9 @@ _lazyfleet_key_row() {
     (r) print -r -- "execute($bin _ui_restack {2})+$rl$ft" ;;
     # docker compose up -d in the worktree, or down when its containers run
     (x) print -r -- "execute($bin _ui_compose {2})+$rl$ft" ;;
+    # the logs of what runs from it, in less (q back). Not with execute: fzf
+    # would end it all on the ctrl-c that is to stop less following
+    (l) print -r -- "become(printf '%s\\n' logs {2})" ;;
     # push the branch (and the rest of its stack); refused, it asks to force
     (P) print -r -- "execute($bin _ui_push {2})+$rl$ft" ;;
     (p)

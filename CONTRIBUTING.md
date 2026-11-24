@@ -18,6 +18,7 @@ agents call.
 | `lib/core.zsh`     | tmux, temp files, the repo registry, worktrees and session names        |
 | `lib/config.zsh`   | settings, and the lookup of `copy=` / `setup=`                          |
 | `lib/compose.zsh`  | docker compose up and down per worktree (`x`, `lazyfleet compose`)       |
+| `lib/logs.zsh`     | the logs of what runs from a worktree: Details, `l`, `lazyfleet logs`    |
 | `lib/history.zsh`  | what lazyfleet says while the TUI runs: `~/.lazyfleet_history`, footer  |
 | `lib/sessions.zsh` | a worktree's tmux session: create, switch, attach, status               |
 | `lib/agents.zsh`   | Claude Code / Copilot CLI / omp in tmux panes: state, marks, hooks      |
